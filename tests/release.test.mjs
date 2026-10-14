@@ -26,6 +26,11 @@ test('update download verifies bytes, revalidates cached files and removes inter
   const path = join(root, artifact.fileName); const progress = [];
   await downloadVerifiedArtifact(artifact, path, value => progress.push(value)); assert.deepEqual(await readFile(path), bytes); assert.equal(progress.at(-1).phase, 'ready');
   await downloadVerifiedArtifact(artifact, path, () => {}); assert.equal(calls, 1, 'A matching cached artifact does not download again.');
+  const electronPath = join(root, 'electron-response.dmg');
+  globalThis.fetch = async () => { calls++; return new Response(bytes); };
+  await downloadVerifiedArtifact(artifact, electronPath, () => {});
+  assert.deepEqual(await readFile(electronPath), bytes);
+  await rm(electronPath);
   await assert.rejects(downloadVerifiedArtifact({ ...artifact, sha256: 'a'.repeat(64) }, path, () => {}), /SHA-256/u);
   assert.deepEqual(await readFile(path), bytes); assert.deepEqual(await readdir(root), [artifact.fileName]);
 });
