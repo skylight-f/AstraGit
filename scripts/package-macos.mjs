@@ -12,6 +12,8 @@ const desktop = join(root, 'apps/desktop');
 const output = join(root, 'release');
 const appId = 'com.astragit.desktop';
 const productName = 'AstraGit';
+// Actions 未设置的 Secret 会成为空字符串；构建器必须收到未定义值，而非空证书路径。
+for (const key of ['CSC_LINK', 'CSC_NAME', 'CSC_KEYCHAIN', 'CSC_INSTALLER_LINK']) if (process.env[key] !== undefined && !process.env[key].trim()) delete process.env[key];
 const releaseBuild = process.argv.includes('--release');
 const signingConfigured = Boolean(process.env.CSC_LINK || process.env.CSC_NAME);
 const notarizationConfigured = Boolean((process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD && process.env.APPLE_TEAM_ID) || (process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER));
