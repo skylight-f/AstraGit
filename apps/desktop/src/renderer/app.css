@@ -1,0 +1,818 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+:root {
+  color-scheme: light dark;
+  --ag-bg: #f4f6f9;
+  --ag-panel: #ffffff;
+  --ag-ink: #15181e;
+  --ag-muted: #5d6675;
+  --ag-line: #e3e8f0;
+  --ag-accent: #2f6bff;
+  --ag-accent-soft: #e8efff;
+  --ag-danger: #c23b3b;
+}
+
+body {
+  overflow: hidden;
+  background: var(--ag-bg);
+  color: var(--ag-ink);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+.gitapp-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+.gitapp-list-page {
+  overflow: auto;
+  padding: 40px 48px 56px;
+  background:
+    radial-gradient(1200px 400px at 10% -10%, #dfe8ff 0%, transparent 55%),
+    var(--ag-bg);
+}
+
+.gitapp-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.gitapp-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #2f6bff, #6aa1ff);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: 0 10px 24px rgba(47, 107, 255, 0.28);
+}
+
+.gitapp-hero h1 {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.gitapp-hero p {
+  margin: 6px 0 0;
+  color: var(--ag-muted);
+  font-size: 14px;
+}
+
+.gitapp-add {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(240px, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+  margin-bottom: 28px;
+  padding: 18px;
+  border: 1px solid var(--ag-line);
+  border-radius: 16px;
+  background: var(--ag-panel);
+  box-shadow: 0 8px 28px rgba(16, 24, 40, 0.04);
+}
+
+.gitapp-add label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ag-muted);
+}
+
+.gitapp-add input {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--ag-line);
+  background: #f8fafc;
+  color: var(--ag-ink);
+  font: inherit;
+  outline: none;
+  min-width: 0;
+  width: 100%;
+}
+
+.gitapp-add input:focus {
+  border-color: var(--ag-accent);
+  box-shadow: 0 0 0 3px var(--ag-accent-soft);
+  background: #fff;
+}
+
+.gitapp-path-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.gitapp-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.gitapp-section-title h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ag-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.gitapp-linkish {
+  border: none;
+  background: transparent;
+  color: var(--ag-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
+
+.gitapp-linkish:hover {
+  background: var(--ag-accent-soft);
+}
+
+.gitapp-projects ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.gitapp-projects li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.gitapp-project-card {
+  text-align: left;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--ag-line);
+  background: var(--ag-panel);
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.gitapp-project-card:hover {
+  border-color: #b7c8ff;
+  box-shadow: 0 10px 24px rgba(47, 107, 255, 0.1);
+  transform: translateY(-1px);
+}
+
+.gitapp-project-card strong {
+  font-size: 15px;
+}
+
+.gitapp-project-card span {
+  color: var(--ag-muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.gitapp-project-card small {
+  color: var(--ag-accent);
+  margin-top: 4px;
+}
+
+.gitapp-remove {
+  width: 42px;
+  border: 1px solid var(--ag-line);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--ag-danger);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.gitapp-remove:hover {
+  border-color: #f0c2c2;
+  background: #fff5f5;
+}
+
+.gitapp-empty {
+  border: 1px dashed var(--ag-line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 36px 24px;
+  text-align: center;
+}
+
+.gitapp-empty p {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.gitapp-muted {
+  color: var(--ag-muted);
+}
+
+/*
+ * 工作台壳：必须覆盖 Zeus `.macos-ai-app.zeus-shell` 的双栏 grid（248px + 1fr），
+ * 否则顶部返回栏会被挤进左侧窄栏并竖排断行。
+ */
+.gitapp-shell.gitapp-shell--workbench.macos-ai-app.zeus-shell {
+  display: flex !important;
+  flex-direction: column !important;
+  grid-template-columns: none !important;
+  grid-template-rows: none !important;
+  min-height: 100vh;
+  height: 100vh;
+  max-width: 100vw;
+  overflow: hidden;
+}
+
+.gitapp-topbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ag-line);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  z-index: 5;
+}
+
+.gitapp-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  border: none;
+  background: var(--ag-accent-soft);
+  color: var(--ag-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+.gitapp-back-label {
+  white-space: nowrap;
+}
+
+.gitapp-back:hover {
+  background: #d9e5ff;
+}
+
+.gitapp-project-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.gitapp-project-meta strong {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.gitapp-path {
+  font-size: 12px;
+  color: var(--ag-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.gitapp-workbench-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.gitapp-workbench-host > * {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+.gitapp-view-pane { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.gitapp-view-pane > * { flex: 1; min-height: 0; min-width: 0; }
+.gitapp-view-pane[hidden] { display: none !important; }
+.gitapp-update-trigger { flex-shrink: 0; }
+.gitapp-update-dialog { width: min(520px, 80vw); padding: 22px; border: 1px solid #dce0e9; border-radius: 14px; color: #253048; box-shadow: 0 20px 70px #17213a40; font: 13px/1.65 system-ui; }
+.gitapp-update-dialog::backdrop { background: #1d23385c; }
+.gitapp-update-dialog header { display: flex; align-items: center; justify-content: space-between; }
+.gitapp-update-dialog h2 { margin: 0; font-size: 18px; }
+.gitapp-update-dialog footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.gitapp-update-dialog button { border: 1px solid #dce0e9; border-radius: 7px; padding: 7px 12px; font: inherit; cursor: pointer; background: #fff; color: inherit; }
+.gitapp-update-dialog button:disabled { opacity: .5; cursor: default; }
+.gitapp-view-switch { display: flex; flex: 0 0 auto; gap: 3px; padding: 3px; background: #ffffff; border: 1px solid #e0e3eb; border-radius: 9px; }
+.gitapp-view-switch button { min-height: 28px; padding: 4px 11px; border: 0; border-radius: 6px; background: transparent; color: #667085; font-size: 12px; white-space: nowrap; }
+.gitapp-view-switch button[aria-pressed="true"] { background: #eee7ff; color: #7446d8; }
+.gitapp-view-switch button:focus-visible { outline: 2px solid #8b66e6; outline-offset: 2px; }
+
+/* —— 顶部项目页签：完全独立实现，不挂 Zeus slot 类 —— */
+.gitapp-tabbar {
+  display: flex !important;
+  align-items: center !important;
+  flex-direction: row !important;
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  min-height: 48px !important;
+  height: 48px !important;
+  box-sizing: border-box !important;
+  padding: 7px 14px 7px 90px !important;
+  gap: 8px !important;
+  background: #f2f3f7 !important;
+  border-bottom: 1px solid #e1e4ec !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  z-index: 30 !important;
+}
+
+.gitapp-tabbar-slots {
+  display: inline-flex !important;
+  align-items: center !important;
+  flex-direction: row !important;
+  flex: 0 1 auto !important;
+  gap: 6px !important;
+  min-width: 0 !important;
+  max-width: calc(100% - 48px) !important;
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  scrollbar-width: none !important;
+}
+
+.gitapp-tabbar-slots::-webkit-scrollbar {
+  display: none !important;
+}
+
+.gitapp-tab {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  flex-direction: row !important;
+  flex: 0 0 auto !important;
+  box-sizing: border-box !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  min-width: 120px !important;
+  max-width: 230px !important;
+  width: auto !important;
+  padding: 0 3px 0 2px !important;
+  margin: 0 !important;
+  gap: 0 !important;
+  border: 1px solid #dfe3ed !important;
+  border-radius: 9px !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.05) !important;
+  color: #3b4250 !important;
+  opacity: 1 !important;
+  transform: none !important;
+  overflow: hidden !important;
+}
+
+.gitapp-tab:hover {
+  background: #fbfcff !important;
+  border-color: #c9d0e2 !important;
+}
+
+.gitapp-tab.is-active {
+  background: #efe9ff !important;
+  border-color: #cfc0ff !important;
+  color: #5b3dbd !important;
+  box-shadow: 0 1px 3px rgb(91 61 189 / 0.12) !important;
+}
+
+.gitapp-tab-switch,
+.gitapp-tab-body,
+.gitapp-tab-close,
+.gitapp-tab-add {
+  position: relative !important;
+  appearance: none !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  font: inherit !important;
+  cursor: pointer !important;
+  -webkit-app-region: no-drag !important;
+}
+
+.gitapp-tab-switch {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 18px !important;
+  width: 18px !important;
+  height: 30px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: inherit !important;
+  opacity: 0.5 !important;
+}
+
+.gitapp-tab-switch:hover {
+  opacity: 1 !important;
+  background: rgb(0 0 0 / 0.05) !important;
+}
+
+.gitapp-tab-body {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: 168px !important;
+  height: 30px !important;
+  padding: 0 4px 0 2px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: inherit !important;
+  text-align: left !important;
+  overflow: hidden !important;
+}
+
+.gitapp-tab.is-active .gitapp-tab-body {
+  color: #5b3dbd !important;
+  font-weight: 650 !important;
+}
+
+.gitapp-tab-icon {
+  flex: 0 0 15px !important;
+  width: 15px !important;
+  height: 15px !important;
+  margin-right: 7px !important;
+  opacity: 0.92 !important;
+}
+
+.gitapp-tab-label {
+  display: block !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: 120px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 13px !important;
+  font-weight: 550 !important;
+  line-height: 1 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.gitapp-tab-close {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 22px !important;
+  width: 22px !important;
+  height: 22px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: #6b7280 !important;
+  opacity: 0.75 !important;
+}
+
+.gitapp-tab-close:hover:not(:disabled) {
+  opacity: 1 !important;
+  background: rgb(0 0 0 / 0.07) !important;
+  color: #b42318 !important;
+}
+
+.gitapp-tab-close:disabled {
+  opacity: 0.22 !important;
+  cursor: default !important;
+}
+
+.gitapp-tab-add {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 34px !important;
+  width: 34px !important;
+  height: 34px !important;
+  padding: 0 !important;
+  border: 1px dashed #c5cbdb !important;
+  border-radius: 9px !important;
+  background: #ffffff !important;
+  color: #5b6475 !important;
+  box-shadow: none !important;
+}
+
+.gitapp-tab-add:hover {
+  background: #f7f9ff !important;
+  border-color: #93a7ff !important;
+  color: #3b5bdb !important;
+}
+
+.gitapp-tabbar-path {
+  display: block !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: min(38vw, 460px) !important;
+  margin-left: auto !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 12px !important;
+  color: #7b8394 !important;
+  padding-right: 2px !important;
+}
+
+.gitapp-hero-back {
+  margin-left: auto;
+}
+
+.gitapp-hero-settings {
+  margin-left: auto;
+}
+
+.gitapp-hero-back + .gitapp-hero-settings {
+  margin-left: 0;
+}
+
+.gitapp-settings-trigger {
+  flex: 0 0 auto;
+  border: 1px solid #d4d9e6;
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: #fff;
+  color: #414a5d;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.gitapp-settings-trigger:hover {
+  border-color: #9eafff;
+  color: #2f5fe0;
+}
+
+.gitapp-settings-root .gitapp-settings-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(820px, calc(100vh - 32px));
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 24px;
+  gap: 18px;
+  border: 1px solid #dfe4ed;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgb(15 23 42 / 0.2);
+  color: #1d2530;
+}
+
+.gitapp-settings-header,
+.gitapp-settings-connection-heading,
+.gitapp-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gitapp-settings-header,
+.gitapp-settings-connection-heading {
+  justify-content: space-between;
+}
+
+.gitapp-settings-header h2,
+.gitapp-settings-section h3 {
+  margin: 0 0 5px;
+}
+
+.gitapp-settings-header p,
+.gitapp-settings-section p {
+  margin: 4px 0 10px;
+  color: #606a79;
+}
+
+.gitapp-settings-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid #e6eaf1;
+}
+
+.gitapp-settings-section > small,
+.gitapp-settings-connection small {
+  display: block;
+  color: #6a7483;
+  overflow-wrap: anywhere;
+}
+
+.gitapp-settings-section > a {
+  width: fit-content;
+  color: #2f5fe0;
+}
+
+.gitapp-settings-message {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #eef3ff;
+  color: #274a99;
+}
+
+.gitapp-settings-connection {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e0e5ef;
+  border-radius: 11px;
+}
+
+.gitapp-settings-connection p {
+  overflow-wrap: anywhere;
+}
+
+.gitapp-settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.gitapp-settings-panel .gitapp-settings-toggle input {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+  accent-color: #245eea;
+}
+
+.gitapp-settings-models {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e0e5ef;
+  border-radius: 8px;
+}
+
+.gitapp-settings-model-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.gitapp-settings-row input {
+  min-width: 0;
+  flex: 1;
+}
+
+.gitapp-settings-panel input,
+.gitapp-settings-panel select {
+  box-sizing: border-box;
+  height: 36px;
+  padding: 6px 10px;
+  border: 1px solid #d5dce8;
+  border-radius: 8px;
+  background: #fff;
+  color: #1d2530;
+  font: inherit;
+}
+
+.gitapp-settings-panel input:focus-visible,
+.gitapp-settings-panel select:focus-visible {
+  outline: 2px solid #97b0ff;
+  outline-offset: 1px;
+}
+
+.gitapp-settings-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.gitapp-settings-form label {
+  display: grid;
+  gap: 6px;
+  color: #586373;
+  font-size: 12px;
+}
+
+.gitapp-settings-form label:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.gitapp-diff-root .gitapp-diff-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, calc(100vw - 32px));
+  height: min(760px, calc(100vh - 32px));
+  overflow: hidden;
+  border: 1px solid #dfe4ed;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgb(15 23 42 / 0.2);
+}
+
+.gitapp-diff-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: 0 0 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid #e3e8f0;
+}
+
+.gitapp-diff-dialog > header strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gitapp-diff-dialog > .project-git-diff-window {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.gitapp-diff-dialog .project-git-diff-window-layout,
+.gitapp-diff-dialog .project-git-diff-window-layout > .project-git-diff-preview {
+  height: 100%;
+}
+
+.gitapp-diff-dialog .project-git-diff-window-layout {
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
+@media (max-width: 620px) {
+  .gitapp-settings-form { grid-template-columns: 1fr; }
+  .gitapp-settings-form label:nth-child(3) { grid-column: auto; }
+  .gitapp-settings-row { flex-wrap: wrap; }
+  .gitapp-settings-row input { flex-basis: 100%; }
+}
+
+@media (max-width: 820px) {
+  .gitapp-list-page {
+    padding: 24px 18px 40px;
+  }
+
+  .gitapp-add {
+    grid-template-columns: 1fr;
+  }
+
+  .gitapp-tab-label {
+    max-width: 84px;
+  }
+
+  .gitapp-tabbar-path {
+    display: none !important;
+  }
+}

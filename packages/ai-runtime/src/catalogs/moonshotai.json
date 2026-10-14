@@ -1,0 +1,95 @@
+{
+  "kimi-k2.6": {
+    "id": "kimi-k2.6",
+    "name": "Kimi K2.6",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "contextWindow": 262144,
+    "compat": {
+      "supportsStore": false,
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": false,
+      "maxTokensField": "max_tokens",
+      "supportsStrictMode": false,
+      "thinkingFormat": "deepseek",
+      "supportsMidConvoSystemMessages": true
+    }
+  },
+  "kimi-k2.7-code": {
+    "id": "kimi-k2.7-code",
+    "name": "Kimi K2.7 Code",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "contextWindow": 262144,
+    "thinkingLevelMap": {
+      "off": null
+    },
+    "compat": {
+      "supportsStore": false,
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": false,
+      "maxTokensField": "max_tokens",
+      "supportsStrictMode": false,
+      "thinkingFormat": "deepseek",
+      "supportsMidConvoSystemMessages": true
+    }
+  },
+  "kimi-k2.7-code-highspeed": {
+    "id": "kimi-k2.7-code-highspeed",
+    "name": "Kimi K2.7 Code HighSpeed",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "contextWindow": 262144,
+    "thinkingLevelMap": {
+      "off": null
+    },
+    "compat": {
+      "supportsStore": false,
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": false,
+      "maxTokensField": "max_tokens",
+      "supportsStrictMode": false,
+      "thinkingFormat": "deepseek",
+      "supportsMidConvoSystemMessages": true
+    }
+  },
+  "kimi-k3": {
+    "id": "kimi-k3",
+    "name": "Kimi K3",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "contextWindow": 1048576,
+    "thinkingLevelMap": {
+      "off": null,
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    },
+    "compat": {
+      "supportsStore": false,
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true,
+      "maxTokensField": "max_tokens",
+      "supportsStrictMode": false,
+      "thinkingFormat": "openai",
+      "requiresReasoningContentOnAssistantMessages": true,
+      "supportsMidConvoSystemMessages": true,
+      "supportsMidConvoToolAdditions": true
+    }
+  }
+}

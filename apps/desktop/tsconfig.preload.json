@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src/preload",
+    "outDir": "dist/preload",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "composite": false,
+    "allowJs": true,
+    "checkJs": true,
+    "declaration": false,
+    "declarationMap": false,
+    "baseUrl": ".",
+    "paths": {}
+  },
+  "include": ["src/preload/**/*.cts", "src/preload/**/*.cjs"]
+}

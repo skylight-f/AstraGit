@@ -1,0 +1,7 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/git-server" },
+    { "path": "apps/desktop" }
+  ]
+}

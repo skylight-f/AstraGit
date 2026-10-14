@@ -1,0 +1,140 @@
+import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { startGitServer, type RunningGitServer } from '@astragit/git-server';
+import { createReleaseUpdateService } from './releaseUpdateService.js';
+
+let mainWindow: BrowserWindow | null = null;
+let gitServer: RunningGitServer | null = null;
+let bootstrapToken = '';
+let shuttingDown = false;
+// Set Electron's identity before readiness so browser storage, cookies and login
+// state also live in AstraGit's own directory, including the development shell.
+app.setName('AstraGit');
+const dataDirectory = resolve(process.env.ASTRAGIT_USER_DATA_DIR ?? join(app.getPath('appData'), 'AstraGit'));
+mkdirSync(dataDirectory, { recursive: true });
+app.setPath('userData', dataDirectory);
+app.setPath('sessionData', dataDirectory);
+const userDataPath = () => dataDirectory;
+const releaseUpdate = createReleaseUpdateService({
+  appPath: resolve(process.execPath, '../../..'), executablePath: process.execPath, dataDirectory,
+  version: app.getVersion(), packaged: app.isPackaged,
+  // 使用 Chromium 网络栈，遵循 macOS 系统代理；避免 Node fetch 绕过桌面网络设置。
+  fetch: (input, init) => net.fetch(input as string, init),
+  onProgress: progress => mainWindow?.webContents.send('astragit:update-progress', progress),
+  confirmRestart: async () => {
+    const result = await dialog.showMessageBox(mainWindow!, { type: 'question', buttons: ['取消', '退出并安装'], defaultId: 0, cancelId: 0, title: '安装 AstraGit 更新', message: '更新已校验。退出 AstraGit 后安装并重新打开？', detail: '请先结束当前 Git 操作。提交草稿、项目配置和用户数据会保留。' });
+    return result.response === 1;
+  },
+  quit: () => app.quit(),
+});
+
+async function ensureServer(): Promise<{ baseUrl: string; apiToken: string }> {
+  if (gitServer) return { baseUrl: gitServer.baseUrl, apiToken: gitServer.apiToken };
+  const dataDirectory = userDataPath();
+  bootstrapToken = randomBytes(24).toString('hex');
+  gitServer = await startGitServer({
+    dataDirectory,
+    projectRoot: process.env.ASTRAGIT_PROJECT_ROOT ?? dataDirectory,
+    apiToken: bootstrapToken,
+    codexHome: process.env.ASTRAGIT_CODEX_HOME ?? join(dataDirectory, 'codex'),
+    codexNativeEnabled: process.env.ASTRAGIT_CODEX_ENABLED !== '0',
+    currentCodexRuntimeCommandPath: () => process.env.ASTRAGIT_CODEX_COMMAND ?? 'codex',
+  });
+  return { baseUrl: gitServer.baseUrl, apiToken: gitServer.apiToken };
+}
+
+async function createWindow(): Promise<void> {
+  const config = await ensureServer();
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 860,
+    minWidth: 960,
+    minHeight: 640,
+    title: 'AstraGit',
+    webPreferences: {
+      preload: join(import.meta.dirname, '../preload/index.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  // 必须在加载页面前注册 IPC，避免渲染层首屏 invoke 早于 handler。
+  ipcMain.removeHandler('astragit:get-bootstrap');
+  ipcMain.removeHandler('astragit:choose-directory');
+
+  ipcMain.handle('astragit:get-bootstrap', () => ({
+    baseUrl: config.baseUrl,
+    apiToken: config.apiToken,
+    language: app.getLocale().startsWith('zh') ? 'zh-CN' : 'en-US',
+  }));
+
+  ipcMain.handle('astragit:choose-directory', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory', 'createDirectory'] });
+    if (result.canceled || !result.filePaths[0]) return null;
+    return resolve(result.filePaths[0]);
+  });
+
+  const handle = (name: string, action: () => unknown) => {
+    ipcMain.removeHandler(name);
+    ipcMain.handle(name, event => { if (event.sender !== mainWindow?.webContents) throw new Error('更新请求来源无效。'); return action(); });
+  };
+  handle('astragit:update-check', releaseUpdate.check);
+  handle('astragit:update-download', releaseUpdate.prepare);
+  handle('astragit:update-install', releaseUpdate.install);
+  handle('astragit:update-open', async () => { const error = await shell.openPath(await releaseUpdate.downloaded()); if (error) throw new Error(error); });
+  handle('astragit:update-release-page', () => shell.openExternal('https://github.com/skylight-f/AstraGit/releases'));
+  handle('astragit:renderer-ready', async () => {
+    mkdirSync(join(dataDirectory, 'updates'), { recursive: true, mode: 0o700 });
+    await writeFile(join(dataDirectory, 'updates/app-ready.json'), JSON.stringify({ pid: process.pid, version: app.getVersion(), readyAt: new Date().toISOString() }), { mode: 0o600 });
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//iu.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => { if (url !== mainWindow?.webContents.getURL()) event.preventDefault(); });
+  await mainWindow.loadURL(await resolveRendererUrl());
+}
+
+async function resolveRendererUrl(): Promise<string> {
+  if (!app.isPackaged && process.env.VITE_DEV_SERVER_URL) return process.env.VITE_DEV_SERVER_URL;
+  return pathToFileURL(join(import.meta.dirname, '../renderer/index.html')).href;
+}
+
+app.whenReady().then(async () => {
+  if (!existsSync(userDataPath())) mkdirSync(userDataPath(), { recursive: true });
+  await createWindow();
+  app.on('activate', () => {
+    if (!shuttingDown && BrowserWindow.getAllWindows().length === 0) void createWindow();
+  });
+}).catch((error: unknown) => {
+  console.error('[AstraGit] 启动失败', error);
+  app.exit(1);
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', (event) => {
+  if (!gitServer && !shuttingDown) return;
+  event.preventDefault();
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const server = gitServer!;
+  gitServer = null;
+  // Quit was already interrupted for asynchronous cleanup. Exit after the
+  // service and SQLite have closed instead of re-entering native quit events.
+  void server.close().then(
+    () => app.exit(0),
+    (error: unknown) => {
+      console.error('[AstraGit] 退出清理失败', error);
+      app.exit(1);
+    },
+  );
+});

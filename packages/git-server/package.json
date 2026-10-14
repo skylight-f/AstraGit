@@ -1,0 +1,22 @@
+{
+  "name": "@astragit/git-server",
+  "version": "0.1.0",
+  "type": "module",
+  "files": ["dist"],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@astragit/ai-runtime": "workspace:*",
+    "@astragit/git-core": "workspace:*",
+    "@astragit/shared": "workspace:*",
+    "@astragit/storage": "workspace:*",
+    "fastify": "^5.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.1"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "astragit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AstraGit 独立应用：Git 工作台 + AI 提交说明，不含会话",
+  "scripts": {
+    "dev": "pnpm --filter @astragit/desktop dev",
+    "setup:desktop": "pnpm --filter @astragit/desktop exec install-electron",
+    "check:isolation": "node scripts/check-isolation.mjs",
+    "test": "pnpm --filter '@astragit/git-server...' -r build && node --import tsx --test tests/*.test.mjs",
+    "lint": "eslint .",
+    "typecheck": "pnpm --filter '@astragit/git-server...' -r build && pnpm --filter '@astragit/*' -r --if-present typecheck",
+    "build": "pnpm --filter '@astragit/*' -r --if-present build",
+    "build:app": "pnpm check:isolation && pnpm build && node scripts/package-macos.mjs",
+    "build:release": "pnpm check:isolation && pnpm build && node scripts/package-macos.mjs --release",
+    "verify:publish": "pnpm check:isolation && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "packageManager": "pnpm@10.31.0",
+  "engines": {
+    "node": ">=24 <26",
+    "pnpm": ">=10 <11"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@eslint/js": "^9.29.0",
+    "@types/node": "^24.0.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "electron-builder": "26.15.3",
+    "eslint": "^9.29.0",
+    "globals": "^17.12.0",
+    "tsx": "^4.20.3",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.34.0"
+  }
+}

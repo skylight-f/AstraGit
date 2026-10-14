@@ -1,0 +1,52 @@
+{
+  "deepseek-flash": {
+    "id": "deepseek-flash",
+    "name": "DeepSeek V4.1 Flash",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "contextWindow": 1000000,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "max": "max"
+    },
+    "compat": {
+      "supportsStore": false,
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true,
+      "thinkingFormat": "deepseek",
+      "supportsStrictMode": true
+    }
+  },
+  "deepseek-v4-pro": {
+    "id": "deepseek-v4-pro",
+    "name": "DeepSeek V4 Pro",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "contextWindow": 1000000,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "max": "max"
+    },
+    "compat": {
+      "supportsStore": false,
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true,
+      "thinkingFormat": "deepseek",
+      "supportsStrictMode": true,
+      "supportsMidConvoSystemMessages": true
+    }
+  }
+}

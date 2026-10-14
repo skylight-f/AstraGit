@@ -1,0 +1,75 @@
+import { userFacingErrorCause, type UserFacingErrorCause } from '@astragit/shared';
+import type { GitDiffSummary, GitOperationConfirmation } from '../../apiClient.js';
+import type { GitApiClient } from './gitApiClient.js';
+import { errorMessage, ExternalStore } from '../../externalStore.js';
+
+export interface GitQuerySnapshot {
+  diff: GitDiffSummary | undefined;
+  hunkDecisions: Readonly<Record<string, 'accepted' | 'rejected'>>;
+  patchExportStatus: string;
+  confirmation: GitOperationConfirmation | undefined;
+  operationStatus: string;
+  commitMessage: string;
+  branchName: string;
+  switchBranchName: string;
+  baseRef: string;
+  stashRef: string;
+  remote: string;
+  targetRef: string;
+  rollbackRef: string;
+  loading: boolean;
+  error: string | null;
+  /** 可选底层原因供界面生成本地化提示，原错误字符串仍保留。 */
+  errorCause?: UserFacingErrorCause | null;
+  revision: number;
+}
+
+export type GitQueryFieldUpdater<Key extends keyof GitQuerySnapshot> = GitQuerySnapshot[Key] | ((current: GitQuerySnapshot[Key]) => GitQuerySnapshot[Key]);
+
+export class GitQueryStore extends ExternalStore<GitQuerySnapshot> {
+  constructor(
+    private readonly client: GitApiClient | null,
+    initial: Pick<GitQuerySnapshot, 'diff' | 'confirmation' | 'patchExportStatus' | 'operationStatus'>,
+  ) {
+    super({
+      ...initial,
+      hunkDecisions: {},
+      commitMessage: '',
+      branchName: '',
+      switchBranchName: '',
+      baseRef: '',
+      stashRef: 'stash@{0}',
+      remote: 'origin',
+      targetRef: 'main',
+      rollbackRef: 'HEAD',
+      loading: false,
+      error: null,
+      errorCause: null,
+      revision: 0,
+    });
+  }
+
+  set<Key extends keyof GitQuerySnapshot>(key: Key, updater: GitQueryFieldUpdater<Key>): void {
+    const value = typeof updater === 'function' ? (updater as (current: GitQuerySnapshot[Key]) => GitQuerySnapshot[Key])(this.snapshot[key]) : updater;
+    if (Object.is(value, this.snapshot[key])) return;
+    this.publish({ ...this.snapshot, [key]: value, revision: this.snapshot.revision + 1 });
+  }
+
+  async loadDiff(): Promise<GitDiffSummary> {
+    const client = this.requireClient();
+    this.publish({ ...this.snapshot, loading: true, error: null, errorCause: null });
+    try {
+      const diff = await client.loadGitDiff();
+      this.publish({ ...this.snapshot, diff, loading: false, revision: this.snapshot.revision + 1 });
+      return diff;
+    } catch (error) {
+      this.publish({ ...this.snapshot, loading: false, error: errorMessage(error), errorCause: userFacingErrorCause(error) });
+      throw error;
+    }
+  }
+
+  private requireClient(): GitApiClient {
+    if (!this.client) throw new Error('Git API client is unavailable.');
+    return this.client;
+  }
+}

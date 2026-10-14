@@ -1,0 +1,102 @@
+import { useLayoutEffect, useRef, type HTMLAttributes, type RefObject } from 'react';
+import { PopoverSurface, usePresenceSurface } from './MotionPresence.js';
+
+/** 菜单层级决定 Esc、方向键和外部点击的归属。 */
+const activeMenus: HTMLElement[] = [];
+
+/** 级联菜单以父层边缘和触发行定位，避免覆盖上一级。 */
+export interface MenuSubmenuAnchor {
+  row: HTMLElement;
+  parent: HTMLElement;
+}
+
+/** 右键菜单与操作菜单共用定位、关闭、键盘和退出反馈。 */
+export function MenuSurface({ onClose, ref: forwardedRef, submenuAnchor, ...props }: HTMLAttributes<HTMLDivElement> & { onClose: () => void; ref?: RefObject<HTMLDivElement | null>; submenuAnchor?: MenuSubmenuAnchor }) {
+  /** 定位、焦点与动画共用真实表面。 */
+  const localRef = useRef<HTMLDivElement>(null);
+  const ref = forwardedRef ?? localRef;
+  /** 回调更新不重置当前键盘选项。 */
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  /** 退出期间移除事件监听，避免旧菜单消费后续操作。 */
+  const open = usePresenceSurface(ref);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!open || !element) return;
+    // 分组展开后菜单高度也会变化，重新定位以保持在窗口内。
+    const updatePosition = () => {
+      /** 按实际尺寸贴合窗口边缘，不使用预估菜单高度。 */
+      const width = element.offsetWidth;
+      const height = element.offsetHeight;
+      let left = props.style?.left;
+      let top = props.style?.top;
+      if (submenuAnchor) {
+        const parent = submenuAnchor.parent.getBoundingClientRect();
+        const row = submenuAnchor.row.getBoundingClientRect();
+        const rightSpace = window.innerWidth - parent.right - 12;
+        const leftSpace = parent.left - 12;
+        left = rightSpace >= width || rightSpace >= leftSpace ? parent.right + 4 : parent.left - width - 4;
+        top = row.top - 5;
+      }
+      if (typeof left === 'number') element.style.left = `${Math.max(8, Math.min(left, window.innerWidth - width - 8))}px`;
+      if (typeof top === 'number') element.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`;
+    };
+    updatePosition();
+    const observer = new ResizeObserver(updatePosition);
+    observer.observe(element);
+    const previous = submenuAnchor?.row ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    activeMenus.push(element);
+    /** 禁用项不可被方向键或首次聚焦选中。 */
+    const items = () => [...element.querySelectorAll<HTMLElement>(':is([role="menuitem"], button, summary):not(:disabled):not([aria-disabled="true"])')].filter((item) => item.checkVisibility() && !item.closest('[inert]'));
+    items()[0]?.focus({ preventScroll: true });
+    /** 点在菜单外即关闭，保留该次点击原本要执行的动作。 */
+    const outside = (event: Event) => {
+      if (activeMenus.at(-1) === element && !element.closest('[inert]') && !element.contains(event.target as Node)) closeRef.current();
+    };
+    /** 页面滚动或尺寸变化后关闭旧定位，菜单内滚动不关闭。 */
+    const resized = () => closeRef.current();
+    /** 只处理最上层菜单，防止 Esc 同时关闭其后的弹窗。 */
+    const keydown = (event: KeyboardEvent) => {
+      if (activeMenus.at(-1) !== element || event.defaultPrevented || element.closest('[inert]')) return;
+      if (event.key === 'Escape' || event.key === 'Tab' || (submenuAnchor && event.key === 'ArrowLeft')) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.key === 'Tab') {
+          /** 菜单收起后继续正常的前后焦点顺序，避免 Tab 被困在触发器上。 */
+          const candidates = [...document.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [tabindex]')].filter(
+            (candidate) => candidate.tabIndex >= 0 && candidate.checkVisibility() && !candidate.matches(':disabled, [aria-disabled="true"]') && !candidate.closest('[inert]') && !element.contains(candidate),
+          );
+          const current = previous ? candidates.indexOf(previous) : -1;
+          const next = (current + (event.shiftKey ? -1 : 1) + candidates.length) % candidates.length;
+          candidates[next]?.focus({ preventScroll: true });
+        }
+        closeRef.current();
+      } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const options = items();
+        const current = options.indexOf(document.activeElement as HTMLElement);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+        const nextItem = options[next];
+        nextItem?.focus({ preventScroll: true });
+        // 分组有独立滚动区域，键盘导航时只将目标项滚入最近的可视范围。
+        nextItem?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    };
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('scroll', outside, true);
+    document.addEventListener('keydown', keydown, true);
+    window.addEventListener('resize', resized);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('scroll', outside, true);
+      document.removeEventListener('keydown', keydown, true);
+      window.removeEventListener('resize', resized);
+      const index = activeMenus.indexOf(element);
+      if (index >= 0) activeMenus.splice(index, 1);
+      if (element.contains(document.activeElement) && previous?.isConnected && !previous.closest('[inert]')) previous.focus({ preventScroll: true });
+    };
+  }, [open, ref, props.style?.left, props.style?.top, submenuAnchor?.row, submenuAnchor?.parent]);
+  return <PopoverSurface {...props} ref={ref} role="menu" data-zeus-primitive="menu" />;
+}

@@ -1,0 +1,2963 @@
+// Extracted from Zeus for AstraGit on 2026-10-09; package scope and app identity adapted locally.
+import { assertContextCapacity } from '@astragit/shared';
+import { spawn as nodeSpawn } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { createConnection } from 'node:net';
+import { isAbsolute, join } from 'node:path';
+import { type RawData, WebSocket } from 'ws';
+import type { CodexBootstrapAdditionalContext } from '@astragit/shared';
+import {
+  CodexJsonLineDecoder,
+  codexMaximumFrameBytes,
+  type CodexWireId,
+  type CodexWireMessage,
+  type ExternalAgentConfigDetectParams,
+  type ExternalAgentConfigDetectResponse,
+  type ExternalAgentConfigImportHistory,
+  type ExternalAgentConfigImportParams,
+  type ExternalAgentConfigImportResponse,
+  type ExternalAgentImportNotification,
+  parseExternalAgentConfigDetectResponse,
+  parseExternalAgentConfigImportHistoriesResponse,
+  parseExternalAgentConfigImportResponse,
+  parseExternalAgentImportNotification,
+} from './codexAppServerProtocol.js';
+import { expandCliSearchPath, resolveCliSearchPath } from './cliSearchPath.js';
+import { type CodexModelBudgetEvidence, resolveCodexModelBudgetSnapshot } from './codexModelBudgetSnapshot.js';
+import { readCodexModelCatalogCache } from './codexModelCatalogCache.js';
+
+export type {
+  ExternalAgentConfigDetectParams,
+  ExternalAgentConfigDetectResponse,
+  ExternalAgentConfigImportHistory,
+  ExternalAgentConfigImportParams,
+  ExternalAgentConfigImportResponse,
+  ExternalAgentImportNotification,
+} from './codexAppServerProtocol.js';
+
+export interface CodexAppServerReadable {
+  on(event: 'data', listener: (chunk: Buffer | string) => void): unknown;
+  /** Node pipe 支持暂停读取；假实现可省略。只允许在没有未决 RPC 时把投影背压传回 app-server stdout。 */
+  pause?(): unknown;
+  resume?(): unknown;
+}
+
+export interface CodexAppServerProcess {
+  readonly pid?: number;
+  stdin: { write(chunk: string | Uint8Array, callback?: (error?: Error | null) => void): boolean };
+  stdout: CodexAppServerReadable;
+  stderr: CodexAppServerReadable;
+  on(event: 'exit' | 'error', listener: (...args: unknown[]) => void): this;
+  kill(signal?: NodeJS.Signals): boolean;
+}
+
+export interface CodexAppServerSpawnOptions {
+  env: NodeJS.ProcessEnv;
+}
+
+export type CodexAppServerSpawn = (command: string, args: string[], options?: CodexAppServerSpawnOptions) => CodexAppServerProcess;
+
+export interface CodexModelServiceTier {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface CodexModelCapability {
+  id: string;
+  model: string;
+  displayName?: string;
+  supportedReasoningEfforts: string[];
+  defaultReasoningEffort?: string;
+  serviceTiers: CodexModelServiceTier[];
+  defaultServiceTier?: string | null;
+  raw: Record<string, unknown>;
+}
+
+export interface CodexCapabilitiesSnapshot {
+  generationId: string;
+  initializedAt: string;
+  /** 来自 initialize 回执或同一真实可执行文件 `--version` 的 Provider 版本；两者都缺失时保持 null。 */
+  providerVersion: string | null;
+  protocolVersion: 'codex-app-server-v2';
+  models: CodexModelCapability[];
+  supportedModels: string[];
+  /** 与本批模型目录一同冻结；刷新整体替换快照，已取得的派发依据保持不变。 */
+  modelBudgets: Readonly<Record<string, Readonly<CodexModelBudgetEvidence>>>;
+  preflightTokenCount: {
+    state: 'unavailable';
+    exact: false;
+    reason: string;
+  };
+  goals: {
+    supported: boolean;
+    enabled: boolean;
+    stage: 'beta' | 'underDevelopment' | 'stable' | 'deprecated' | 'removed' | null;
+  };
+}
+
+export type CodexThreadGoalStatus = 'active' | 'paused' | 'blocked' | 'usageLimited' | 'budgetLimited' | 'complete';
+
+export interface CodexThreadGoal {
+  threadId: string;
+  objective: string;
+  status: CodexThreadGoalStatus;
+  tokenBudget: number | null;
+  tokensUsed: number;
+  timeUsedSeconds: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CodexAccountSnapshot {
+  generationId: string;
+  requiresOpenaiAuth: boolean;
+  signedIn: boolean;
+  accountType: string | null;
+  planType: string | null;
+  /** 只用于本机用量隔离，不暴露邮箱或认证信息。 */
+  accountScopeId: string;
+}
+
+export interface CodexRateLimitWindowSnapshot {
+  usedPercent: number;
+  windowDurationMins: number | null;
+  resetsAt: number | null;
+}
+
+export interface CodexRateLimitBucketSnapshot {
+  limitId: string | null;
+  limitName: string | null;
+  primary: CodexRateLimitWindowSnapshot | null;
+  secondary: CodexRateLimitWindowSnapshot | null;
+  credits: { hasCredits: boolean; unlimited: boolean; balance: string | null } | null;
+  planType: string | null;
+}
+
+export interface CodexAccountRateLimitsSnapshot {
+  generationId: string;
+  rateLimits: CodexRateLimitBucketSnapshot;
+  rateLimitsByLimitId: Record<string, CodexRateLimitBucketSnapshot> | null;
+}
+
+export interface CodexAccountUsageSummary {
+  lifetimeTokens: number | null;
+  peakDailyTokens: number | null;
+  longestRunningTurnSec: number | null;
+  currentStreakDays: number | null;
+  longestStreakDays: number | null;
+}
+
+export interface CodexAccountUsageSnapshot {
+  generationId: string;
+  summary: CodexAccountUsageSummary;
+  dailyUsageBuckets: Array<{ startDate: string; tokens: number }> | null;
+}
+
+export type CodexSkillScope = 'user' | 'repo' | 'system' | 'admin';
+
+export interface CodexSkillMetadata {
+  name: string;
+  description: string;
+  shortDescription?: string;
+  path: string;
+  scope: CodexSkillScope;
+  enabled: boolean;
+  interface?: Record<string, unknown>;
+  dependencies?: Record<string, unknown>;
+}
+
+export interface CodexSkillsListEntry {
+  cwd: string;
+  skills: CodexSkillMetadata[];
+  errors: Array<Record<string, unknown>>;
+}
+
+export interface CodexChatGptLogin {
+  generationId: string;
+  loginId: string;
+  authUrl: string;
+}
+
+/** 本次网页登录的结果，只接受同一运行实例的官方完成通知。 */
+export interface CodexChatGptLoginStatus {
+  generationId: string;
+  loginId: string;
+  status: 'pending' | 'succeeded' | 'failed';
+  error: string | null;
+}
+
+export type CodexSandboxPolicy = { type: 'readOnly'; networkAccess: false } | { type: 'workspaceWrite'; writableRoots: string[]; networkAccess: boolean } | { type: 'dangerFullAccess' };
+export type CodexReasoningSummary = 'auto' | 'concise' | 'detailed' | 'none';
+
+export interface CodexDynamicToolFunctionSpec {
+  type: 'function';
+  name: string;
+  description: string;
+  inputSchema: JsonValue;
+  deferLoading?: boolean;
+}
+
+export interface CodexDynamicToolNamespaceSpec {
+  type: 'namespace';
+  name: string;
+  description: string;
+  tools: CodexDynamicToolFunctionSpec[];
+}
+
+export type CodexDynamicToolSpec = CodexDynamicToolFunctionSpec | CodexDynamicToolNamespaceSpec;
+
+export interface CodexPerformanceTraceContext {
+  /** AstraGit 内部短期性能身份；不序列化到 Codex app-server params。 */
+  traceIdentity?: string | null;
+}
+
+export interface CodexThreadStartInput extends CodexPerformanceTraceContext {
+  /** 线程创建和恢复接受本轮上下文容量；不配置压缩时机。 */
+  contextCapacityTokens?: number | null;
+  model: string;
+  serviceTier?: string | null;
+  cwd: string;
+  approvalPolicy?: string;
+  approvalsReviewer?: 'user' | 'auto_review';
+  sandbox: CodexSandboxPolicy;
+  config?: never;
+  baseInstructions?: string;
+  developerInstructions?: string;
+  ephemeral?: boolean;
+  dynamicTools?: CodexDynamicToolSpec[];
+}
+
+export interface CodexThreadResumeInput extends CodexPerformanceTraceContext {
+  /** 线程创建和恢复接受本轮上下文容量；不配置压缩时机。 */
+  contextCapacityTokens?: number | null;
+  threadId: string;
+  cwd?: string;
+  /** 仅用于宿主退出时结束本地等待；不会向 Provider 发送重复恢复请求。 */
+  signal?: AbortSignal;
+}
+
+export type CodexThreadRuntimeStatus = { type: 'notLoaded' } | { type: 'idle' } | { type: 'systemError'; [key: string]: unknown } | { type: 'active'; activeFlags: string[] };
+
+export interface CodexThreadSnapshot {
+  id: string;
+  /** app-server 可选返回的真实 JSONL 文件路径；字段不稳定，缺失时不得猜测。 */
+  path?: string | null;
+  /** thread/read 的权威运行态；旧 Provider 缺失时由上层按未知状态失败关闭。 */
+  status?: CodexThreadRuntimeStatus;
+  turns?: unknown[];
+  providerSettings?: {
+    generationId: string;
+    sequence: number;
+    model: string;
+    effort?: string;
+    serviceTier?: string | null;
+    /** Provider 当前实际采用的线程协作模式。 */
+    collaborationMode?: 'plan' | 'default';
+  };
+  [key: string]: unknown;
+}
+
+/** Codex 原生线程与轮次共用的协作模式配置。 */
+export interface CodexCollaborationMode {
+  mode: 'plan' | 'default';
+  settings: {
+    model: string;
+    reasoning_effort: string | null;
+    developer_instructions: string | null;
+  };
+}
+
+/** 幂等同步原生线程协作模式所需的完整上下文。 */
+export interface CodexThreadCollaborationModeInput extends CodexPerformanceTraceContext {
+  threadId: string;
+  /** 只供多世代管理器在重新接管线程时恢复正确工作目录，不进入线协议。 */
+  cwd?: string;
+  /** 仅供适配器确认线程设置 RPC 已写入传输层，不进入线协议。 */
+  requestWritten?: () => void;
+  collaborationMode: CodexCollaborationMode;
+}
+
+export interface CodexTurnStartInput extends CodexPerformanceTraceContext {
+  threadId: string;
+  clientUserMessageId?: string;
+  input: Array<Record<string, unknown>>;
+  additionalContext?: CodexBootstrapAdditionalContext;
+  /** 仅供适配器确认 JSON-RPC 帧已经成功写入传输层，不进入线协议。 */
+  requestWritten?: () => void;
+  collaborationMode?: CodexCollaborationMode;
+  model?: string;
+  effort?: string;
+  serviceTier?: string | null;
+  summary?: CodexReasoningSummary;
+  cwd?: string;
+  approvalPolicy?: string;
+  approvalsReviewer?: 'user' | 'auto_review';
+  sandboxPolicy?: CodexSandboxPolicy;
+}
+
+export interface CodexThreadCompactInput extends CodexPerformanceTraceContext {
+  threadId: string;
+  requestWritten?: () => void;
+}
+
+/** 产品层沿用 Pi 的 `off` 术语；Codex Responses 线协议对应值是 `none`。 */
+export function toCodexWireReasoningEffort(effort: string | null | undefined): string | null | undefined {
+  return effort === 'off' ? 'none' : effort;
+}
+
+export interface CodexTurnSteerInput extends CodexPerformanceTraceContext {
+  threadId: string;
+  turnId: string;
+  clientUserMessageId?: string;
+  input: Array<Record<string, unknown>>;
+}
+
+export interface CodexTurnSnapshot {
+  id: string;
+  threadId: string;
+  items?: unknown[];
+  [key: string]: unknown;
+}
+
+export interface CodexThreadTurnsPage {
+  data: CodexTurnSnapshot[];
+  nextCursor: string | null;
+}
+
+/** 原生内容分页保留所属轮次，不把跨轮次条目误归入当前请求。 */
+export interface CodexThreadItemsPage {
+  /** 按请求方向排列的原生内容。 */
+  data: Array<{ turnId: string; item: Record<string, unknown> }>;
+  /** 后续页面使用的原生游标。 */
+  nextCursor: string | null;
+}
+
+/** 后台恢复、任务切换和子线程详情共用完整正文分页；失败时不返回不完整轮次。 */
+export async function readCodexTurnItems(provider: Pick<CodexAppServerManager, 'listThreadItems'>, input: { threadId: string; turnId: string; priority?: 'control' }): Promise<Record<string, unknown>[]> {
+  /** 完整轮次条目沿原生升序累计。 */
+  const items: Record<string, unknown>[] = [];
+  /** 重复游标代表分页没有前进，不能继续循环或提前确认正文完整。 */
+  const seenCursors = new Set<string>();
+  /** 同轮次重复条目也属于不可靠分页，保留旧投影等待下一次检查。 */
+  const seenItems = new Set<string>();
+  /** 游标仅由原生接口提供，不根据内容或时间自行推算。 */
+  let cursor: string | null = null;
+  do {
+    /** 每页只读取 32 条完整内容，避免把大量轮次正文塞入一个帧。 */
+    const page = await provider.listThreadItems({ ...input, cursor, limit: 32, sortDirection: 'asc' });
+    for (const entry of page.data) {
+      if (entry.turnId !== input.turnId || typeof entry.item.id !== 'string' || !entry.item.id || seenItems.has(entry.item.id)) throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex 内容分页出现不匹配或重复的条目身份。');
+      seenItems.add(entry.item.id);
+      items.push(entry.item);
+    }
+    cursor = page.nextCursor;
+    if (cursor) {
+      if (seenCursors.has(cursor)) throw managerError('ASTRAGIT_NATIVE_SYNC_CURSOR_INVALID', 'Codex 内容分页重复返回同一游标。');
+      seenCursors.add(cursor);
+    }
+  } while (cursor);
+  return items;
+}
+
+export interface CodexThreadsPage {
+  data: CodexThreadSnapshot[];
+  nextCursor: string | null;
+}
+
+export interface CodexThreadListInput {
+  cursor?: string | null;
+  limit?: number | null;
+  sortKey?: 'created_at' | 'updated_at' | null;
+  sortDirection?: 'asc' | 'desc' | null;
+  sourceKinds?: Array<'cli' | 'vscode' | 'exec' | 'appServer' | 'subAgent' | 'subAgentReview' | 'subAgentCompact' | 'subAgentThreadSpawn' | 'subAgentOther' | 'unknown'> | null;
+  useStateDbOnly?: boolean;
+  parentThreadId?: string | null;
+  ancestorThreadId?: string | null;
+}
+
+interface CodexServerResponseBase {
+  generationId: string;
+  requestId: CodexWireId;
+}
+
+export type CodexServerRequestResponse = CodexPerformanceTraceContext &
+  (
+    | (CodexServerResponseBase & { type: 'command'; decision: CodexCommandApprovalDecision })
+    | (CodexServerResponseBase & { type: 'file'; decision: 'accept' | 'acceptForSession' | 'decline' | 'cancel' })
+    | (CodexServerResponseBase & {
+        type: 'permissions';
+        permissions: {
+          network?: { enabled: boolean | null };
+          fileSystem?: { read: string[] | null; write: string[] | null; globScanMaxDepth?: number };
+        };
+        scope: 'turn' | 'session';
+        strictAutoReview?: boolean;
+      })
+    | (CodexServerResponseBase & { type: 'request_user_input'; answers: Record<string, { answers: string[] }> })
+    | (CodexServerResponseBase & { type: 'mcp'; action: 'accept' | 'decline' | 'cancel'; content: JsonValue | null; _meta: JsonValue | null })
+    | (CodexServerResponseBase & {
+        type: 'dynamic_tool';
+        contentItems: Array<{ type: 'inputText'; text: string } | { type: 'inputImage'; imageUrl: string }>;
+        success: boolean;
+      })
+  );
+
+export type CodexCommandApprovalDecision =
+  | 'accept'
+  | 'acceptForSession'
+  | 'decline'
+  | 'cancel'
+  | {
+      acceptWithExecpolicyAmendment: { execpolicy_amendment: string[] };
+    };
+
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+export interface CodexAppServerEvent {
+  generationId: string;
+  sequence: number;
+  method: string;
+  params: unknown;
+  receivedAt: string;
+  requestId?: CodexWireId;
+}
+
+export interface CodexRpcRetryContext {
+  operationIdentity?: string;
+  projectId?: string;
+  taskId?: string;
+  conversationId?: string;
+}
+
+export interface CodexRpcRetryProgress extends CodexRpcRetryContext {
+  generationId: string;
+  method: string;
+  retryAttempt: number;
+  maxRetries: number;
+  delayMs: number;
+  occurredAt: string;
+}
+
+const codexRpcRetryContext = new AsyncLocalStorage<CodexRpcRetryContext>();
+
+/** 把一次前台产品操作的身份旁路带到内部只读 RPC；不改变 Provider wire payload。 */
+export function runWithCodexRpcRetryContext<T>(context: CodexRpcRetryContext, operation: () => T): T {
+  return codexRpcRetryContext.run({ ...context }, operation);
+}
+
+export type CodexTransportState =
+  { type: 'idle' } | { type: 'starting'; generationId: string } | { type: 'ready'; generationId: string; capabilities: CodexCapabilitiesSnapshot } | { type: 'restarting'; generationId: string; attempt: number } | { type: 'closed' };
+
+export interface CodexRuntimeGenerationSnapshot {
+  generationId: string;
+  commandPath: string;
+  state: CodexTransportState['type'];
+  active: boolean;
+  activeThreadCount: number;
+  pendingRequestCount: number;
+}
+
+/** 描述一次 Codex 运行世代切换所需的完整配置。 */
+export interface CodexRuntimeActivationInput {
+  /** 本世代实际启动的 Codex 可执行文件绝对路径。 */
+  commandPath: string;
+  /** 可选的外部 Agent 配置根目录。 */
+  externalAgentHome?: string;
+  /** 是否通过官方 Remote Control 守护进程建立连接。 */
+  remoteControl?: boolean;
+  /** 登录后的新连接须等到本次远端目录更新完成，不能接受启动时的旧缓存。 */
+  requireFreshModels?: boolean;
+}
+
+/** 维护窗口内唯一允许执行的运行世代切换入口。 */
+export interface CodexRuntimeMaintenanceControl {
+  /** 关闭当前空闲世代，阻止旧程序在外部守护进程退出后自动重连。 */
+  deactivateCurrentGeneration(): Promise<void>;
+  /** 在新写入仍被拦截时激活并验证指定 Codex 运行世代。 */
+  activateFreshGeneration(input: CodexRuntimeActivationInput): Promise<CodexCapabilitiesSnapshot>;
+}
+
+export type CodexRemoteControlConnectionStatus = 'disabled' | 'connecting' | 'connected' | 'errored';
+
+export interface CodexRemoteControlStatus {
+  status: CodexRemoteControlConnectionStatus;
+  serverName: string;
+  installationId: string;
+  environmentId: string | null;
+}
+
+export interface CodexRemoteControlPairing {
+  pairingCode: string;
+  manualPairingCode: string | null;
+  environmentId: string;
+  expiresAt: number;
+}
+
+export interface CodexRemoteControlClient {
+  clientId: string;
+  displayName: string | null;
+  deviceType: string | null;
+  platform: string | null;
+  osVersion: string | null;
+  deviceModel: string | null;
+  appVersion: string | null;
+  lastSeenAt: number | null;
+}
+
+export interface CodexRemoteControlClientsPage {
+  data: CodexRemoteControlClient[];
+  nextCursor: string | null;
+}
+
+export interface CodexAppServerManager {
+  ensureReady(input: CodexRuntimeActivationInput): Promise<CodexCapabilitiesSnapshot>;
+  /** 在运行身份不变时也激活新世代；多世代管理器保留旧活动轮次并让其自然排空。 */
+  activateFreshGeneration?(input: CodexRuntimeActivationInput): Promise<CodexCapabilitiesSnapshot>;
+  /** 刷新既有连接的完整目录，不重启进程或重放任何模型请求。 */
+  refreshModels(): Promise<CodexCapabilitiesSnapshot>;
+  readAccount(input?: { refreshToken?: boolean; allowCachedOnTransportFailure?: boolean; preferCached?: boolean; cachedOnly?: boolean }): Promise<CodexAccountSnapshot>;
+  readAccountRateLimits(): Promise<CodexAccountRateLimitsSnapshot>;
+  readAccountUsage(): Promise<CodexAccountUsageSnapshot>;
+  startChatGptLogin(): Promise<CodexChatGptLogin>;
+  /** 查询指定登录尝试，不用已有账号状态推断新的授权已经完成。 */
+  readChatGptLoginStatus(input: { generationId: string; loginId: string }): Promise<CodexChatGptLoginStatus>;
+  cancelChatGptLogin(input: { loginId: string }): Promise<void>;
+  /** 主动退出账户，不重试外部写入。 */
+  logoutAccount(): Promise<void>;
+  /** 共享认证变更后丢弃该实例的旧账户快照。 */
+  invalidateAccountState(): void;
+  startThread(input: CodexThreadStartInput): Promise<CodexThreadSnapshot>;
+  resumeThread(input: CodexThreadResumeInput): Promise<CodexThreadSnapshot>;
+  archiveThread(input: { threadId: string } & CodexPerformanceTraceContext): Promise<void>;
+  unarchiveThread(input: { threadId: string } & CodexPerformanceTraceContext): Promise<CodexThreadSnapshot>;
+  readThread(input: { threadId: string; includeTurns?: boolean; priority?: 'control' }): Promise<CodexThreadSnapshot>;
+  listThreads(input: CodexThreadListInput): Promise<CodexThreadsPage>;
+  readThreadGoal(input: { threadId: string }): Promise<CodexThreadGoal | null>;
+  setThreadGoal(input: { threadId: string; objective?: string; status?: CodexThreadGoalStatus; tokenBudget?: number | null } & CodexPerformanceTraceContext): Promise<CodexThreadGoal>;
+  clearThreadGoal(input: { threadId: string } & CodexPerformanceTraceContext): Promise<{ cleared: boolean }>;
+  listThreadTurns(input: {
+    threadId: string;
+    cursor?: string | null;
+    limit?: number | null;
+    sortDirection?: 'asc' | 'desc' | null;
+    itemsView?: 'notLoaded' | 'summary' | 'full' | null;
+    /** 派发门禁读取不得被同一进程的过程事件投影背压阻塞。 */
+    priority?: 'control';
+  }): Promise<CodexThreadTurnsPage>;
+  /** 分页读取指定轮次的完整条目，元信息读取不携带正文。 */
+  listThreadItems(input: { threadId: string; turnId: string; cursor?: string | null; limit?: number; sortDirection?: 'asc' | 'desc'; priority?: 'control' }): Promise<CodexThreadItemsPage>;
+  listSkills(input: { cwds?: string[]; forceReload?: boolean }): Promise<CodexSkillsListEntry[]>;
+  compactThread(input: CodexThreadCompactInput): Promise<void>;
+  /** 在新轮开始前更新 Provider 持久保存的线程协作模式。 */
+  setThreadCollaborationMode(input: CodexThreadCollaborationModeInput): Promise<void>;
+  startTurn(input: CodexTurnStartInput): Promise<CodexTurnSnapshot>;
+  steerTurn(input: CodexTurnSteerInput): Promise<{ turnId: string }>;
+  interruptTurn(input: { threadId: string; turnId: string } & CodexPerformanceTraceContext): Promise<void>;
+  respondToServerRequest(input: CodexServerRequestResponse): Promise<void>;
+  readRemoteControlStatus(): Promise<CodexRemoteControlStatus>;
+  enableRemoteControl(input?: { ephemeral?: boolean }): Promise<CodexRemoteControlStatus>;
+  disableRemoteControl(input?: { ephemeral?: boolean }): Promise<CodexRemoteControlStatus>;
+  startRemoteControlPairing(input?: { manualCode?: boolean }): Promise<CodexRemoteControlPairing>;
+  readRemoteControlPairingStatus(input: { pairingCode?: string | null; manualPairingCode?: string | null }): Promise<{ claimed: boolean }>;
+  listRemoteControlClients(input: { environmentId: string; cursor?: string | null; limit?: number | null; order?: 'asc' | 'desc' | null }): Promise<CodexRemoteControlClientsPage>;
+  revokeRemoteControlClient(input: { environmentId: string; clientId: string }): Promise<void>;
+  detectExternalAgentConfig(input?: ExternalAgentConfigDetectParams): Promise<ExternalAgentConfigDetectResponse>;
+  startExternalAgentImport(input: ExternalAgentConfigImportParams): Promise<ExternalAgentConfigImportResponse>;
+  readExternalAgentImportHistories(): Promise<ExternalAgentConfigImportHistory[]>;
+  subscribeExternalAgentImport(listener: (event: ExternalAgentImportEvent) => void): () => void;
+  subscribeRpcRetries(listener: (event: CodexRpcRetryProgress) => void): () => void;
+  subscribe(listener: (event: CodexAppServerEvent) => void | Promise<void>): () => void;
+  getState(): CodexTransportState;
+  hasGeneration(generationId: string): boolean;
+
+  capabilitiesForGeneration(generationId: string): CodexCapabilitiesSnapshot | null;
+  generationForThread(threadId: string): string | null;
+  listRuntimeGenerations(): CodexRuntimeGenerationSnapshot[];
+  /** 等待既有活动工作自然收口，再原子阻止新写入并安全替换 Codex 程序。 */
+  runExclusiveMaintenance?<Result>(operation: (control: CodexRuntimeMaintenanceControl) => Promise<Result>): Promise<Result>;
+  prepareForShutdown(): Promise<void>;
+  close(): Promise<void>;
+}
+
+export type ExternalAgentImportEvent = ExternalAgentImportNotification & { generationId: string };
+
+type PendingRequest = {
+  generationId: string;
+  method: string;
+  traceIdentity: string | null;
+  resolve(value: unknown): void;
+  reject(error: Error): void;
+  timeout: ReturnType<typeof setTimeout> | null;
+};
+
+interface CreateCodexAppServerManagerOptions {
+  /** 提交说明专用进程不读取目标能力和上下文预算，不影响普通会话能力发现。 */
+  lightweightGeneration?: boolean;
+  spawn?: CodexAppServerSpawn;
+  /** Codex 自己的持久目录；桌面内嵌运行时不能依赖父进程偶然继承的环境变量。 */
+  codexHome: string;
+  now?: () => string;
+  generationId?: () => string;
+  requestTimeoutMs?: number;
+  appServerFlags?: readonly string[];
+  /** 每次新建或恢复线程时读取 MCP 兼容配置；不经命令行传递认证值。 */
+  readMcpThreadConfig?: (nativeMcpServers: unknown) => Promise<Record<string, JsonValue>>;
+  onRestartScheduled?: (delayMs: number, attempt: number) => void;
+  onDiagnostic?: (entry: { generationId: string; sequence: number; stderrSummary: string }) => void;
+  eventReplayLimit?: number;
+  shutdownTimeoutMs?: number;
+  accountFingerprintSalt?: string;
+  runtimeEnvironment?: Record<string, string>;
+  /** initialize 不再报告版本时，仅接纳同一可执行文件的只读版本探测结果。 */
+  providerVersionFallback?: string | null;
+}
+
+type ProcessExitTracker = { promise: Promise<void>; resolve: () => void; exited: boolean };
+
+type ServerRequestRecord = {
+  generationId: string;
+  method: string;
+  params: unknown;
+  paramsIdentity: string;
+  state: 'pending' | 'responded' | 'unsupported' | 'conflicted';
+};
+
+const RESTART_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000] as const;
+const ACCOUNT_SNAPSHOT_TTL_MS = 30_000;
+const ACCOUNT_USAGE_SNAPSHOT_TTL_MS = 15_000;
+/** 产品最多接受五分钟内取得的订阅目录；更旧的结果不能宣称同步成功。 */
+const MODEL_CATALOG_MAXIMUM_AGE_MS = 5 * 60_000;
+/** 登录后的远端目录等待有明确上限，失败仍保留账号与配置。 */
+const MODEL_CATALOG_SYNC_TIMEOUT_MS = 20_000;
+const SAFE_READ_RPC_METHODS = new Set([
+  'model/list',
+  'config/read',
+  'experimentalFeature/list',
+  'account/read',
+  'account/rateLimits/read',
+  'account/usage/read',
+  'thread/read',
+  'thread/list',
+  'thread/goal/get',
+  'thread/turns/list',
+  // 正文分页属于只读调用，允许沿用有界读取重试。
+  'thread/items/list',
+  'skills/list',
+  'remoteControl/status/read',
+  'remoteControl/pairing/status',
+  'remoteControl/client/list',
+  'externalAgentConfig/detect',
+  'externalAgentConfig/import/readHistories',
+]);
+const SAFE_READ_RPC_MAX_RETRIES = 5;
+const SAFE_READ_RPC_ATTEMPT_TIMEOUT_MS = 4_000;
+const SAFE_READ_RPC_DEADLINE_MS = 30_000;
+const SAFE_READ_RPC_INITIAL_DELAY_MS = 200;
+
+type TimedGenerationSnapshot<T extends { generationId: string }> = {
+  value: T;
+  cachedAt: number;
+};
+
+function resolveBeforeTimeout(promise: Promise<void>, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      settled = true;
+      resolve(false);
+    }, timeoutMs);
+    void promise.then(() => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(true);
+    });
+  });
+}
+
+export function createCodexAppServerManager(options: CreateCodexAppServerManagerOptions): CodexAppServerManager {
+  const spawn = options.spawn ?? spawnNodeCodexAppServer;
+  const now = options.now ?? (() => new Date().toISOString());
+  const makeGenerationId = options.generationId ?? randomUUID;
+  const requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+  const eventReplayLimit = options.eventReplayLimit ?? 1_024;
+  const shutdownTimeoutMs = Math.max(0, options.shutdownTimeoutMs ?? 5_000);
+  const accountFingerprintSalt = options.accountFingerprintSalt?.trim() || 'astragit-local-account-scope';
+  const runtimeEnvironment = { ...options.runtimeEnvironment };
+  const codexHome = options.codexHome?.trim() || null;
+  const providerVersionFallback = normalizeProviderVersion(options.providerVersionFallback);
+  if (codexHome === null || !isAbsolute(codexHome)) throw managerError('ASTRAGIT_CODEX_HOME_INVALID', 'AstraGit 必须指定独立的 Codex 数据目录。');
+  const listeners = new Set<(event: CodexAppServerEvent) => void | Promise<void>>();
+  const externalAgentImportListeners = new Set<(event: ExternalAgentImportEvent) => void>();
+  const rpcRetryListeners = new Set<(event: CodexRpcRetryProgress) => void>();
+  const eventReplayBuffer: CodexAppServerEvent[] = [];
+  const pendingRequests = new Map<string, PendingRequest>();
+  const serverRequests = new Map<string, ServerRequestRecord>();
+  const processExitTrackers = new Map<CodexAppServerProcess, ProcessExitTracker>();
+  const pendingInterrupts = new Set<string>();
+  const startedTurns = new Set<string>();
+  const threadModels = new Map<string, string>();
+  /** 当前进程实际加载的会话容量；不能跨进程或跨线程复用。 */
+  const threadCapacities = new Map<string, { generationId: string; tokens: number | null }>();
+  let state: CodexTransportState = { type: 'idle' };
+  let child: CodexAppServerProcess | null = null;
+  let commandPath: string | null = null;
+  let externalAgentHome: string | null = null;
+  let remoteControlTransport = false;
+  let readyPromise: Promise<CodexCapabilitiesSnapshot> | null = null;
+  let restartTimer: ReturnType<typeof setTimeout> | null = null;
+  let rejectScheduledRestart: ((error: Error) => void) | null = null;
+  let restartAttempt = 0;
+  let requestSequence = 0;
+  let eventSequence = 0;
+  let diagnosticSequence = 0;
+  let remoteControlEnabled = false;
+  /** 所有账户变更共用失效边界，迟到的读取无法回填旧登录状态。 */
+  function invalidateAccountState(): void {
+    modelAccountRevision += 1;
+    lastAccountSnapshot = null;
+    lastAccountRateLimitsSnapshot = null;
+    lastAccountUsageSnapshot = null;
+    accountReadInFlight.clear();
+    accountRateLimitsReadInFlight.clear();
+    accountUsageReadInFlight.clear();
+  }
+  let lastAccountSnapshot: TimedGenerationSnapshot<CodexAccountSnapshot> | null = null;
+  let lastAccountRateLimitsSnapshot: TimedGenerationSnapshot<CodexAccountRateLimitsSnapshot> | null = null;
+  let lastAccountUsageSnapshot: TimedGenerationSnapshot<CodexAccountUsageSnapshot> | null = null;
+  let preparingForShutdown = false;
+  let closePromise: Promise<void> | null = null;
+  const pendingEventDeliveryCounts = new WeakMap<CodexAppServerProcess, number>();
+  const pendingRpcReadCounts = new WeakMap<CodexAppServerProcess, number>();
+  const accountReadInFlight = new Map<string, Promise<CodexAccountSnapshot>>();
+  const accountRateLimitsReadInFlight = new Map<string, Promise<CodexAccountRateLimitsSnapshot>>();
+  const accountUsageReadInFlight = new Map<string, Promise<CodexAccountUsageSnapshot>>();
+  /** 仅保留最近的登录状态，不保存授权地址或账号凭据。 */
+  const chatGptLoginStatuses = new Map<string, CodexChatGptLoginStatus>();
+  /** 同一连接的目录刷新合并为一个请求。 */
+  let modelRefreshInFlight: Promise<CodexCapabilitiesSnapshot> | null = null;
+  /** 账号变化后拒绝迟到的目录回包。 */
+  let modelAccountRevision = 0;
+  /** 防止后台重试重复广播同一个同步错误。 */
+  let lastModelSyncError: string | null = null;
+
+  /** 有界保留完成通知，兼容通知早于登录启动回包的情况。 */
+  function rememberChatGptLoginStatus(status: CodexChatGptLoginStatus): void {
+    chatGptLoginStatuses.set(status.loginId, status);
+    // ponytail: 仅保留最近 32 次登录；需要更长查询窗口时再按过期时间清理。
+    if (chatGptLoginStatuses.size > 32) chatGptLoginStatuses.delete(chatGptLoginStatuses.keys().next().value!);
+  }
+
+  function currentGenerationId(): string {
+    if (state.type === 'idle' || state.type === 'closed') throw managerError('ASTRAGIT_CODEX_NOT_READY', 'Codex app-server is not ready.');
+    return state.generationId;
+  }
+
+  /** 原生解析器决定可信项目与 profile 的覆盖关系，外部 Home 只补充未配置的 MCP。 */
+  async function readMcpThreadConfig(generationId: string, cwd?: string): Promise<Record<string, JsonValue>> {
+    if (!options.readMcpThreadConfig) return {};
+    const response = asRecord(await rpc(generationId, 'config/read', { includeLayers: false, ...(cwd ? { cwd } : {}) }));
+    return options.readMcpThreadConfig(asRecord(response.config).mcp_servers);
+  }
+
+  /** 使用与版本检测一致的程序环境；直接创建的管理器也支持终端安装目录。 */
+  async function start(command: string, requireFreshModels = false): Promise<CodexCapabilitiesSnapshot> {
+    /** 上层已解析时直接复用；独立调用只在启动时读取终端目录。 */
+    const searchPath = runtimeEnvironment.PATH ?? (await resolveCliSearchPath());
+    // The native CLI requires CODEX_HOME to exist. Prepare only the validated
+    // AstraGit directory before spawning, including a brand new application.
+    await mkdir(codexHome!, { recursive: true, mode: 0o700 });
+    if (preparingForShutdown || state.type === 'closed') throw managerError('ASTRAGIT_CODEX_CLOSED', 'Codex app-server manager is closing.');
+    const generationId = makeGenerationId();
+    modelAccountRevision += 1;
+    modelRefreshInFlight = null;
+    lastModelSyncError = null;
+    /** 以实际启动时刻确认官方组件本次预取的目录，不通过修改缓存强刷。 */
+    const modelsFreshSince = Date.now();
+    requestSequence = 0;
+    eventSequence = 0;
+    diagnosticSequence = 0;
+    eventReplayBuffer.length = 0;
+    chatGptLoginStatuses.clear();
+    pendingInterrupts.clear();
+    startedTurns.clear();
+    state = { type: 'starting', generationId };
+    const decoder = new CodexJsonLineDecoder();
+    const env = {
+      ...process.env,
+      ...runtimeEnvironment,
+      PATH: expandCliSearchPath(searchPath),
+      ...(codexHome === null ? {} : { CODEX_HOME: codexHome }),
+      ...(externalAgentHome === null ? {} : { ASTRAGIT_CODEX_EXTERNAL_AGENT_HOME: externalAgentHome }),
+    };
+    // `-c/--config` 是 Codex 根命令参数，必须位于 app-server 子命令之前。
+    const spawned = remoteControlTransport ? spawnRemoteControlCodexAppServer(command, { env }) : spawn(command, [...(options.appServerFlags ?? []), 'app-server', '--listen', 'stdio://'], { env });
+    trackProcessExit(spawned);
+    child = spawned;
+    spawned.stdout.on('data', (chunk) => {
+      if (child !== spawned || state.type === 'closed') return;
+      for (const frame of decoder.push(toBuffer(chunk))) {
+        if (frame.type === 'protocol_error') {
+          /** 只保存有界结构信息，诊断中不携带帧正文。 */
+          const details = {
+            reason: frame.error.code,
+            byteLength: frame.error.byteLength,
+            generationId,
+            requestMethods: [...new Set([...pendingRequests.values()].filter((request) => request.generationId === generationId).map((request) => request.method))].slice(0, 16).join(', '),
+          };
+          // 坏回包无法可靠关联请求；结束本连接的全部待定等待，写入结果仍由上层核对，不能自动重发。
+          rejectGeneration(generationId, Object.assign(managerError('ASTRAGIT_CODEX_RPC_PROTOCOL_ERROR', 'Codex 响应无法读取，已结束待定请求；已发出的操作需要核对结果。'), { protocolError: frame.error, details }));
+          emitEvent(generationId, 'transport/protocol_error', { ...frame.error, ...details });
+        } else {
+          handleWireMessage(generationId, frame.message);
+        }
+      }
+    });
+    spawned.stderr.on('data', (chunk) => {
+      if (child !== spawned || state.type === 'closed') return;
+      options.onDiagnostic?.({
+        generationId,
+        sequence: ++diagnosticSequence,
+        stderrSummary: summarizeStderr(toBuffer(chunk).toString('utf8')),
+      });
+    });
+    spawned.on('error', (error) => {
+      const failure = error instanceof Error ? error : new Error('Codex app-server process error.');
+      // A failed spawn has no OS process to await. A pid-bearing ChildProcess error does not prove exit.
+      if (spawned.pid === undefined) {
+        markProcessExited(spawned);
+        handleProcessExit(spawned, generationId, failure);
+        return;
+      }
+      if (child === spawned && state.type !== 'closed') {
+        emitEvent(generationId, 'transport/process_error', { message: 'Codex app-server process reported an error before exit.' });
+      }
+    });
+    spawned.on('exit', (code, signal) => {
+      markProcessExited(spawned);
+      handleProcessExit(spawned, generationId, managerError('ASTRAGIT_CODEX_GENERATION_EXITED', `Codex app-server generation exited (${String(code ?? signal ?? 'unknown')}).`));
+    });
+
+    const handshake = (async () => {
+      const initializeResponse = await rpc(generationId, 'initialize', {
+        clientInfo: { name: 'astragit', title: 'AstraGit', version: '0.1.0' },
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      write({ method: 'initialized' });
+      const initializedProviderVersion = providerVersionFromInitialize(initializeResponse);
+      // Remote Control 的命令路径只负责连接常驻守护进程，不能代表守护进程的真实版本。
+      // 热更新替换守护进程后继续使用启动时探测值会把新模型目录误判成旧世代。
+      const providerVersion = initializedProviderVersion ?? (remoteControlTransport ? null : providerVersionFallback);
+      if (requireFreshModels) await waitForFreshSubscriptionModels(generationId, providerVersion, modelsFreshSince);
+      const models = await readModelCatalogPages(generationId);
+      if (requireFreshModels) assertFreshModelCatalog(providerVersion, models, modelsFreshSince);
+      const goals = options.lightweightGeneration ? { supported: false, enabled: false, stage: null } : await readGoalCapability(generationId);
+      if (remoteControlEnabled || remoteControlTransport) await rpc(generationId, 'remoteControl/enable', {});
+      const initializedAt = now();
+      const modelBudgets = options.lightweightGeneration
+        ? {}
+        : await resolveModelBudgetSnapshotAfterBoundedRetry({
+            codexHome,
+            generationId,
+            initializedAt,
+            providerVersion,
+            models,
+          });
+      const capabilities: CodexCapabilitiesSnapshot = {
+        generationId,
+        initializedAt,
+        providerVersion,
+        protocolVersion: 'codex-app-server-v2',
+        models,
+        supportedModels: models.map((model) => model.model),
+        modelBudgets,
+        preflightTokenCount: {
+          state: 'unavailable',
+          exact: false,
+          reason: '当前 app-server 协议没有请求前 token-count RPC；仅提供请求后的真实 usage 通知。',
+        },
+        goals,
+      };
+      if (child !== spawned) throw managerError('ASTRAGIT_CODEX_GENERATION_EXITED', 'Codex app-server generation changed during initialization.');
+      state = { type: 'ready', generationId, capabilities };
+      restartAttempt = 0;
+      return capabilities;
+    })();
+    return handshake.catch((error: unknown) => {
+      const failure = asError(error);
+      if (child === spawned) {
+        spawned.kill('SIGTERM');
+      }
+      const unavailableReason = remoteControlTransport ? `AstraGit 无法启动会话远程接管所需的 Codex Remote Control（${command}）：${failure.message}` : `用户本机 Codex CLI 无法启动兼容的 app-server（${command}）：${failure.message}`;
+      const recoveryGuidance = remoteControlTransport
+        ? codexRemoteControlRecoveryGuidance(env)
+        : '请运行官方安装命令 curl -fsSL https://chatgpt.com/codex/install.sh | sh，完成登录后在 AstraGit 设置中重新检测；AstraGit 不会自动安装或使用内置回退。';
+      if (failure.message.startsWith('ASTRAGIT_CODEX_MODEL_') || ('code' in failure && typeof failure.code === 'string' && failure.code.startsWith('ASTRAGIT_CODEX_MODEL_'))) throw failure;
+      throw managerError('ASTRAGIT_CODEX_DEPENDENCY_UNAVAILABLE', `${unavailableReason}。${recoveryGuidance}`);
+    });
+  }
+
+  /** 完整读取分页并拒绝循环或冲突目录，不发布半份列表。 */
+  async function readModelCatalogPages(generationId: string): Promise<CodexModelCapability[]> {
+    /** 本次读取的完整目录。 */
+    const models: CodexModelCapability[] = [];
+    /** 防止异常游标导致无界读取。 */
+    const cursors = new Set<string>();
+    /** 模型标识必须在同一份目录内唯一。 */
+    const identifiers = new Set<string>();
+    /** 展示标识同样不能冲突，否则选择器无法准确定位模型。 */
+    const displayIdentifiers = new Set<string>();
+    /** 首次读取不传游标，后续遵循官方回包。 */
+    let cursor: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      /** 每页使用相同的可见模型范围。 */
+      const response = asRecord(await retryableReadRpc(generationId, 'model/list', { limit: 100, includeHidden: false, ...(cursor ? { cursor } : {}) }));
+      for (const model of parseModels(response)) {
+        if (!model.model.trim() || !model.id.trim() || identifiers.has(model.model) || displayIdentifiers.has(model.id)) throw managerError('ASTRAGIT_CODEX_MODEL_SYNC_FAILED', '模型目录分页包含空白或重复条目，未更新列表。');
+        identifiers.add(model.model);
+        displayIdentifiers.add(model.id);
+        models.push(model);
+      }
+      if (response.nextCursor === null || response.nextCursor === undefined) return models;
+      if (typeof response.nextCursor !== 'string' || !response.nextCursor || cursors.has(response.nextCursor)) throw managerError('ASTRAGIT_CODEX_MODEL_SYNC_FAILED', '模型目录分页游标无效，未更新列表。');
+      cursor = response.nextCursor;
+      cursors.add(cursor);
+    }
+    throw managerError('ASTRAGIT_CODEX_MODEL_SYNC_FAILED', '模型目录超出有界读取范围，未更新列表。');
+  }
+
+  /** 确认列表确实来自本次允许的官方缓存时间范围，而非失败后的内置回退。 */
+  function assertFreshModelCatalog(providerVersion: string | null, models: readonly CodexModelCapability[], minimumFetchedAt: number): void {
+    /** 此处只观察官方缓存，不删除、修改或复制它。 */
+    const cache = readCodexModelCatalogCache(codexHome, providerVersion);
+    if (!cache || cache.fetchedAtMs < minimumFetchedAt || models.length !== cache.visibleModels.size || models.some((model) => !cache.visibleModels.has(model.model))) {
+      throw managerError('ASTRAGIT_CODEX_MODEL_SYNC_FAILED', '账号已登录，但尚未确认订阅模型目录同步成功。请检查网络及模型来源配置后重试。');
+    }
+  }
+
+  /** 新连接会由官方组件预取远端目录；等待其落地后再读取，避免抢到旧名单。 */
+  async function waitForFreshSubscriptionModels(generationId: string, providerVersion: string | null, freshSince: number): Promise<void> {
+    /** 登录身份必须在有界时间内稳定，避免通知风暴造成无界等待。 */
+    const accountDeadline = Date.now() + MODEL_CATALOG_SYNC_TIMEOUT_MS;
+    /** 账号读取与通知可能并发；只用同一修订前后都稳定的快照作为同步身份。 */
+    let accountRevision: number;
+    /** 稳定账号用于区分同一账号的重复通知和真实账号切换。 */
+    let account: CodexAccountSnapshot;
+    do {
+      accountRevision = modelAccountRevision;
+      account = parseAccountSnapshot(await retryableReadRpc(generationId, 'account/read', { refreshToken: false }), generationId, accountFingerprintSalt);
+      if (Date.now() >= accountDeadline && modelAccountRevision !== accountRevision) throw managerError('ASTRAGIT_CODEX_MODEL_SYNC_FAILED', '账号状态持续变化，无法确认订阅模型目录。');
+    } while (modelAccountRevision !== accountRevision);
+    if (!account.signedIn || account.accountType !== 'chatgpt') throw managerError('ASTRAGIT_CODEX_MODEL_SYNC_FAILED', '当前连接尚未确认订阅账号，无法同步订阅模型。');
+    /** 显式固定目录不会访问远端，必须给出可操作的原因。 */
+    const configResponse = asRecord(await retryableReadRpc(generationId, 'config/read', { includeLayers: false }));
+    const config = asRecord(configResponse.config);
+    if (typeof config.model_catalog_json === 'string' && config.model_catalog_json.trim()) {
+      throw managerError('ASTRAGIT_CODEX_MODEL_CATALOG_FIXED', '账号已登录，但配置指定了固定的本地模型目录。取消 model_catalog_json 配置后再同步订阅模型。');
+    }
+    if (remoteControlTransport) {
+      // 远程接管复用常驻进程，不会因重连触发启动预取；独立短连接负责这次目录同步。
+      const catalogReader = createCodexAppServerManager(options);
+      try {
+        await catalogReader.ensureReady({ commandPath: commandPath!, ...(externalAgentHome ? { externalAgentHome } : {}), requireFreshModels: true });
+      } finally {
+        await catalogReader.close();
+      }
+    }
+    /** 独立目录读取完成后仍保留原有完整等待窗口。 */
+    const deadline = Date.now() + MODEL_CATALOG_SYNC_TIMEOUT_MS;
+    /** 等待期间持续核对连接所有权；同一账号的重复通知只更新修订，不误报失败。 */
+    while (Date.now() < deadline) {
+      if (preparingForShutdown || generationId !== currentGenerationId()) throw managerError('ASTRAGIT_CODEX_MODEL_SYNC_FAILED', '目录同步期间连接已改变，请重试。');
+      if (modelAccountRevision !== accountRevision) {
+        /** 账号通知本身不代表换号；重新读取并比较脱敏身份后继续等待。 */
+        const revisedAt = modelAccountRevision;
+        const revisedAccount = parseAccountSnapshot(await retryableReadRpc(generationId, 'account/read', { refreshToken: false }), generationId, accountFingerprintSalt);
+        if (modelAccountRevision !== revisedAt) continue;
+        if (!revisedAccount.signedIn || revisedAccount.accountType !== 'chatgpt' || revisedAccount.accountScopeId !== account.accountScopeId) {
+          throw managerError('ASTRAGIT_CODEX_MODEL_SYNC_FAILED', '目录同步期间账号已改变，请重试。');
+        }
+        accountRevision = revisedAt;
+      }
+      const cache = readCodexModelCatalogCache(codexHome, providerVersion);
+      if (cache && cache.fetchedAtMs >= freshSince && modelAccountRevision === accountRevision) return;
+      await waitFor(100);
+    }
+    throw managerError('ASTRAGIT_CODEX_MODEL_SYNC_FAILED', '账号已登录，但本次模型目录更新超时；旧目录未被当作同步成功。');
+  }
+
+  /** 合并同代际刷新并整体替换目录，发送中的调用仍持有原有快照。 */
+  function refreshModels(): Promise<CodexCapabilitiesSnapshot> {
+    if (modelRefreshInFlight) return modelRefreshInFlight;
+    /** 请求创建时绑定当前账号变更次数。 */
+    const accountRevision = modelAccountRevision;
+    const request = (async () => {
+      const capabilities = await awaitCapabilities();
+      const account = parseAccountSnapshot(await retryableReadRpc(capabilities.generationId, 'account/read', { refreshToken: false }), capabilities.generationId, accountFingerprintSalt);
+      const models = await readModelCatalogPages(capabilities.generationId);
+      if (account.signedIn && account.accountType === 'chatgpt') assertFreshModelCatalog(capabilities.providerVersion, models, Date.now() - MODEL_CATALOG_MAXIMUM_AGE_MS);
+      const checkedAt = now();
+      const modelBudgets = await resolveModelBudgetSnapshotAfterBoundedRetry({ codexHome, generationId: capabilities.generationId, initializedAt: checkedAt, providerVersion: capabilities.providerVersion, models });
+      if (preparingForShutdown || state.type !== 'ready' || state.generationId !== capabilities.generationId || modelAccountRevision !== accountRevision)
+        throw managerError('ASTRAGIT_CODEX_STALE_GENERATION', '模型刷新结果所属的连接或账号已改变。');
+      const updated = { ...state.capabilities, models, supportedModels: models.map((model) => model.model), modelBudgets };
+      state = { type: 'ready', generationId: capabilities.generationId, capabilities: updated };
+      lastModelSyncError = null;
+      emitEvent(capabilities.generationId, 'astragit/models/updated', { checkedAt, modelCount: models.length });
+      return updated;
+    })();
+    modelRefreshInFlight = request;
+    void request.then(
+      () => {
+        if (modelRefreshInFlight === request) modelRefreshInFlight = null;
+      },
+      (error: unknown) => {
+        if (modelRefreshInFlight === request) modelRefreshInFlight = null;
+        if (state.type !== 'ready' || preparingForShutdown || modelAccountRevision !== accountRevision) return;
+        const message = summarizeStderr(asError(error).message);
+        if (message === lastModelSyncError) return;
+        lastModelSyncError = message;
+        emitEvent(state.generationId, 'astragit/models/sync_failed', { message });
+      },
+    );
+    return request;
+  }
+
+  function trackProcessExit(process: CodexAppServerProcess): void {
+    let resolve!: () => void;
+    const promise = new Promise<void>((resolvePromise) => {
+      resolve = resolvePromise;
+    });
+    processExitTrackers.set(process, { promise, resolve, exited: false });
+  }
+
+  function markProcessExited(process: CodexAppServerProcess): void {
+    const tracker = processExitTrackers.get(process);
+    if (!tracker || tracker.exited) return;
+    tracker.exited = true;
+    tracker.resolve();
+    processExitTrackers.delete(process);
+  }
+
+  async function terminateProcess(process: CodexAppServerProcess): Promise<void> {
+    const tracker = processExitTrackers.get(process);
+    if (!tracker || tracker.exited) return;
+    process.kill('SIGTERM');
+    if (await resolveBeforeTimeout(tracker.promise, shutdownTimeoutMs)) return;
+    if (!tracker.exited) process.kill('SIGKILL');
+    await tracker.promise;
+  }
+
+  function handleProcessExit(process: CodexAppServerProcess, generationId: string, error: Error): void {
+    if (child !== process) return;
+    child = null;
+    rejectGeneration(generationId, error);
+    if (!preparingForShutdown && state.type !== 'closed') emitEvent(generationId, 'transport/process_exit', { message: 'Codex app-server process exited.' });
+    for (const [key, request] of serverRequests) {
+      if (request.generationId === generationId) serverRequests.delete(key);
+    }
+    if (preparingForShutdown || state.type === 'closed') return;
+    scheduleRestart(generationId);
+  }
+
+  function scheduleRestart(generationId: string): void {
+    restartAttempt += 1;
+    const delay = RESTART_DELAYS_MS[Math.min(restartAttempt - 1, RESTART_DELAYS_MS.length - 1)];
+    state = { type: 'restarting', generationId, attempt: restartAttempt };
+    options.onRestartScheduled?.(delay, restartAttempt);
+    readyPromise = new Promise<CodexCapabilitiesSnapshot>((resolve, reject) => {
+      rejectScheduledRestart = reject;
+      restartTimer = setTimeout(() => {
+        restartTimer = null;
+        rejectScheduledRestart = null;
+        if (preparingForShutdown || state.type === 'closed' || commandPath === null) {
+          reject(managerError('ASTRAGIT_CODEX_CLOSED', 'Codex app-server manager is closing.'));
+          return;
+        }
+        start(commandPath).then(resolve, reject);
+      }, delay);
+    });
+    void readyPromise.catch(() => undefined);
+  }
+
+  function write(message: unknown, completed?: (error?: Error) => void): void {
+    if (child === null) throw managerError('ASTRAGIT_CODEX_NOT_READY', 'Codex app-server process is unavailable.');
+    child.stdin.write(`${JSON.stringify(message)}\n`, (error) => {
+      completed?.(error ?? undefined);
+    });
+  }
+
+  function rpc(
+    generationId: string,
+    method: string,
+    params: unknown,
+    input: {
+      requestWritten?: () => void;
+      traceIdentity?: string | null;
+      timeoutMs?: number | null;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<unknown> {
+    if (preparingForShutdown || state.type === 'closed') return Promise.reject(managerError('ASTRAGIT_CODEX_CLOSED', 'Codex app-server manager is closing.'));
+    if (generationId !== currentGenerationId()) return Promise.reject(managerError('ASTRAGIT_CODEX_STALE_GENERATION', 'Codex app-server generation is stale.'));
+    if (input.signal?.aborted) return Promise.reject(managerError('ASTRAGIT_CODEX_RPC_ABORTED', `Codex app-server request was cancelled: ${method}`));
+    const id = `${generationId}:${++requestSequence}`;
+    return new Promise((resolve, reject) => {
+      // 官方 stdio 协议把 RPC 回包与过程通知复用在同一条 JSONL stdout 上。
+      // 任何已写出的 RPC 都必须保持读取窗口，否则事件投影的异步背压会把回包一起堵住。
+      const finishRpcRead = beginRpcRead(generationId, method === 'turn/interrupt' ? 2_000 : 0);
+      /** 同一世代内的请求键同时约束回包、超时和取消三条终结路径。 */
+      const key = pendingKey(generationId, id);
+      /** 清理单次请求绑定的取消监听，避免长驻 manager 保留已完成闭包。 */
+      const detachAbort = (): void => input.signal?.removeEventListener('abort', abortRequest);
+      /** 只取消 AstraGit 的本地等待；Provider 进程会在宿主关闭阶段统一终止。 */
+      const abortRequest = (): void => {
+        const pending = pendingRequests.get(key);
+        if (!pending) return;
+        if (pending.timeout) clearTimeout(pending.timeout);
+        pendingRequests.delete(key);
+        pending.reject(managerError('ASTRAGIT_CODEX_RPC_ABORTED', `Codex app-server request was cancelled: ${method}`));
+      };
+      /** null 只供无法安全按时限判错的 RPC 使用；其余请求保留原有超时。 */
+      const timeout =
+        input.timeoutMs === null
+          ? null
+          : setTimeout(
+              () => {
+                const pending = pendingRequests.get(key);
+                pendingRequests.delete(key);
+                if (pending) pending.reject(managerError('ASTRAGIT_CODEX_RPC_TIMEOUT', `Codex app-server request timed out: ${method}`));
+              },
+              Math.max(1, input.timeoutMs ?? requestTimeoutMs),
+            );
+      pendingRequests.set(key, {
+        generationId,
+        method,
+        traceIdentity: input.traceIdentity ?? null,
+        resolve(value) {
+          detachAbort();
+          finishRpcRead();
+          resolve(value);
+        },
+        reject(error) {
+          detachAbort();
+          finishRpcRead();
+          reject(error);
+        },
+        timeout,
+      });
+      input.signal?.addEventListener('abort', abortRequest, { once: true });
+      try {
+        write({ id, method, params }, (error) => {
+          if (!error) {
+            input.requestWritten?.();
+            return;
+          }
+          const pending = pendingRequests.get(key);
+          if (!pending) return;
+          if (pending.timeout) clearTimeout(pending.timeout);
+          pendingRequests.delete(key);
+          pending.reject(error);
+        });
+      } catch (error) {
+        if (timeout) clearTimeout(timeout);
+        const pending = pendingRequests.get(key);
+        pendingRequests.delete(key);
+        if (pending) pending.reject(asError(error));
+      }
+    });
+  }
+
+  async function retryableReadRpc(generationId: string, method: string, params: unknown, input: { traceIdentity?: string | null; timeoutMs?: number } = {}): Promise<unknown> {
+    const approved = SAFE_READ_RPC_METHODS.has(method) && (method !== 'account/read' || (isRecord(params) && params.refreshToken !== true));
+    if (!approved) throw managerError('ASTRAGIT_CODEX_RPC_RETRY_METHOD_UNSAFE', `Codex RPC is not approved for automatic retry: ${method}`);
+    const deadline = Date.now() + SAFE_READ_RPC_DEADLINE_MS;
+    let lastTimeout: unknown;
+    for (let attempt = 0; attempt <= SAFE_READ_RPC_MAX_RETRIES; attempt += 1) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0 && lastTimeout) throw lastTimeout;
+      const timeoutMs = Math.max(1, Math.min(input.timeoutMs ?? requestTimeoutMs, SAFE_READ_RPC_ATTEMPT_TIMEOUT_MS, Math.max(1, remainingMs)));
+      try {
+        return await rpc(generationId, method, params, { ...input, timeoutMs });
+      } catch (error) {
+        if (!isCodexRpcTimeout(error) || attempt >= SAFE_READ_RPC_MAX_RETRIES) throw error;
+        lastTimeout = error;
+        const retryAttempt = attempt + 1;
+        const nominalDelayMs = SAFE_READ_RPC_INITIAL_DELAY_MS * 2 ** attempt;
+        const jitteredDelayMs = Math.max(0, Math.round(nominalDelayMs * (0.9 + Math.random() * 0.2)));
+        const remainingAfterAttemptMs = Math.max(0, deadline - Date.now());
+        const remainingAttempts = SAFE_READ_RPC_MAX_RETRIES - retryAttempt + 1;
+        const delayMs = Math.min(jitteredDelayMs, Math.max(0, remainingAfterAttemptMs - remainingAttempts));
+        emitRpcRetry({
+          generationId,
+          method,
+          retryAttempt,
+          maxRetries: SAFE_READ_RPC_MAX_RETRIES,
+          delayMs,
+          occurredAt: now(),
+          ...(codexRpcRetryContext.getStore() ?? {}),
+        });
+        if (delayMs > 0) await waitFor(delayMs);
+      }
+    }
+    throw lastTimeout;
+  }
+
+  function emitRpcRetry(event: CodexRpcRetryProgress): void {
+    for (const listener of rpcRetryListeners) {
+      try {
+        listener(event);
+      } catch {
+        // 重试进度只用于诊断和临时 UI，消费者失败不能改变真实 RPC 生命周期。
+      }
+    }
+  }
+
+  async function readGoalCapability(generationId: string): Promise<CodexCapabilitiesSnapshot['goals']> {
+    try {
+      const response = asRecord(await retryableReadRpc(generationId, 'experimentalFeature/list', { limit: 200 }));
+      if (!Array.isArray(response.data)) return { supported: false, enabled: false, stage: null };
+      const goal = response.data.find((entry) => isRecord(entry) && entry.name === 'goals');
+      if (!isRecord(goal)) return { supported: false, enabled: false, stage: null };
+      const stage = goal.stage === 'beta' || goal.stage === 'underDevelopment' || goal.stage === 'stable' || goal.stage === 'deprecated' || goal.stage === 'removed' ? goal.stage : null;
+      return {
+        supported: stage !== null && stage !== 'removed',
+        enabled: goal.enabled === true,
+        stage,
+      };
+    } catch {
+      // 旧版 app-server 没有实验能力目录时，目标入口保持隐藏。
+      return { supported: false, enabled: false, stage: null };
+    }
+  }
+
+  function handleWireMessage(generationId: string, message: CodexWireMessage): void {
+    if ('id' in message && !('method' in message)) {
+      const key = pendingKey(generationId, message.id);
+      const pending = pendingRequests.get(key);
+      if (!pending) return;
+      pendingRequests.delete(key);
+      if (pending.timeout) clearTimeout(pending.timeout);
+      if (message.error) {
+        pending.reject(
+          Object.assign(new Error(message.error.message), {
+            code: message.error.code,
+            data: message.error.data,
+            dispatchDisposition: 'runtime_rejected' as const,
+          }),
+        );
+      } else {
+        pending.resolve(message.result);
+      }
+      return;
+    }
+    if (!('method' in message)) return;
+    const requestId = 'id' in message ? message.id : undefined;
+    const requestKey = requestId === undefined ? null : serverRequestKey(generationId, requestId);
+    const existingRequest = requestKey === null ? undefined : serverRequests.get(requestKey);
+    const paramsIdentity = requestId === undefined ? null : canonicalJson(message.params);
+    if (requestId !== undefined && existingRequest && (existingRequest.method !== message.method || existingRequest.paramsIdentity !== paramsIdentity)) {
+      existingRequest.state = 'conflicted';
+      write({ id: requestId, error: { code: -32600, message: 'Conflicting Codex server request identity.' } });
+      const originalParams = isRecord(existingRequest.params) ? existingRequest.params : {};
+      const receivedParams = isRecord(message.params) ? message.params : {};
+      emitEvent(
+        generationId,
+        'transport/server_request_identity_conflict',
+        {
+          originalMethod: existingRequest.method,
+          receivedMethod: message.method,
+          ...(typeof originalParams.threadId === 'string' ? { threadId: originalParams.threadId } : typeof receivedParams.threadId === 'string' ? { threadId: receivedParams.threadId } : {}),
+          ...(typeof originalParams.turnId === 'string' ? { turnId: originalParams.turnId } : typeof receivedParams.turnId === 'string' ? { turnId: receivedParams.turnId } : {}),
+        },
+        requestId,
+      );
+      return;
+    }
+    if (requestId !== undefined && existingRequest?.state === 'conflicted') {
+      write({ id: requestId, error: { code: -32600, message: 'Conflicting Codex server request identity.' } });
+      return;
+    }
+    if (requestId !== undefined && !supportedServerRequestMethods.has(message.method)) {
+      if (!existingRequest && requestKey !== null && paramsIdentity !== null) {
+        serverRequests.set(requestKey, { generationId, method: message.method, params: message.params, paramsIdentity, state: 'unsupported' });
+      }
+      write({ id: requestId, error: { code: -32601, message: 'Unsupported Codex server request method.' } });
+      const params = isRecord(message.params) ? message.params : {};
+      emitEvent(generationId, 'transport/unsupported_server_request', {
+        method: message.method,
+        ...(typeof params.threadId === 'string' ? { threadId: params.threadId } : {}),
+        ...(typeof params.turnId === 'string' ? { turnId: params.turnId } : {}),
+      });
+      return;
+    }
+    if (requestId !== undefined && requestKey !== null && paramsIdentity !== null) {
+      if (existingRequest?.state === 'pending') return;
+      if (existingRequest) {
+        existingRequest.state = 'pending';
+      } else {
+        serverRequests.set(requestKey, { generationId, method: message.method, params: message.params, paramsIdentity, state: 'pending' });
+      }
+    }
+    if (message.method === 'serverRequest/resolved') {
+      const params = isRecord(message.params) ? message.params : {};
+      const resolvedRequestId = typeof params.requestId === 'string' || typeof params.requestId === 'number' ? params.requestId : null;
+      if (resolvedRequestId !== null) serverRequests.delete(serverRequestKey(generationId, resolvedRequestId));
+    }
+    if (message.method === 'account/login/completed') {
+      /** null 编号属于其他认证方式；旧编号不能完成当前网页登录。 */
+      const params = isRecord(message.params) ? message.params : {};
+      if (typeof params.loginId === 'string' && params.loginId && typeof params.success === 'boolean') {
+        rememberChatGptLoginStatus({
+          generationId,
+          loginId: params.loginId,
+          status: params.success ? 'succeeded' : 'failed',
+          error: typeof params.error === 'string' ? summarizeStderr(params.error) : null,
+        });
+      }
+    }
+    if (message.method === 'account/updated' || message.method === 'account/login/completed') {
+      invalidateAccountState();
+    } else if (message.method === 'account/rateLimits/updated') {
+      lastAccountRateLimitsSnapshot = null;
+    }
+    emitEvent(generationId, message.method, message.params, requestId);
+    if (message.method === 'externalAgentConfig/import/progress' || message.method === 'externalAgentConfig/import/completed') {
+      try {
+        const parsed = parseExternalAgentImportNotification(message.method, message.params);
+        const event = { ...parsed, generationId };
+        for (const listener of externalAgentImportListeners) {
+          try {
+            listener(event);
+          } catch {
+            // Consumer failures are isolated from the app-server transport and other listeners.
+          }
+        }
+      } catch (error) {
+        emitEvent(generationId, 'transport/protocol_error', {
+          code: 'INVALID_EXTERNAL_AGENT_IMPORT_NOTIFICATION',
+          detail: asError(error).message,
+        });
+      }
+    }
+    if (message.method === 'turn/started') observeTurnStarted(generationId, message.params);
+  }
+
+  function emitEvent(generationId: string, method: string, params: unknown, requestId?: CodexWireId): void {
+    const event: CodexAppServerEvent = {
+      generationId,
+      sequence: ++eventSequence,
+      method,
+      params,
+      receivedAt: now(),
+      ...(requestId === undefined ? {} : { requestId }),
+    };
+    if (eventReplayLimit > 0) {
+      eventReplayBuffer.push(event);
+      if (eventReplayBuffer.length > eventReplayLimit) eventReplayBuffer.splice(0, eventReplayBuffer.length - eventReplayLimit);
+    }
+    const pendingDeliveries: Promise<void>[] = [];
+    for (const listener of listeners) {
+      try {
+        const delivery = listener(event);
+        if (delivery && typeof delivery.then === 'function') pendingDeliveries.push(delivery);
+      } catch {
+        // Consumer failures must not break decoding, request settlement, or other listeners.
+      }
+    }
+    if (pendingDeliveries.length > 0) applyEventDeliveryBackpressure(generationId, pendingDeliveries);
+  }
+
+  function applyEventDeliveryBackpressure(generationId: string, deliveries: Promise<void>[]): void {
+    const source = child;
+    if (!source) return;
+    pendingEventDeliveryCounts.set(source, (pendingEventDeliveryCounts.get(source) ?? 0) + 1);
+    if ((pendingRpcReadCounts.get(source) ?? 0) === 0) source.stdout.pause?.();
+    void Promise.allSettled(deliveries).then(() => {
+      const remaining = Math.max(0, (pendingEventDeliveryCounts.get(source) ?? 1) - 1);
+      if (remaining > 0) {
+        pendingEventDeliveryCounts.set(source, remaining);
+        return;
+      }
+      pendingEventDeliveryCounts.delete(source);
+      if (child !== source || state.type === 'closed') return;
+      if (state.type !== 'idle' && state.generationId !== generationId) return;
+      source.stdout.resume?.();
+    });
+  }
+
+  function beginRpcRead(generationId: string, releaseDelayMs: number): () => void {
+    const source = child;
+    if (!source) return () => undefined;
+    pendingRpcReadCounts.set(source, (pendingRpcReadCounts.get(source) ?? 0) + 1);
+    source.stdout.resume?.();
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      // 中断响应和终态通知需要短暂全双工窗口；纯控制读取只需让响应本身越过
+      // 过程投影背压，下一轮事件循环就恢复普通背压。
+      const timer = setTimeout(() => {
+        const remaining = Math.max(0, (pendingRpcReadCounts.get(source) ?? 1) - 1);
+        if (remaining > 0) {
+          pendingRpcReadCounts.set(source, remaining);
+          return;
+        }
+        pendingRpcReadCounts.delete(source);
+        if (child !== source || state.type === 'closed') return;
+        if (state.type !== 'idle' && state.generationId !== generationId) return;
+        if ((pendingEventDeliveryCounts.get(source) ?? 0) > 0) source.stdout.pause?.();
+      }, releaseDelayMs);
+      timer.unref?.();
+    };
+  }
+
+  function observeTurnStarted(generationId: string, params: unknown): void {
+    const record = isRecord(params) ? params : {};
+    const threadId = typeof record.threadId === 'string' ? record.threadId : null;
+    const turn = isRecord(record.turn) ? record.turn : {};
+    const turnId = typeof turn.id === 'string' ? turn.id : typeof record.turnId === 'string' ? record.turnId : null;
+    if (!threadId || !turnId) return;
+    const key = turnKey(threadId, turnId);
+    startedTurns.add(key);
+    if (!pendingInterrupts.delete(key)) return;
+    void rpc(generationId, 'turn/interrupt', { threadId, turnId }).catch(() => undefined);
+  }
+
+  function rejectGeneration(generationId: string, error: Error): void {
+    for (const [key, pending] of pendingRequests) {
+      if (pending.generationId !== generationId) continue;
+      if (pending.timeout) clearTimeout(pending.timeout);
+      pendingRequests.delete(key);
+      pending.reject(error);
+    }
+  }
+
+  async function awaitCapabilities(): Promise<CodexCapabilitiesSnapshot> {
+    if (state.type === 'ready') return state.capabilities;
+    if (readyPromise) return readyPromise;
+    throw managerError('ASTRAGIT_CODEX_NOT_READY', 'Call ensureReady before using Codex app-server.');
+  }
+
+  function requireModel(capabilities: CodexCapabilitiesSnapshot, modelName: string): CodexModelCapability {
+    const model = capabilities.models.find((candidate) => candidate.model === modelName || candidate.id === modelName);
+    if (!model) {
+      throw Object.assign(new Error(`Configured Codex model is unavailable: ${modelName}`), {
+        code: 'ASTRAGIT_CODEX_MODEL_UNAVAILABLE',
+        supportedModels: [...capabilities.supportedModels],
+      });
+    }
+    return model;
+  }
+
+  /** 在线程设置与轮次启动前统一验证协作模式引用的模型和推理强度。 */
+  function validateCodexCollaborationMode(capabilities: CodexCapabilitiesSnapshot, collaborationMode: CodexCollaborationMode): void {
+    /** 协作模式可以显式选择模型，必须按 Provider 当前目录重新校验。 */
+    const collaborationModel = requireModel(capabilities, collaborationMode.settings.model);
+    /** null 表示沿用该模式的默认推理强度。 */
+    const collaborationEffort = collaborationMode.settings.reasoning_effort;
+    if (collaborationEffort === null || collaborationModel.supportedReasoningEfforts.includes(collaborationEffort)) return;
+    throw Object.assign(new Error(`Configured Codex effort is unavailable: ${collaborationEffort}`), {
+      code: 'ASTRAGIT_CODEX_EFFORT_UNAVAILABLE',
+      supportedEfforts: [...collaborationModel.supportedReasoningEfforts],
+    });
+  }
+
+  return {
+    refreshModels,
+    ensureReady(input) {
+      if (state.type === 'closed' || preparingForShutdown) return Promise.reject(managerError('ASTRAGIT_CODEX_CLOSED', 'Codex app-server manager is closing.'));
+      if (commandPath !== null && commandPath !== input.commandPath) {
+        return Promise.reject(managerError('ASTRAGIT_CODEX_COMMAND_PATH_CHANGED', 'Codex command path cannot change while the manager is active.'));
+      }
+      const requestedExternalAgentHome = input.externalAgentHome ?? null;
+      if (requestedExternalAgentHome !== null && !isAbsolute(requestedExternalAgentHome)) {
+        return Promise.reject(managerError('ASTRAGIT_CODEX_EXTERNAL_AGENT_HOME_INVALID', 'Codex external-agent home must be an absolute path.'));
+      }
+      if (commandPath !== null && externalAgentHome !== requestedExternalAgentHome) {
+        return Promise.reject(managerError('ASTRAGIT_CODEX_EXTERNAL_AGENT_HOME_CHANGED', 'Codex external-agent home cannot change while the manager is active.'));
+      }
+      const requestedRemoteControlTransport = input.remoteControl === true;
+      if (commandPath !== null && remoteControlTransport !== requestedRemoteControlTransport) {
+        return Promise.reject(managerError('ASTRAGIT_CODEX_REMOTE_CONTROL_TRANSPORT_CHANGED', 'Codex remote-control transport cannot change while the manager is active.'));
+      }
+      commandPath = input.commandPath;
+      externalAgentHome = requestedExternalAgentHome;
+      remoteControlTransport = requestedRemoteControlTransport;
+      if (remoteControlTransport) remoteControlEnabled = true;
+      if (state.type === 'ready') return Promise.resolve(state.capabilities);
+      if (readyPromise) return readyPromise;
+      readyPromise = start(input.commandPath, input.requireFreshModels === true);
+      void readyPromise.catch(() => undefined);
+      return readyPromise;
+    },
+    invalidateAccountState,
+    /** 官方退出回执返回前不推断退出成功；失败同样使旧快照失效。 */
+    async logoutAccount() {
+      /** 绑定当前已就绪的执行实例。 */
+      const capabilities = await awaitCapabilities();
+      invalidateAccountState();
+      try {
+        await rpc(capabilities.generationId, 'account/logout', {});
+      } finally {
+        invalidateAccountState();
+      }
+    },
+    async readAccount(input = {}) {
+      const capabilities = await awaitCapabilities();
+      /** 读取回执必须仍属于同一登录状态。 */
+      const accountRevision = modelAccountRevision;
+      const refreshToken = input.refreshToken === true;
+      const cached = lastAccountSnapshot?.value.generationId === capabilities.generationId ? lastAccountSnapshot : null;
+      if (input.cachedOnly === true) {
+        if (cached) return cached.value;
+        throw managerError('ASTRAGIT_CODEX_ACCOUNT_SNAPSHOT_UNAVAILABLE', '当前 app-server 世代还没有可复用的账号快照。');
+      }
+      const preferCached = input.preferCached ?? !refreshToken;
+      if (preferCached && cached && Date.now() - cached.cachedAt < ACCOUNT_SNAPSHOT_TTL_MS) return cached.value;
+      const flightKey = `${capabilities.generationId}:${refreshToken ? 'refresh' : 'local'}`;
+      let request = accountReadInFlight.get(flightKey);
+      if (!request) {
+        request = (async () => {
+          const accountRead = refreshToken ? rpc : retryableReadRpc;
+          /** 账户通知可能与首次读取并发；只读请求再确认一次，拒绝持续变化或刷新凭据的旧回包。 */
+          let revision = accountRevision;
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            /** 每次都读取当前账户，不沿用变化前的缓存或响应。 */
+            const snapshot = parseAccountSnapshot(
+              await accountRead(capabilities.generationId, 'account/read', { refreshToken }, { ...(refreshToken ? {} : { timeoutMs: Math.min(requestTimeoutMs, 8_000) }) }),
+              capabilities.generationId,
+              accountFingerprintSalt,
+            );
+            if (revision === modelAccountRevision) {
+              lastAccountSnapshot = { value: snapshot, cachedAt: Date.now() };
+              return snapshot;
+            }
+            if (refreshToken) break;
+            revision = modelAccountRevision;
+          }
+          throw managerError('ASTRAGIT_CODEX_ACCOUNT_CHANGED', '账户状态已变化，请重新检查。');
+        })();
+        accountReadInFlight.set(flightKey, request);
+        const clearFlight = () => {
+          if (accountReadInFlight.get(flightKey) === request) accountReadInFlight.delete(flightKey);
+        };
+        void request.then(clearFlight, clearFlight);
+      }
+      try {
+        return await request;
+      } catch (error) {
+        const allowCached = input.allowCachedOnTransportFailure ?? !refreshToken;
+        if (accountRevision === modelAccountRevision && allowCached && cached && isAccountReadTransportFailure(error)) return cached.value;
+        throw error;
+      }
+    },
+    async readAccountRateLimits() {
+      const capabilities = await awaitCapabilities();
+      /** 读取回执必须仍属于同一登录状态。 */
+      const accountRevision = modelAccountRevision;
+      const cached = lastAccountRateLimitsSnapshot;
+      if (cached?.value.generationId === capabilities.generationId && Date.now() - cached.cachedAt < ACCOUNT_USAGE_SNAPSHOT_TTL_MS) return cached.value;
+      const existing = accountRateLimitsReadInFlight.get(capabilities.generationId);
+      if (existing) return existing;
+      const request: Promise<CodexAccountRateLimitsSnapshot> = (async () => {
+        const snapshot = parseAccountRateLimitsSnapshot(await retryableReadRpc(capabilities.generationId, 'account/rateLimits/read', {}, { timeoutMs: Math.min(requestTimeoutMs, 8_000) }), capabilities.generationId);
+        if (accountRevision !== modelAccountRevision) throw managerError('ASTRAGIT_CODEX_ACCOUNT_CHANGED', '账户状态已变化，请重新检查。');
+        lastAccountRateLimitsSnapshot = { value: snapshot, cachedAt: Date.now() };
+        return snapshot;
+      })().finally(() => {
+        if (accountRateLimitsReadInFlight.get(capabilities.generationId) === request) accountRateLimitsReadInFlight.delete(capabilities.generationId);
+      });
+      accountRateLimitsReadInFlight.set(capabilities.generationId, request);
+      return request;
+    },
+    async readAccountUsage() {
+      const capabilities = await awaitCapabilities();
+      /** 读取回执必须仍属于同一登录状态。 */
+      const accountRevision = modelAccountRevision;
+      const cached = lastAccountUsageSnapshot;
+      if (cached?.value.generationId === capabilities.generationId && Date.now() - cached.cachedAt < ACCOUNT_USAGE_SNAPSHOT_TTL_MS) return cached.value;
+      const existing = accountUsageReadInFlight.get(capabilities.generationId);
+      if (existing) return existing;
+      const request: Promise<CodexAccountUsageSnapshot> = (async () => {
+        const snapshot = parseAccountUsageSnapshot(await retryableReadRpc(capabilities.generationId, 'account/usage/read', {}, { timeoutMs: Math.min(requestTimeoutMs, 8_000) }), capabilities.generationId);
+        if (accountRevision !== modelAccountRevision) throw managerError('ASTRAGIT_CODEX_ACCOUNT_CHANGED', '账户状态已变化，请重新检查。');
+        lastAccountUsageSnapshot = { value: snapshot, cachedAt: Date.now() };
+        return snapshot;
+      })().finally(() => {
+        if (accountUsageReadInFlight.get(capabilities.generationId) === request) accountUsageReadInFlight.delete(capabilities.generationId);
+      });
+      accountUsageReadInFlight.set(capabilities.generationId, request);
+      return request;
+    },
+    /** 先启动官方授权，完成通知可能在启动回包之前到达。 */
+    async startChatGptLogin() {
+      /** 授权固定在已就绪的运行实例上。 */
+      const capabilities = await awaitCapabilities();
+      /** 登录编号由 Provider 提供，已收到的完成结果不能被覆盖为等待中。 */
+      const login = parseChatGptLogin(
+        await rpc(capabilities.generationId, 'account/login/start', {
+          type: 'chatgpt',
+          // AstraGit 自己轮询权威登录状态并回到原窗口；不让托管成功页把本次流程收口到 ChatGPT。
+          useHostedLoginSuccessPage: false,
+          appBrand: 'chatgpt',
+        }),
+        capabilities.generationId,
+      );
+      if (!chatGptLoginStatuses.has(login.loginId)) rememberChatGptLoginStatus({ generationId: login.generationId, loginId: login.loginId, status: 'pending', error: null });
+      return login;
+    },
+    /** 只读查询当前实例记录的本次结果，进程切换后不得复用旧结果。 */
+    async readChatGptLoginStatus(input) {
+      /** 实例身份与登录编号一起隔离旧通知和迟到查询。 */
+      const capabilities = await awaitCapabilities();
+      /** 未记录或已过期的编号不能伪装成待完成登录。 */
+      const status = chatGptLoginStatuses.get(input.loginId);
+      if (capabilities.generationId !== input.generationId || status?.generationId !== input.generationId) {
+        throw managerError('ASTRAGIT_CODEX_LOGIN_UNAVAILABLE', '这次 Codex 登录已失效，请重新发起登录。');
+      }
+      return { ...status };
+    },
+    async cancelChatGptLogin(input) {
+      const capabilities = await awaitCapabilities();
+      if (!input.loginId.trim()) throw managerError('ASTRAGIT_CODEX_LOGIN_ID_INVALID', 'Codex login id is required.');
+      await rpc(capabilities.generationId, 'account/login/cancel', { loginId: input.loginId });
+    },
+    async startThread(input) {
+      const capabilities = await awaitCapabilities();
+      /** 只有订阅目录里的模型会走这条链路，档位必须先通过 Codex 自己的目录校验。 */
+      const model = requireModel(capabilities, input.model);
+      validateServiceTier(model, input.serviceTier);
+      if (input.config !== undefined) throw managerError('ASTRAGIT_CODEX_CONFIG_UNAVAILABLE', 'Raw Codex thread config overrides are not supported.');
+      validateDynamicTools(input.dynamicTools);
+      const sandbox = normalizeThreadSandbox(input.sandbox);
+      const response = asRecord(
+        await rpc(
+          capabilities.generationId,
+          'thread/start',
+          compactObject({
+            model: input.model,
+            serviceTier: input.serviceTier,
+            cwd: input.cwd,
+            approvalPolicy: input.approvalPolicy,
+            approvalsReviewer: input.approvalsReviewer,
+            sandbox: sandbox.mode,
+            runtimeWorkspaceRoots: sandbox.runtimeWorkspaceRoots,
+            baseInstructions: input.baseInstructions,
+            developerInstructions: input.developerInstructions,
+            ephemeral: input.ephemeral,
+            dynamicTools: input.dynamicTools,
+            // 原生线程及其子任务也不能隐式取得整个系统临时目录的写权限。
+            config: {
+              ...contextCapacityConfig(input.contextCapacityTokens),
+              ...(await readMcpThreadConfig(capabilities.generationId, input.cwd)),
+              'sandbox_workspace_write.exclude_tmpdir_env_var': true,
+              'sandbox_workspace_write.exclude_slash_tmp': true,
+              // 原生新内核把主代理计入并发数；五个执行名额对应四个子代理。
+              'agents.max_concurrent_threads_per_session': 4,
+              'features.multi_agent_v2.max_concurrent_threads_per_session': 5,
+              'agents.max_depth': 2,
+              // 普通模式也使用原生问题卡，避免切换模型后只能在计划模式提问。
+              'features.default_mode_request_user_input': true,
+              // 只为 AstraGit 管理的线程开启原生步骤计划，不修改用户终端的 Codex 配置。
+              'tools.update_plan.enabled': true,
+            },
+          }),
+          { traceIdentity: input.traceIdentity },
+        ),
+      );
+      if (input.approvalsReviewer === 'auto_review' && response.approvalsReviewer !== 'auto_review' && response.approvalsReviewer !== 'guardian_subagent') {
+        throw managerError('ASTRAGIT_AUTO_REVIEW_UNAVAILABLE', '当前 Codex 未启用自动审批，请更新 Codex 或选择其他权限模式。');
+      }
+      const thread = parseThread(response.thread);
+      const responseModel = typeof response.model === 'string' ? response.model : input.model;
+      threadModels.set(thread.id, responseModel);
+      threadCapacities.set(thread.id, { generationId: capabilities.generationId, tokens: input.contextCapacityTokens ?? null });
+      return attachThreadProviderSettings(thread, capabilities.generationId, response, responseModel);
+    },
+    async resumeThread(input) {
+      const capabilities = await awaitCapabilities();
+      /** 仅在容量变化时卸载空闲线程；保留原线程身份、历史和其他会话的运行。 */
+      const previousCapacity = threadCapacities.get(input.threadId);
+      const capacityChanged = previousCapacity?.generationId !== capabilities.generationId || previousCapacity.tokens !== (input.contextCapacityTokens ?? null);
+      let capacityApplied = !capacityChanged;
+      if (capacityChanged) {
+        const metadata = asRecord(await rpc(capabilities.generationId, 'thread/read', { threadId: input.threadId, includeTurns: false }));
+        const status = parseThread(metadata.thread).status;
+        if (status && status.type !== 'active') {
+          if (status.type !== 'notLoaded') {
+            await rpc(capabilities.generationId, 'thread/unsubscribe', { threadId: input.threadId });
+            // 当前引擎约一分钟后卸载；只读确认完成后再恢复，不能把接纳配置误报为已生效。
+            const deadline = Date.now() + 90_000;
+            while (true) {
+              if (input.signal?.aborted) throw managerError('ASTRAGIT_CONTEXT_CAPACITY_CANCELLED', '上下文容量更新已取消。');
+              const current = asRecord(await rpc(capabilities.generationId, 'thread/read', { threadId: input.threadId, includeTurns: false }));
+              if (parseThread(current.thread).status?.type === 'notLoaded') break;
+              if (Date.now() >= deadline) throw managerError('ASTRAGIT_CONTEXT_CAPACITY_PENDING', 'Codex 尚未释放空闲会话，请稍后重试容量更新。');
+              await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
+            }
+          }
+          capacityApplied = true;
+        }
+      }
+      const response = asRecord(
+        await rpc(
+          capabilities.generationId,
+          'thread/resume',
+          compactObject({
+            threadId: input.threadId,
+            // 恢复只返回元信息和实时状态；正文走已有分页读取，避免完整历史回包触发接收上限。
+            excludeTurns: true,
+            cwd: input.cwd,
+            config: {
+              ...contextCapacityConfig(input.contextCapacityTokens),
+              ...(await readMcpThreadConfig(capabilities.generationId, input.cwd)),
+              // 恢复与新建遵守同一权限和子代理上限，不能恢复旧默认值。
+              'sandbox_workspace_write.exclude_tmpdir_env_var': true,
+              'sandbox_workspace_write.exclude_slash_tmp': true,
+              'agents.max_concurrent_threads_per_session': 4,
+              'features.multi_agent_v2.max_concurrent_threads_per_session': 5,
+              'agents.max_depth': 2,
+              'features.default_mode_request_user_input': true,
+              // 既有线程恢复时同样开启原生计划，沿用 thread/start 的宿主配置。
+              'tools.update_plan.enabled': true,
+            },
+          }),
+          // 恢复耗时随完整历史增长，固定超时无法区分“仍在加载”和“已经失败”。
+          // 等待明确回包；宿主交接时由调用方 signal 结束本地等待。
+          { timeoutMs: null, ...(input.signal ? { signal: input.signal } : {}) },
+        ),
+      );
+      const thread = parseThread(response.thread);
+      const responseModel = typeof response.model === 'string' ? response.model : threadModels.get(thread.id);
+      if (responseModel) threadModels.set(thread.id, responseModel);
+      if (capacityApplied) threadCapacities.set(thread.id, { generationId: capabilities.generationId, tokens: input.contextCapacityTokens ?? null });
+      return responseModel ? attachThreadProviderSettings(thread, capabilities.generationId, response, responseModel) : thread;
+    },
+    async archiveThread(input) {
+      const capabilities = await awaitCapabilities();
+      await rpc(capabilities.generationId, 'thread/archive', { threadId: input.threadId }, { traceIdentity: input.traceIdentity });
+      threadModels.delete(input.threadId);
+      threadCapacities.delete(input.threadId);
+    },
+    async unarchiveThread(input) {
+      const capabilities = await awaitCapabilities();
+      const response = asRecord(await rpc(capabilities.generationId, 'thread/unarchive', { threadId: input.threadId }, { traceIdentity: input.traceIdentity }));
+      return parseThread(response.thread);
+    },
+    async readThread(input) {
+      const capabilities = await awaitCapabilities();
+      const response = asRecord(await retryableReadRpc(capabilities.generationId, 'thread/read', { threadId: input.threadId, includeTurns: input.includeTurns ?? false }));
+      return parseThread(response.thread);
+    },
+    async listThreads(input) {
+      const capabilities = await awaitCapabilities();
+      const response = asRecord(await retryableReadRpc(capabilities.generationId, 'thread/list', compactObject({ ...input })));
+      if (!Array.isArray(response.data) || (response.nextCursor !== null && typeof response.nextCursor !== 'string')) {
+        throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex thread/list returned an invalid page.');
+      }
+      return {
+        data: response.data.map(parseThread),
+        nextCursor: response.nextCursor,
+      };
+    },
+    async readThreadGoal(input) {
+      const capabilities = await awaitCapabilities();
+      assertGoalsEnabled(capabilities);
+      const response = asRecord(await retryableReadRpc(capabilities.generationId, 'thread/goal/get', input));
+      return response.goal === null ? null : parseThreadGoal(response.goal);
+    },
+    async setThreadGoal(input) {
+      const capabilities = await awaitCapabilities();
+      assertGoalsEnabled(capabilities);
+      if (input.objective !== undefined) validateGoalObjective(input.objective);
+      const response = asRecord(
+        await rpc(capabilities.generationId, 'thread/goal/set', compactObject({ threadId: input.threadId, objective: input.objective, status: input.status, tokenBudget: input.tokenBudget }), { traceIdentity: input.traceIdentity }),
+      );
+      return parseThreadGoal(response.goal);
+    },
+    async clearThreadGoal(input) {
+      const capabilities = await awaitCapabilities();
+      assertGoalsEnabled(capabilities);
+      const response = asRecord(await rpc(capabilities.generationId, 'thread/goal/clear', { threadId: input.threadId }, { traceIdentity: input.traceIdentity }));
+      if (typeof response.cleared !== 'boolean') throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex thread/goal/clear response omitted cleared.');
+      return { cleared: response.cleared };
+    },
+    async listThreadTurns(input) {
+      const capabilities = await awaitCapabilities();
+      const response = asRecord(
+        await retryableReadRpc(
+          capabilities.generationId,
+          'thread/turns/list',
+          compactObject({
+            threadId: input.threadId,
+            cursor: input.cursor,
+            limit: input.limit,
+            sortDirection: input.sortDirection,
+            itemsView: input.itemsView,
+          }),
+        ),
+      );
+      if (!Array.isArray(response.data) || (response.nextCursor !== null && typeof response.nextCursor !== 'string')) {
+        throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex thread/turns/list returned an invalid page.');
+      }
+      return {
+        data: response.data.map((turn) => parseTurn(turn, input.threadId)),
+        nextCursor: response.nextCursor,
+      };
+    },
+    /** 内容独立分页，并在进入投影前核对轮次和条目身份。 */
+    async listThreadItems(input) {
+      /** 将当前分页绑定到可用连接代次。 */
+      const capabilities = await awaitCapabilities();
+      /** 只转发原生分页参数，内部优先级不进入协议正文。 */
+      const response = asRecord(
+        await retryableReadRpc(capabilities.generationId, 'thread/items/list', compactObject({ threadId: input.threadId, turnId: input.turnId, cursor: input.cursor, limit: input.limit, sortDirection: input.sortDirection })),
+      );
+      if (!Array.isArray(response.data) || (response.nextCursor != null && typeof response.nextCursor !== 'string')) throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex 内容分页缺少条目或有效游标。');
+      return {
+        data: response.data.map((value) => {
+          /** 原生包装记录声明每条内容所属轮次。 */
+          const entry = asRecord(value);
+          /** 条目身份必须真实存在，禁止补造或合并不同身份。 */
+          const item = asRecord(entry.item);
+          if (entry.turnId !== input.turnId || typeof item.id !== 'string' || !item.id) throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex 内容分页返回了不匹配的轮次或无效条目。');
+          return { turnId: input.turnId, item };
+        }),
+        nextCursor: response.nextCursor ?? null,
+      };
+    },
+    async listSkills(input) {
+      const capabilities = await awaitCapabilities();
+      return parseSkillsList(await retryableReadRpc(capabilities.generationId, 'skills/list', compactObject(input)));
+    },
+    async compactThread(input) {
+      const capabilities = await awaitCapabilities();
+      await rpc(capabilities.generationId, 'thread/compact/start', { threadId: input.threadId }, { requestWritten: input.requestWritten, traceIdentity: input.traceIdentity });
+    },
+    async setThreadCollaborationMode(input) {
+      /** 线程设置与轮次启动必须使用完全相同的线协议转换和模型能力校验。 */
+      const capabilities = await awaitCapabilities();
+      /** 原生协议使用 `none` 表示关闭推理，产品层继续保留 `off` 术语。 */
+      const collaborationMode = toCodexWireCollaborationMode(input.collaborationMode);
+      validateCodexCollaborationMode(capabilities, collaborationMode);
+      await rpc(
+        capabilities.generationId,
+        'thread/settings/update',
+        {
+          threadId: input.threadId,
+          collaborationMode,
+        },
+        { requestWritten: input.requestWritten, traceIdentity: input.traceIdentity },
+      );
+    },
+    async startTurn(input) {
+      const capabilities = await awaitCapabilities();
+      const modelName = input.model ?? threadModels.get(input.threadId);
+      const model = modelName ? requireModel(capabilities, modelName) : null;
+      const wireEffort = toCodexWireReasoningEffort(input.effort);
+      const wireCollaborationMode = input.collaborationMode ? toCodexWireCollaborationMode(input.collaborationMode) : undefined;
+      if (typeof wireEffort === 'string') {
+        const supportedEfforts = model?.supportedReasoningEfforts ?? [];
+        if (!model || !supportedEfforts.includes(wireEffort)) {
+          throw Object.assign(new Error(`Configured Codex effort is unavailable: ${wireEffort}`), {
+            code: 'ASTRAGIT_CODEX_EFFORT_UNAVAILABLE',
+            supportedEfforts: [...supportedEfforts],
+          });
+        }
+      }
+      if (input.serviceTier !== undefined) {
+        if (!model) throw managerError('ASTRAGIT_CODEX_MODEL_UNAVAILABLE', 'Codex service tier validation requires a known model.');
+        validateServiceTier(model, input.serviceTier);
+      }
+      if (wireCollaborationMode) validateCodexCollaborationMode(capabilities, wireCollaborationMode);
+      const sandboxPolicy = input.sandboxPolicy === undefined ? undefined : normalizeTurnSandbox(input.sandboxPolicy);
+      const response = asRecord(
+        await rpc(
+          capabilities.generationId,
+          'turn/start',
+          compactObject({
+            threadId: input.threadId,
+            clientUserMessageId: input.clientUserMessageId,
+            input: input.input,
+            additionalContext: input.additionalContext,
+            collaborationMode: wireCollaborationMode,
+            model: input.model,
+            effort: wireEffort,
+            serviceTier: input.serviceTier,
+            summary: input.summary,
+            cwd: input.cwd,
+            approvalPolicy: input.approvalPolicy,
+            approvalsReviewer: input.approvalsReviewer,
+            sandboxPolicy,
+          }),
+          { requestWritten: input.requestWritten, traceIdentity: input.traceIdentity },
+        ),
+      );
+      const turn = parseTurn(response.turn, input.threadId);
+      if (input.model) threadModels.set(input.threadId, input.model);
+      return turn;
+    },
+    async steerTurn(input) {
+      const capabilities = await awaitCapabilities();
+      const response = asRecord(
+        await rpc(
+          capabilities.generationId,
+          'turn/steer',
+          {
+            threadId: input.threadId,
+            expectedTurnId: input.turnId,
+            clientUserMessageId: input.clientUserMessageId,
+            input: input.input,
+          },
+          { traceIdentity: input.traceIdentity },
+        ),
+      );
+      if (typeof response.turnId !== 'string') throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex turn/steer response omitted turnId.');
+      return { turnId: response.turnId };
+    },
+    async interruptTurn(input) {
+      const capabilities = await awaitCapabilities();
+      const key = turnKey(input.threadId, input.turnId);
+      if (!startedTurns.has(key)) {
+        // 本连接尚未观察到 turn/started 有两种完全不同的含义：
+        // 1. turn/start RPC 仍在途，此时要保留 pendingInterrupt，等 started 事件后立即停止；
+        // 2. AstraGit 重启后重新连到仍存活的 Remote Control daemon，活动 turn 属于旧连接。
+        // 第二种若也只记内存 pending，会把“未发出中断”误报成成功，随后 thread/resume
+        // 又会撞上 daemon 自己持有的 active writer。先读取 daemon 权威状态，活动时直接中断。
+        const thread = parseThread(asRecord(await retryableReadRpc(capabilities.generationId, 'thread/read', { threadId: input.threadId, includeTurns: false }, { traceIdentity: input.traceIdentity })).thread);
+        if (thread.status?.type !== 'active') {
+          pendingInterrupts.add(key);
+          return;
+        }
+      }
+      await rpc(capabilities.generationId, 'turn/interrupt', { threadId: input.threadId, turnId: input.turnId }, { traceIdentity: input.traceIdentity });
+    },
+    async respondToServerRequest(input) {
+      const generationId = currentGenerationId();
+      if (input.generationId !== generationId) throw managerError('ASTRAGIT_CODEX_STALE_GENERATION', 'Cannot respond to a server request from another generation.');
+      const key = serverRequestKey(generationId, input.requestId);
+      const request = serverRequests.get(key);
+      if (!request) throw managerError('ASTRAGIT_CODEX_SERVER_REQUEST_NOT_FOUND', 'Codex server request is not pending.');
+      if (request.state === 'conflicted') throw managerError('ASTRAGIT_CODEX_SERVER_REQUEST_IDENTITY_CONFLICT', 'Codex server request identity is conflicted.');
+      if (request.state !== 'pending') throw managerError('ASTRAGIT_CODEX_SERVER_REQUEST_NOT_FOUND', 'Codex server request is not pending.');
+      const expectedMethod = serverMethodForResponse(input.type);
+      if (request.method !== expectedMethod) throw managerError('ASTRAGIT_CODEX_SERVER_REQUEST_TYPE_MISMATCH', `Expected ${request.method}, received ${input.type}.`);
+      validateServerResponse(input);
+      let result: Record<string, unknown>;
+      switch (input.type) {
+        case 'command':
+        case 'file':
+          result = { decision: input.decision };
+          break;
+        case 'permissions':
+          result = compactObject({ permissions: input.permissions, scope: input.scope, strictAutoReview: input.strictAutoReview });
+          break;
+        case 'request_user_input':
+          result = { answers: input.answers };
+          break;
+        case 'mcp':
+          result = { action: input.action, content: input.content, _meta: input._meta };
+          break;
+        case 'dynamic_tool':
+          result = { contentItems: input.contentItems, success: input.success };
+          break;
+      }
+      write({ id: input.requestId, result });
+      request.state = 'responded';
+    },
+    async readRemoteControlStatus() {
+      const capabilities = await awaitCapabilities();
+      return parseRemoteControlStatus(await retryableReadRpc(capabilities.generationId, 'remoteControl/status/read', undefined));
+    },
+    async enableRemoteControl(input = {}) {
+      const capabilities = await awaitCapabilities();
+      const status = parseRemoteControlStatus(await rpc(capabilities.generationId, 'remoteControl/enable', compactObject({ ephemeral: input.ephemeral })));
+      remoteControlEnabled = true;
+      return status;
+    },
+    async disableRemoteControl(input = {}) {
+      const capabilities = await awaitCapabilities();
+      const status = parseRemoteControlStatus(await rpc(capabilities.generationId, 'remoteControl/disable', compactObject({ ephemeral: input.ephemeral })));
+      remoteControlEnabled = false;
+      return status;
+    },
+    async startRemoteControlPairing(input = {}) {
+      const capabilities = await awaitCapabilities();
+      return parseRemoteControlPairing(await rpc(capabilities.generationId, 'remoteControl/pairing/start', compactObject({ manualCode: input.manualCode })));
+    },
+    async readRemoteControlPairingStatus(input) {
+      const capabilities = await awaitCapabilities();
+      const response = asRecord(await retryableReadRpc(capabilities.generationId, 'remoteControl/pairing/status', compactObject(input)));
+      if (typeof response.claimed !== 'boolean') throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex remote pairing status omitted claimed.');
+      return { claimed: response.claimed };
+    },
+    async listRemoteControlClients(input) {
+      const capabilities = await awaitCapabilities();
+      return parseRemoteControlClients(await retryableReadRpc(capabilities.generationId, 'remoteControl/client/list', compactObject(input)));
+    },
+    async revokeRemoteControlClient(input) {
+      const capabilities = await awaitCapabilities();
+      await rpc(capabilities.generationId, 'remoteControl/client/revoke', input);
+    },
+    async detectExternalAgentConfig(input = {}) {
+      const capabilities = await awaitCapabilities();
+      return parseExternalAgentConfigDetectResponse(
+        await retryableReadRpc(
+          capabilities.generationId,
+          'externalAgentConfig/detect',
+          compactObject({
+            includeHome: input.includeHome,
+            cwds: input.cwds,
+            source: input.source,
+            migrationSource: input.migrationSource,
+          }),
+        ),
+      );
+    },
+    async startExternalAgentImport(input) {
+      const capabilities = await awaitCapabilities();
+      return parseExternalAgentConfigImportResponse(await rpc(capabilities.generationId, 'externalAgentConfig/import', input));
+    },
+    async readExternalAgentImportHistories() {
+      const capabilities = await awaitCapabilities();
+      return parseExternalAgentConfigImportHistoriesResponse(await retryableReadRpc(capabilities.generationId, 'externalAgentConfig/import/readHistories', {})).data;
+    },
+    subscribeExternalAgentImport(listener) {
+      externalAgentImportListeners.add(listener);
+      return () => externalAgentImportListeners.delete(listener);
+    },
+    subscribeRpcRetries(listener) {
+      rpcRetryListeners.add(listener);
+      return () => rpcRetryListeners.delete(listener);
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      for (const event of eventReplayBuffer) {
+        try {
+          const delivery = listener(event);
+          if (delivery && typeof delivery.then === 'function') applyEventDeliveryBackpressure(event.generationId, [delivery]);
+        } catch {
+          // 回放消费者异常与实时消费者一样隔离。
+        }
+      }
+      return () => listeners.delete(listener);
+    },
+    getState() {
+      return state;
+    },
+    hasGeneration(generationId) {
+      return state.type !== 'idle' && state.type !== 'closed' && state.generationId === generationId;
+    },
+    capabilitiesForGeneration(generationId) {
+      return state.type === 'ready' && state.generationId === generationId ? state.capabilities : null;
+    },
+    generationForThread() {
+      return state.type === 'idle' || state.type === 'closed' ? null : state.generationId;
+    },
+    listRuntimeGenerations() {
+      if (state.type === 'idle' || state.type === 'closed' || commandPath === null) return [];
+      return [
+        {
+          generationId: state.generationId,
+          commandPath,
+          state: state.type,
+          active: true,
+          activeThreadCount: 0,
+          pendingRequestCount: serverRequests.size,
+        },
+      ];
+    },
+    async prepareForShutdown() {
+      preparingForShutdown = true;
+      if (restartTimer) {
+        clearTimeout(restartTimer);
+        restartTimer = null;
+      }
+      rejectScheduledRestart?.(managerError('ASTRAGIT_CODEX_CLOSED', 'Codex app-server manager is closing.'));
+      rejectScheduledRestart = null;
+    },
+    close() {
+      if (closePromise) return closePromise;
+      closePromise = (async () => {
+        preparingForShutdown = true;
+        if (restartTimer) {
+          clearTimeout(restartTimer);
+          restartTimer = null;
+        }
+        rejectScheduledRestart?.(managerError('ASTRAGIT_CODEX_CLOSED', 'Codex app-server manager closed.'));
+        rejectScheduledRestart = null;
+        const process = child;
+        const previousGeneration = state.type === 'idle' || state.type === 'closed' ? null : state.generationId;
+        state = { type: 'closed' };
+        if (previousGeneration) rejectGeneration(previousGeneration, managerError('ASTRAGIT_CODEX_CLOSED', 'Codex app-server manager closed.'));
+        if (process) await terminateProcess(process);
+        if (child === process) child = null;
+        listeners.clear();
+        externalAgentImportListeners.clear();
+        rpcRetryListeners.clear();
+        eventReplayBuffer.length = 0;
+        chatGptLoginStatuses.clear();
+        serverRequests.clear();
+        pendingInterrupts.clear();
+        startedTurns.clear();
+        accountReadInFlight.clear();
+        accountRateLimitsReadInFlight.clear();
+        accountUsageReadInFlight.clear();
+        lastAccountSnapshot = null;
+        lastAccountRateLimitsSnapshot = null;
+        lastAccountUsageSnapshot = null;
+      })();
+      return closePromise;
+    },
+  };
+}
+
+function spawnNodeCodexAppServer(command: string, args: string[], options?: CodexAppServerSpawnOptions): CodexAppServerProcess {
+  const child = nodeSpawn(command, args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: options?.env });
+  return child as unknown as CodexAppServerProcess;
+}
+
+/**
+ * 连接官方 Remote Control 守护进程，并把 WebSocket 文本帧适配为现有 JSONL 传输。
+ * 守护进程由官方 CLI 管理；AstraGit 退出只断开自己的控制连接，不擅自停止用户已启用的远程宿主。
+ */
+function spawnRemoteControlCodexAppServer(command: string, options: CodexAppServerSpawnOptions): CodexAppServerProcess {
+  const stdout = new EventEmitter() as CodexAppServerReadable;
+  const stderr = new EventEmitter() as CodexAppServerReadable;
+  const lifecycle = new EventEmitter();
+  const pendingMessages: string[] = [];
+  let inputBuffer = '';
+  let socket: WebSocket | null = null;
+  let deliveryPaused = false;
+  let stopping = false;
+  let exited = false;
+
+  stdout.pause = () => {
+    deliveryPaused = true;
+    socket?.pause();
+  };
+  stdout.resume = () => {
+    deliveryPaused = false;
+    socket?.resume();
+  };
+
+  function finishExit(code: number | null, signal: NodeJS.Signals | null): void {
+    if (exited) return;
+    exited = true;
+    lifecycle.emit('exit', code, signal);
+  }
+
+  function fail(error: Error): void {
+    if (stopping || exited) return;
+    (stderr as EventEmitter).emit('data', error.message);
+    lifecycle.emit('error', error);
+    finishExit(1, null);
+  }
+
+  function sendMessage(message: string): void {
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(message);
+      return;
+    }
+    pendingMessages.push(message);
+  }
+
+  const processAdapter: CodexAppServerProcess = {
+    // 守护进程由官方 CLI 管理，AstraGit 只持有 WebSocket，不能把自身 PID 伪装成 Codex 子进程。
+    stdin: {
+      write(chunk) {
+        inputBuffer += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8');
+        const lines = inputBuffer.split('\n');
+        inputBuffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (line.trim()) sendMessage(line);
+        }
+        return true;
+      },
+    },
+    stdout,
+    stderr,
+    on(event, listener) {
+      lifecycle.on(event, listener);
+      return this;
+    },
+    kill(signal = 'SIGTERM') {
+      if (stopping || exited) return false;
+      stopping = true;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close(1000, 'AstraGit transport closed');
+        const forceClose = setTimeout(() => socket?.terminate(), 500);
+        forceClose.unref();
+      } else {
+        socket?.terminate();
+        finishExit(null, signal);
+      }
+      return true;
+    },
+  };
+
+  void (async () => {
+    const daemon = await startRemoteControlDaemon(command, options.env, (chunk) => (stderr as EventEmitter).emit('data', chunk));
+    if (stopping || exited) return;
+    socket = new WebSocket('ws://localhost/rpc', {
+      createConnection: () => createConnection({ path: daemon.socketPath }),
+      perMessageDeflate: false,
+      maxPayload: codexMaximumFrameBytes,
+    });
+    socket.on('open', () => {
+      if (deliveryPaused) socket?.pause();
+      for (const message of pendingMessages.splice(0)) socket?.send(message);
+    });
+    socket.on('message', (data: RawData) => {
+      const text = rawWebSocketText(data);
+      if (text !== null) (stdout as EventEmitter).emit('data', Buffer.from(`${text}\n`, 'utf8'));
+    });
+    socket.on('error', (error) => fail(error instanceof Error ? error : new Error('Codex Remote Control WebSocket failed.')));
+    socket.on('close', () => finishExit(stopping ? null : 1, stopping ? 'SIGTERM' : null));
+  })().catch((error: unknown) => fail(asError(error)));
+
+  return processAdapter;
+}
+
+async function startRemoteControlDaemon(command: string, env: NodeJS.ProcessEnv, onStderr: (chunk: Buffer | string) => void): Promise<{ socketPath: string }> {
+  return new Promise((resolve, reject) => {
+    const child = nodeSpawn(command, ['remote-control', 'start', '--json'], { shell: false, stdio: ['ignore', 'pipe', 'pipe'], env });
+    let stdout = '';
+    let stderr = '';
+    const timeout = setTimeout(() => {
+      child.kill('SIGTERM');
+      reject(managerError('ASTRAGIT_CODEX_REMOTE_CONTROL_START_TIMEOUT', 'Codex Remote Control 守护进程启动超时。'));
+    }, 30_000);
+    timeout.unref();
+    child.stdout.on('data', (chunk: Buffer | string) => {
+      stdout += toBuffer(chunk).toString('utf8');
+    });
+    child.stderr.on('data', (chunk: Buffer | string) => {
+      stderr += toBuffer(chunk).toString('utf8');
+      onStderr(chunk);
+    });
+    child.once('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once('exit', (code, signal) => {
+      clearTimeout(timeout);
+      if (code !== 0) {
+        const diagnostic = summarizeStderr(stderr);
+        reject(managerError('ASTRAGIT_CODEX_REMOTE_CONTROL_START_FAILED', `官方 Codex Remote Control 守护进程启动失败（${String(code ?? signal ?? 'unknown')}）：${diagnostic || '没有返回诊断信息'}。请确认 AstraGit 使用官方独立安装版 Codex CLI。`));
+        return;
+      }
+      try {
+        const result = parseLastJsonObject(stdout);
+        const daemon = asRecord(result.daemon);
+        const socketPath = typeof daemon.socketPath === 'string' ? daemon.socketPath : null;
+        if (!socketPath || !isAbsolute(socketPath)) throw new Error('启动结果没有返回绝对控制套接字路径。');
+        resolve({ socketPath });
+      } catch (error) {
+        reject(managerError('ASTRAGIT_CODEX_REMOTE_CONTROL_START_INVALID', `无法读取 Codex Remote Control 启动结果：${asError(error).message}`));
+      }
+    });
+  });
+}
+
+function rawWebSocketText(data: RawData): string | null {
+  if (typeof data === 'string') return data;
+  if (Buffer.isBuffer(data)) return data.toString('utf8');
+  if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8');
+  return null;
+}
+
+function parseLastJsonObject(value: string): Record<string, unknown> {
+  const lines = value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    try {
+      return asRecord(JSON.parse(lines[index]!));
+    } catch {
+      // 官方 CLI 可能在 JSON 前输出升级提示，只取最后一个有效 JSON 对象。
+    }
+  }
+  throw new Error('Codex CLI 没有返回 JSON 启动结果。');
+}
+
+function codexRemoteControlRecoveryGuidance(env: NodeJS.ProcessEnv): string {
+  const codexHome = env.CODEX_HOME?.trim();
+  if (!codexHome || !isAbsolute(codexHome)) {
+    return '请运行官方安装命令 curl -fsSL https://chatgpt.com/codex/install.sh | sh，完成登录后在 AstraGit 设置中重新检测；AstraGit 不会自动安装或使用内置回退。';
+  }
+  const installDirectory = join(codexHome, 'bin');
+  const installCommand = `curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_HOME=${quotePosixShellArgument(codexHome)} CODEX_INSTALL_DIR=${quotePosixShellArgument(installDirectory)} sh`;
+  return `默认安装到其他 CODEX_HOME 不能修复 AstraGit 的独立运行目录。请运行 ${installCommand}，完成 AstraGit 专属 Codex 登录后在设置中重新检测；AstraGit 不会自动安装或使用内置回退。`;
+}
+
+function quotePosixShellArgument(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function parseModels(value: unknown): CodexModelCapability[] {
+  const response = asRecord(value);
+  if (!Array.isArray(response.data)) throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex model/list response omitted data.');
+  return response.data.map((entry) => {
+    const model = asRecord(entry);
+    if (typeof model.id !== 'string' || typeof model.model !== 'string') throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex model/list returned an invalid model.');
+    const effortEntries = Array.isArray(model.supportedReasoningEfforts) ? model.supportedReasoningEfforts : [];
+    const supportedReasoningEfforts = effortEntries.map((effort) => (isRecord(effort) && typeof effort.reasoningEffort === 'string' ? effort.reasoningEffort : null)).filter((effort): effort is string => effort !== null);
+    const serviceTierEntries = model.serviceTiers === undefined ? [] : model.serviceTiers;
+    if (!Array.isArray(serviceTierEntries)) throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex model/list returned invalid service tiers.');
+    const serviceTiers = serviceTierEntries.map((entry) => {
+      if (!isRecord(entry) || typeof entry.id !== 'string' || !entry.id || typeof entry.name !== 'string' || !entry.name || typeof entry.description !== 'string') {
+        throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex model/list returned an invalid service tier.');
+      }
+      return { id: entry.id, name: entry.name, description: entry.description };
+    });
+    return {
+      id: model.id,
+      model: model.model,
+      ...(typeof model.displayName === 'string' ? { displayName: model.displayName } : {}),
+      supportedReasoningEfforts,
+      ...(typeof model.defaultReasoningEffort === 'string' ? { defaultReasoningEffort: model.defaultReasoningEffort } : {}),
+      serviceTiers,
+      ...(typeof model.defaultServiceTier === 'string' || model.defaultServiceTier === null ? { defaultServiceTier: model.defaultServiceTier } : {}),
+      raw: model,
+    };
+  });
+}
+
+function parseSkillsList(value: unknown): CodexSkillsListEntry[] {
+  const response = asRecord(value);
+  if (!Array.isArray(response.data)) throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex skills/list response omitted data.');
+  return response.data.map((rawEntry) => {
+    const entry = asRecord(rawEntry);
+    if (typeof entry.cwd !== 'string' || !Array.isArray(entry.skills) || !Array.isArray(entry.errors)) {
+      throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex skills/list returned an invalid entry.');
+    }
+    const skills = entry.skills.map((rawSkill) => {
+      const skill = asRecord(rawSkill);
+      if (
+        typeof skill.name !== 'string' ||
+        typeof skill.description !== 'string' ||
+        typeof skill.path !== 'string' ||
+        !isAbsolute(skill.path) ||
+        (skill.scope !== 'user' && skill.scope !== 'repo' && skill.scope !== 'system' && skill.scope !== 'admin') ||
+        typeof skill.enabled !== 'boolean'
+      ) {
+        throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex skills/list returned invalid skill metadata.');
+      }
+      const scope: CodexSkillScope = skill.scope;
+      return {
+        name: skill.name,
+        description: skill.description,
+        ...(typeof skill.shortDescription === 'string' ? { shortDescription: skill.shortDescription } : {}),
+        path: skill.path,
+        scope,
+        enabled: skill.enabled,
+        ...(isRecord(skill.interface) ? { interface: skill.interface } : {}),
+        ...(isRecord(skill.dependencies) ? { dependencies: skill.dependencies } : {}),
+      };
+    });
+    const errors = entry.errors.map((error) => asRecord(error));
+    return { cwd: entry.cwd, skills, errors };
+  });
+}
+
+function validateServiceTier(model: CodexModelCapability, serviceTier: string | null | undefined): void {
+  if (serviceTier === undefined || serviceTier === null) return;
+  if (model.serviceTiers.some((tier) => tier.id === serviceTier)) return;
+  throw Object.assign(new Error(`Configured Codex service tier is unavailable: ${serviceTier}`), {
+    code: 'ASTRAGIT_CODEX_SERVICE_TIER_UNAVAILABLE',
+    supportedServiceTiers: model.serviceTiers.map((tier) => tier.id),
+  });
+}
+
+/** 把产品层协作模式转换成 Codex app-server 接受的线协议取值。 */
+function toCodexWireCollaborationMode(collaborationMode: CodexCollaborationMode): CodexCollaborationMode {
+  return {
+    ...collaborationMode,
+    settings: {
+      ...collaborationMode.settings,
+      reasoning_effort: toCodexWireReasoningEffort(collaborationMode.settings.reasoning_effort) ?? null,
+    },
+  };
+}
+
+/** 只接收 Provider 明确报告的协作模式，不根据开发者指令内容反推。 */
+function providerCollaborationMode(response: Record<string, unknown>): 'plan' | 'default' | undefined {
+  /** thread/start 与 thread/resume 都把有效协作模式放在顶层配置字段。 */
+  const collaborationMode = isRecord(response.collaborationMode) ? response.collaborationMode : null;
+  if (!collaborationMode) return undefined;
+  return collaborationMode.mode === 'plan' || collaborationMode.mode === 'default' ? collaborationMode.mode : undefined;
+}
+
+function attachThreadProviderSettings(thread: CodexThreadSnapshot, generationId: string, response: Record<string, unknown>, model: string): CodexThreadSnapshot {
+  const effort = typeof response.effort === 'string' ? response.effort : typeof response.reasoningEffort === 'string' ? response.reasoningEffort : undefined;
+  const hasServiceTier = Object.prototype.hasOwnProperty.call(response, 'serviceTier');
+  const serviceTier = typeof response.serviceTier === 'string' || response.serviceTier === null ? response.serviceTier : undefined;
+  const collaborationMode = providerCollaborationMode(response);
+  return {
+    ...thread,
+    providerSettings: {
+      generationId,
+      sequence: 0,
+      model,
+      ...(effort ? { effort } : {}),
+      ...(hasServiceTier && serviceTier !== undefined ? { serviceTier } : {}),
+      ...(collaborationMode ? { collaborationMode } : {}),
+    },
+  };
+}
+
+function parseThread(value: unknown): CodexThreadSnapshot {
+  const thread = asRecord(value);
+  if (typeof thread.id !== 'string') throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex thread response omitted id.');
+  const status = parseThreadRuntimeStatus(thread.status);
+  return { ...thread, id: thread.id, ...(status ? { status } : {}) };
+}
+
+function parseThreadRuntimeStatus(value: unknown): CodexThreadRuntimeStatus | undefined {
+  if (value === undefined) return undefined;
+  const status = asRecord(value);
+  if (status.type === 'notLoaded' || status.type === 'idle') return { type: status.type };
+  if (status.type === 'systemError') return { ...status, type: 'systemError' };
+  if (status.type === 'active' && Array.isArray(status.activeFlags) && status.activeFlags.every((flag) => typeof flag === 'string')) {
+    return { type: 'active', activeFlags: [...status.activeFlags] };
+  }
+  throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex thread response returned an unknown runtime status.');
+}
+
+function parseTurn(value: unknown, threadId: string): CodexTurnSnapshot {
+  const turn = asRecord(value);
+  if (typeof turn.id !== 'string') throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex turn response omitted id.');
+  return { ...turn, id: turn.id, threadId };
+}
+
+function assertGoalsEnabled(capabilities: CodexCapabilitiesSnapshot): void {
+  if (capabilities.goals.supported && capabilities.goals.enabled) return;
+  throw managerError('ASTRAGIT_CODEX_GOALS_UNAVAILABLE', '当前 Codex app-server 未启用原生目标能力。');
+}
+
+function validateGoalObjective(objective: string): void {
+  const normalized = objective.trim();
+  if (!normalized || [...normalized].length > 4_000) {
+    throw managerError('ASTRAGIT_CODEX_GOAL_OBJECTIVE_INVALID', '目标必须为 1 到 4000 个字符。');
+  }
+}
+
+function parseThreadGoal(value: unknown): CodexThreadGoal {
+  const goal = asRecord(value);
+  const statuses: readonly CodexThreadGoalStatus[] = ['active', 'paused', 'blocked', 'usageLimited', 'budgetLimited', 'complete'];
+  if (
+    typeof goal.threadId !== 'string' ||
+    typeof goal.objective !== 'string' ||
+    !statuses.includes(goal.status as CodexThreadGoalStatus) ||
+    (goal.tokenBudget !== null && (!Number.isSafeInteger(goal.tokenBudget) || Number(goal.tokenBudget) <= 0)) ||
+    !Number.isSafeInteger(goal.tokensUsed) ||
+    Number(goal.tokensUsed) < 0 ||
+    typeof goal.timeUsedSeconds !== 'number' ||
+    !Number.isFinite(goal.timeUsedSeconds) ||
+    Number(goal.timeUsedSeconds) < 0 ||
+    typeof goal.createdAt !== 'number' ||
+    typeof goal.updatedAt !== 'number'
+  ) {
+    throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex thread goal response is invalid.');
+  }
+  return {
+    threadId: goal.threadId,
+    objective: goal.objective,
+    status: goal.status as CodexThreadGoalStatus,
+    tokenBudget: goal.tokenBudget === null ? null : Number(goal.tokenBudget),
+    tokensUsed: Number(goal.tokensUsed),
+    timeUsedSeconds: Number(goal.timeUsedSeconds),
+    createdAt: goal.createdAt,
+    updatedAt: goal.updatedAt,
+  };
+}
+
+function parseAccountSnapshot(value: unknown, generationId: string, accountFingerprintSalt: string): CodexAccountSnapshot {
+  const response = asRecord(value);
+  if (typeof response.requiresOpenaiAuth !== 'boolean') {
+    throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex account/read response omitted requiresOpenaiAuth.');
+  }
+  if (response.account !== null && !isRecord(response.account)) {
+    throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex account/read returned an invalid account.');
+  }
+  const account = isRecord(response.account) ? response.account : null;
+  const accountType = account && typeof account.type === 'string' ? account.type : null;
+  const planType = account && typeof account.planType === 'string' ? account.planType : null;
+  const identity = accountType === 'chatgpt' && account && typeof account.email === 'string' ? account.email.trim().toLowerCase() : (accountType ?? 'signed-out');
+  return {
+    generationId,
+    requiresOpenaiAuth: response.requiresOpenaiAuth,
+    signedIn: account !== null,
+    accountType,
+    planType,
+    accountScopeId: createHash('sha256').update(`astragit:codex:account:${accountFingerprintSalt}:${identity}`).digest('hex'),
+  };
+}
+
+function parseAccountRateLimitsSnapshot(value: unknown, generationId: string): CodexAccountRateLimitsSnapshot {
+  const response = asRecord(value);
+  const rateLimits = parseRateLimitBucket(response.rateLimits);
+  let rateLimitsByLimitId: Record<string, CodexRateLimitBucketSnapshot> | null = null;
+  if (response.rateLimitsByLimitId !== null && response.rateLimitsByLimitId !== undefined) {
+    const buckets = asRecord(response.rateLimitsByLimitId);
+    rateLimitsByLimitId = Object.fromEntries(Object.entries(buckets).map(([limitId, bucket]) => [limitId, parseRateLimitBucket(bucket)]));
+  }
+  return { generationId, rateLimits, rateLimitsByLimitId };
+}
+
+function parseRateLimitBucket(value: unknown): CodexRateLimitBucketSnapshot {
+  const bucket = asRecord(value);
+  return {
+    limitId: nullableString(bucket.limitId),
+    limitName: nullableString(bucket.limitName),
+    primary: parseRateLimitWindow(bucket.primary),
+    secondary: parseRateLimitWindow(bucket.secondary),
+    credits: parseRateLimitCredits(bucket.credits),
+    planType: nullableString(bucket.planType),
+  };
+}
+
+function parseRateLimitWindow(value: unknown): CodexRateLimitWindowSnapshot | null {
+  if (value === null || value === undefined) return null;
+  const window = asRecord(value);
+  return {
+    usedPercent: nonNegativeNumber(window.usedPercent, 'rate limit usedPercent'),
+    windowDurationMins: nullableNonNegativeNumber(window.windowDurationMins, 'rate limit windowDurationMins'),
+    resetsAt: nullableNonNegativeNumber(window.resetsAt, 'rate limit resetsAt'),
+  };
+}
+
+function parseRateLimitCredits(value: unknown): CodexRateLimitBucketSnapshot['credits'] {
+  if (value === null || value === undefined) return null;
+  const credits = asRecord(value);
+  if (typeof credits.hasCredits !== 'boolean' || typeof credits.unlimited !== 'boolean' || (credits.balance !== null && typeof credits.balance !== 'string')) {
+    throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex rate limits returned invalid credits.');
+  }
+  return { hasCredits: credits.hasCredits, unlimited: credits.unlimited, balance: credits.balance };
+}
+
+function parseAccountUsageSnapshot(value: unknown, generationId: string): CodexAccountUsageSnapshot {
+  const response = asRecord(value);
+  const summary = asRecord(response.summary);
+  let dailyUsageBuckets: CodexAccountUsageSnapshot['dailyUsageBuckets'] = null;
+  if (response.dailyUsageBuckets !== null && response.dailyUsageBuckets !== undefined) {
+    if (!Array.isArray(response.dailyUsageBuckets)) throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex account usage returned invalid daily buckets.');
+    dailyUsageBuckets = response.dailyUsageBuckets.map((entry) => {
+      const bucket = asRecord(entry);
+      if (typeof bucket.startDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(bucket.startDate)) {
+        throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex account usage returned an invalid bucket date.');
+      }
+      return { startDate: bucket.startDate, tokens: nonNegativeSafeInteger(bucket.tokens, 'daily usage tokens') };
+    });
+  }
+  return {
+    generationId,
+    summary: {
+      lifetimeTokens: nullableNonNegativeSafeInteger(summary.lifetimeTokens, 'lifetime tokens'),
+      peakDailyTokens: nullableNonNegativeSafeInteger(summary.peakDailyTokens, 'peak daily tokens'),
+      longestRunningTurnSec: nullableNonNegativeSafeInteger(summary.longestRunningTurnSec, 'longest running turn'),
+      currentStreakDays: nullableNonNegativeSafeInteger(summary.currentStreakDays, 'current streak'),
+      longestStreakDays: nullableNonNegativeSafeInteger(summary.longestStreakDays, 'longest streak'),
+    },
+    dailyUsageBuckets,
+  };
+}
+
+function nullableString(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex response returned an invalid string field.');
+  return value;
+}
+
+function nonNegativeNumber(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', `Codex response returned invalid ${label}.`);
+  return value;
+}
+
+function nullableNonNegativeNumber(value: unknown, label: string): number | null {
+  if (value === null || value === undefined) return null;
+  return nonNegativeNumber(value, label);
+}
+
+function nonNegativeSafeInteger(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', `Codex response returned invalid ${label}.`);
+  return value;
+}
+
+function nullableNonNegativeSafeInteger(value: unknown, label: string): number | null {
+  if (value === null || value === undefined) return null;
+  return nonNegativeSafeInteger(value, label);
+}
+
+function parseChatGptLogin(value: unknown, generationId: string): CodexChatGptLogin {
+  const response = asRecord(value);
+  if (response.type !== 'chatgpt' || typeof response.loginId !== 'string' || !response.loginId || typeof response.authUrl !== 'string') {
+    throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex account/login/start returned an invalid account login.');
+  }
+  let authUrl: URL;
+  try {
+    authUrl = new URL(response.authUrl);
+  } catch {
+    throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex account/login/start returned an invalid login URL.');
+  }
+  if (authUrl.protocol !== 'https:') {
+    throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex account/login/start returned a non-HTTPS login URL.');
+  }
+  return {
+    generationId,
+    loginId: response.loginId,
+    authUrl: authUrl.href,
+  };
+}
+
+function parseRemoteControlStatus(value: unknown): CodexRemoteControlStatus {
+  const response = asRecord(value);
+  if (!['disabled', 'connecting', 'connected', 'errored'].includes(String(response.status))) {
+    throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex remote control returned an invalid status.');
+  }
+  if (typeof response.serverName !== 'string' || typeof response.installationId !== 'string' || (response.environmentId !== null && typeof response.environmentId !== 'string')) {
+    throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex remote control returned an invalid identity.');
+  }
+  return {
+    status: response.status as CodexRemoteControlConnectionStatus,
+    serverName: response.serverName,
+    installationId: response.installationId,
+    environmentId: response.environmentId,
+  };
+}
+
+function parseRemoteControlPairing(value: unknown): CodexRemoteControlPairing {
+  const response = asRecord(value);
+  if (
+    typeof response.pairingCode !== 'string' ||
+    (response.manualPairingCode !== null && typeof response.manualPairingCode !== 'string') ||
+    typeof response.environmentId !== 'string' ||
+    typeof response.expiresAt !== 'number' ||
+    !Number.isSafeInteger(response.expiresAt)
+  ) {
+    throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex remote control returned invalid pairing data.');
+  }
+  return {
+    pairingCode: response.pairingCode,
+    manualPairingCode: response.manualPairingCode,
+    environmentId: response.environmentId,
+    expiresAt: response.expiresAt,
+  };
+}
+
+function parseRemoteControlClients(value: unknown): CodexRemoteControlClientsPage {
+  const response = asRecord(value);
+  if (!Array.isArray(response.data) || (response.nextCursor !== null && typeof response.nextCursor !== 'string')) {
+    throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex remote control returned an invalid client list.');
+  }
+  return {
+    data: response.data.map((value) => {
+      const client = asRecord(value);
+      if (typeof client.clientId !== 'string') throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex remote control returned an invalid client.');
+      for (const key of ['displayName', 'deviceType', 'platform', 'osVersion', 'deviceModel', 'appVersion'] as const) {
+        if (client[key] !== null && typeof client[key] !== 'string') throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex remote control returned invalid client metadata.');
+      }
+      if (client.lastSeenAt !== null && (typeof client.lastSeenAt !== 'number' || !Number.isSafeInteger(client.lastSeenAt))) {
+        throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex remote control returned an invalid client timestamp.');
+      }
+      return {
+        clientId: client.clientId,
+        displayName: client.displayName as string | null,
+        deviceType: client.deviceType as string | null,
+        platform: client.platform as string | null,
+        osVersion: client.osVersion as string | null,
+        deviceModel: client.deviceModel as string | null,
+        appVersion: client.appVersion as string | null,
+        lastSeenAt: client.lastSeenAt,
+      };
+    }),
+    nextCursor: response.nextCursor,
+  };
+}
+
+function normalizeThreadSandbox(sandbox: CodexSandboxPolicy): { mode: 'read-only' | 'workspace-write' | 'danger-full-access'; runtimeWorkspaceRoots?: string[] } {
+  if (!isRecord(sandbox)) throw managerError('ASTRAGIT_CODEX_SANDBOX_UNAVAILABLE', 'Codex sandbox is invalid.');
+  if (sandbox.type === 'readOnly' && sandbox.networkAccess === false) return { mode: 'read-only' };
+  if (sandbox.type === 'dangerFullAccess' && Object.keys(sandbox).length === 1) return { mode: 'danger-full-access' };
+  if (sandbox.type === 'workspaceWrite' && sandbox.networkAccess === false && validWritableRoots(sandbox.writableRoots)) {
+    return { mode: 'workspace-write', runtimeWorkspaceRoots: [...sandbox.writableRoots] };
+  }
+  throw managerError('ASTRAGIT_CODEX_SANDBOX_UNAVAILABLE', 'Codex sandbox must be read-only, workspace-write, or danger-full-access.');
+}
+
+/** 每轮明确收回临时目录的隐式写权限，工作区授权只来自提交快照。 */
+function normalizeTurnSandbox(sandbox: CodexSandboxPolicy): Record<string, unknown> {
+  if (!isRecord(sandbox)) throw managerError('ASTRAGIT_CODEX_SANDBOX_UNAVAILABLE', 'Codex sandbox is invalid.');
+  if (sandbox.type === 'readOnly' && sandbox.networkAccess === false) return { type: 'readOnly', networkAccess: false };
+  if (sandbox.type === 'dangerFullAccess' && Object.keys(sandbox).length === 1) return { type: 'dangerFullAccess' };
+  if (sandbox.type === 'workspaceWrite' && sandbox.networkAccess === false && validWritableRoots(sandbox.writableRoots)) {
+    return {
+      type: 'workspaceWrite',
+      writableRoots: [...sandbox.writableRoots],
+      networkAccess: false,
+      excludeTmpdirEnvVar: true,
+      excludeSlashTmp: true,
+    };
+  }
+  throw managerError('ASTRAGIT_CODEX_SANDBOX_UNAVAILABLE', 'Codex sandbox must be read-only, workspace-write, or danger-full-access.');
+}
+
+function validWritableRoots(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.every((root) => typeof root === 'string' && isAbsolute(root));
+}
+
+function validateServerResponse(input: CodexServerRequestResponse): void {
+  if (input.type === 'command') {
+    if (!isCommandApprovalDecision(input.decision)) throw managerError('ASTRAGIT_CODEX_SERVER_RESPONSE_INVALID', 'Codex command approval decision is invalid.');
+    return;
+  }
+  if (input.type === 'file') {
+    if (!['accept', 'acceptForSession', 'decline', 'cancel'].includes(input.decision)) throw managerError('ASTRAGIT_CODEX_SERVER_RESPONSE_INVALID', 'Codex file approval decision is invalid.');
+    return;
+  }
+  if (input.type === 'permissions') {
+    if ((input.scope !== 'turn' && input.scope !== 'session') || !isPermissionProfile(input.permissions) || (input.strictAutoReview !== undefined && typeof input.strictAutoReview !== 'boolean')) {
+      throw managerError('ASTRAGIT_CODEX_SERVER_RESPONSE_INVALID', 'Codex permissions response is invalid.');
+    }
+    return;
+  }
+  if (input.type === 'request_user_input') {
+    if (!isRecord(input.answers) || !Object.values(input.answers).every((answer) => isRecord(answer) && Array.isArray(answer.answers) && answer.answers.every((entry) => typeof entry === 'string'))) {
+      throw managerError('ASTRAGIT_CODEX_SERVER_RESPONSE_INVALID', 'Codex request_user_input response is invalid.');
+    }
+    return;
+  }
+  if (input.type === 'dynamic_tool') {
+    if (
+      typeof input.success !== 'boolean' ||
+      !Array.isArray(input.contentItems) ||
+      !input.contentItems.every((item) => (item.type === 'inputText' && typeof item.text === 'string') || (item.type === 'inputImage' && typeof item.imageUrl === 'string' && item.imageUrl.startsWith('data:image/')))
+    ) {
+      throw managerError('ASTRAGIT_CODEX_SERVER_RESPONSE_INVALID', 'Codex dynamic tool response is invalid.');
+    }
+    return;
+  }
+  if (!['accept', 'decline', 'cancel'].includes(input.action) || !isJsonValue(input.content) || !isJsonValue(input._meta)) {
+    throw managerError('ASTRAGIT_CODEX_SERVER_RESPONSE_INVALID', 'Codex MCP response is invalid.');
+  }
+}
+
+function isCommandApprovalDecision(value: unknown): value is CodexCommandApprovalDecision {
+  if (typeof value === 'string') return ['accept', 'acceptForSession', 'decline', 'cancel'].includes(value);
+  if (!isRecord(value) || !hasOnlyKeys(value, ['acceptWithExecpolicyAmendment'])) return false;
+  const amendment = value.acceptWithExecpolicyAmendment;
+  return (
+    isRecord(amendment) &&
+    hasOnlyKeys(amendment, ['execpolicy_amendment']) &&
+    Array.isArray(amendment.execpolicy_amendment) &&
+    amendment.execpolicy_amendment.length > 0 &&
+    amendment.execpolicy_amendment.every((entry) => typeof entry === 'string' && entry.length > 0)
+  );
+}
+
+function isPermissionProfile(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (!hasOnlyKeys(value, ['network', 'fileSystem'])) return false;
+  if (value.network !== undefined && (!isRecord(value.network) || !hasOnlyKeys(value.network, ['enabled']))) return false;
+  if (value.network !== undefined && (!isRecord(value.network) || (value.network.enabled !== null && typeof value.network.enabled !== 'boolean'))) return false;
+  if (value.fileSystem !== undefined) {
+    if (!isRecord(value.fileSystem)) return false;
+    if (!hasOnlyKeys(value.fileSystem, ['read', 'write', 'globScanMaxDepth'])) return false;
+    for (const field of ['read', 'write'] as const) {
+      const entries = value.fileSystem[field];
+      if (entries !== null && (!Array.isArray(entries) || !entries.every((entry) => typeof entry === 'string' && isAbsolute(entry)))) return false;
+    }
+    if (value.fileSystem.globScanMaxDepth !== undefined && (!Number.isInteger(value.fileSystem.globScanMaxDepth) || Number(value.fileSystem.globScanMaxDepth) < 0)) return false;
+  }
+  return true;
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return isRecord(value) && Object.values(value).every(isJsonValue);
+}
+
+function serverMethodForResponse(type: CodexServerRequestResponse['type']): string {
+  return {
+    command: 'item/commandExecution/requestApproval',
+    file: 'item/fileChange/requestApproval',
+    permissions: 'item/permissions/requestApproval',
+    request_user_input: 'item/tool/requestUserInput',
+    mcp: 'mcpServer/elicitation/request',
+    dynamic_tool: 'item/tool/call',
+  }[type];
+}
+
+const supportedServerRequestMethods = new Set([
+  'item/commandExecution/requestApproval',
+  'item/fileChange/requestApproval',
+  'item/permissions/requestApproval',
+  'item/tool/requestUserInput',
+  'mcpServer/elicitation/request',
+  'item/tool/call',
+]);
+
+function pendingKey(generationId: string, id: CodexWireId): string {
+  return `${generationId}\u0000${typeof id}:${String(id)}`;
+}
+
+function providerVersionFromInitialize(value: unknown): string | null {
+  const response = asRecord(value);
+  // 新版 app-server 的 initialize 响应可能只返回 userAgent/codexHome/platform，
+  // 不再保证携带旧版 serverInfo。版本字段缺失不能使已成功的握手失败。
+  const serverInfo = isRecord(response.serverInfo) ? response.serverInfo : {};
+  for (const candidate of [serverInfo.version, response.version]) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim().slice(0, 120);
+  }
+  if (typeof response.userAgent === 'string') {
+    const match = response.userAgent.match(/(?:^|\s|\/)(?:astragit|codex|codex-cli|codex\s+desktop)[/@]([A-Za-z0-9_.+-]{1,120})/iu);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+function normalizeProviderVersion(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim().slice(0, 120) : null;
+}
+
+function serverRequestKey(generationId: string, id: CodexWireId): string {
+  return pendingKey(generationId, id);
+}
+
+function turnKey(threadId: string, turnId: string): string {
+  return `${threadId}\u0000${turnId}`;
+}
+
+function compactObject<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
+}
+
+/** 提交前校验工具身份与协议长度，错误中保留工具组名称以便定位。 */
+function validateDynamicTools(specs: readonly CodexDynamicToolSpec[] | undefined): void {
+  const rootNames = new Set<string>();
+  for (const spec of specs ?? []) {
+    const name = spec.name.trim();
+    if (!name || rootNames.has(name)) throw managerError('ASTRAGIT_CODEX_DYNAMIC_TOOL_INVALID', `Codex dynamic tool root name is missing or duplicated: ${name || '<empty>'}.`);
+    rootNames.add(name);
+    if (spec.type === 'function') {
+      if (spec.deferLoading) throw managerError('ASTRAGIT_CODEX_DYNAMIC_TOOL_NAMESPACE_REQUIRED', `Deferred Codex dynamic tool must belong to a namespace: ${name}.`);
+      continue;
+    }
+    /** 按 Unicode 码点计数，与 Codex 的字符上限保持一致，不能使用 UTF-16 长度。 */
+    const descriptionLength = Array.from(spec.description).length;
+    if (descriptionLength > 1024) {
+      throw managerError('ASTRAGIT_CODEX_DYNAMIC_TOOL_INVALID', `工具组「${name}」的说明为 ${descriptionLength} 个字符，超过 1024 字符上限；请将完整规则放入具体工具说明。`);
+    }
+    const toolNames = new Set<string>();
+    for (const tool of spec.tools) {
+      const toolName = tool.name.trim();
+      if (!toolName || toolNames.has(toolName)) throw managerError('ASTRAGIT_CODEX_DYNAMIC_TOOL_INVALID', `Codex dynamic tool name is missing or duplicated in namespace ${name}: ${toolName || '<empty>'}.`);
+      toolNames.add(toolName);
+    }
+  }
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === undefined) return 'undefined';
+  if (value === null || typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (isRecord(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(String(value));
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) throw managerError('ASTRAGIT_CODEX_INVALID_RESPONSE', 'Codex app-server returned an invalid object.');
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function toBuffer(value: Buffer | string): Buffer {
+  return Buffer.isBuffer(value) ? value : Buffer.from(value);
+}
+
+function summarizeStderr(value: string): string {
+  return value
+    .replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/giu, '[REDACTED]')
+    .replace(/\bAuthorization\s*:\s*Bearer\s+[^\s]+/giu, 'Authorization: Bearer [REDACTED]')
+    .replace(/\bBearer\s+[^\s]+/giu, 'Bearer [REDACTED]')
+    .replace(/\b([A-Z0-9_.-]*(?:token|api[_-]?key|password|secret)[A-Z0-9_.-]*)\s*[:=]\s*([^\s,;]+)/giu, '$1=[REDACTED]')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 512);
+}
+
+function managerError(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code });
+}
+
+function isCodexRpcTimeout(error: unknown): boolean {
+  return !!error && typeof error === 'object' && 'code' in error && error.code === 'ASTRAGIT_CODEX_RPC_TIMEOUT';
+}
+
+function waitFor(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function resolveModelBudgetSnapshotAfterBoundedRetry(input: {
+  codexHome: string | null;
+  generationId: string;
+  initializedAt: string;
+  providerVersion: string | null;
+  models: readonly CodexModelCapability[];
+}): Promise<Readonly<Record<string, Readonly<CodexModelBudgetEvidence>>>> {
+  let budgets = resolveCodexModelBudgetSnapshot(input);
+  if (!input.codexHome || !input.providerVersion || input.models.length === 0 || input.models.every((model) => budgets[model.model])) return budgets;
+  for (const delayMs of [100, 400]) {
+    await waitFor(delayMs);
+    budgets = resolveCodexModelBudgetSnapshot(input);
+    if (input.models.every((model) => budgets[model.model])) break;
+  }
+  return budgets;
+}
+
+function isAccountReadTransportFailure(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('code' in error)) return false;
+  const code = error.code;
+  return (
+    code === 'ASTRAGIT_CODEX_RPC_TIMEOUT' ||
+    code === 'ASTRAGIT_CODEX_NOT_READY' ||
+    code === 'ASTRAGIT_CODEX_STALE_GENERATION' ||
+    code === 'ASTRAGIT_CODEX_GENERATION_EXITED' ||
+    code === 'EPIPE' ||
+    code === 'ECONNRESET' ||
+    code === 'ECONNREFUSED' ||
+    code === 'ETIMEDOUT'
+  );
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+/** 仅覆盖此线程的上下文窗口；默认不指定窗口或压缩设置。 */
+function contextCapacityConfig(value: number | null | undefined): Record<string, number | string> {
+  assertContextCapacity(value ?? null);
+  return value == null ? {} : { model_context_window: value };
+}

@@ -1,0 +1,110 @@
+name: AstraGit Release
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'skylight-f/AstraGit' && vars.ASTRAGIT_AUTO_RELEASE != 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.31.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify:publish
+  candidate:
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.candidate.outputs.ready }}
+      commit: ${{ steps.candidate.outputs.commit }}
+      tag: ${{ steps.candidate.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/prepare-automatic-release.mjs
+  build:
+    needs: candidate
+    if: needs.candidate.outputs.ready == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.candidate.outputs.commit }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.31.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm setup:desktop
+      - name: 构建并校验正式安装包
+        env:
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          REQUIRE_APPLE_DISTRIBUTION: ${{ vars.REQUIRE_APPLE_DISTRIBUTION }}
+        run: pnpm build:release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.arch }}
+          path: |
+            release/AstraGit-*-${{ matrix.arch }}.dmg
+            release/artifact-${{ matrix.arch }}.json
+          if-no-files-found: error
+  publish:
+    needs: [candidate, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.candidate.outputs.commit }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+      - name: 校验全部资产后公开发行
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.candidate.outputs.commit }}
+          RELEASE_TAG: ${{ needs.candidate.outputs.tag }}
+          REQUIRE_APPLE_DISTRIBUTION: ${{ vars.REQUIRE_APPLE_DISTRIBUTION }}
+        run: node scripts/publish-release.mjs
