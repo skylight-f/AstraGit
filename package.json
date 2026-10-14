@@ -1,6 +1,6 @@
 {
   "name": "astragit",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "description": "AstraGit 独立应用：Git 工作台 + AI 提交说明，不含会话",
