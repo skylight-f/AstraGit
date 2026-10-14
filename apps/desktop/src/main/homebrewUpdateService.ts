@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import { access, lstat, mkdir, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { homebrewCask, homebrewTap, releasePageUrl, type ReleaseUpdateProgress, type ReleaseUpdateStatus } from '@astragit/shared';
+import { homebrewCask, homebrewRepository, homebrewTap, releasePageUrl, type ReleaseUpdateProgress, type ReleaseUpdateStatus } from '@astragit/shared';
 import { execFile } from './releaseVerification.js';
 import { downloadVerifiedArtifact, verifyDownloadedArtifact } from './releaseArtifact.js';
 
@@ -35,6 +35,22 @@ export function createHomebrewUpdateService(options: { appPath: string; version:
     return null;
   }
   async function inspect(brew: string) { return parseHomebrewCask(JSON.parse((await run(brew, ['info', '--cask', '--json=v2', homebrewCask])).stdout)); }
+  async function refreshTap(brew: string) {
+    const directory = (await run(brew, ['--repo', homebrewTap])).stdout.trim();
+    if (!isAbsolute(directory)) throw new Error('Homebrew Tap 目录无效。');
+    const git = (args: string[], timeout = 20_000) => execFile('git', ['-C', directory, ...args], { timeout, maxBuffer: 1024 ** 2, env: { ...environment(), GIT_TERMINAL_PROMPT: '0', GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o ConnectTimeout=15' } });
+    const [origin, branch, status] = await Promise.all([git(['remote', 'get-url', 'origin']), git(['branch', '--show-current']), git(['status', '--porcelain'])]);
+    if (![ `https://github.com/${homebrewRepository}`, `https://github.com/${homebrewRepository}.git`, `git@github.com:${homebrewRepository}.git` ].includes(origin.stdout.trim()) || branch.stdout.trim() !== 'main' || status.stdout.trim()) throw new Error('Homebrew Tap 来源、分支或本地改动不允许自动同步。');
+    // 只快进本应用所在的 Tap，不因其他 Tap 的网络故障阻断 AstraGit。
+    try { await git(['fetch', 'origin', 'main']); }
+    catch (error) {
+      const failure = error as NodeJS.ErrnoException & { stderr?: string; killed?: boolean };
+      if (!failure.killed && !/Failed to connect|Could not resolve|Connection (?:reset|timed out)|network is unreachable/iu.test(failure.stderr ?? '')) throw error;
+      // 网络不可达时使用已有 SSH 身份；不改写 remote，也不跳过主机或 TLS 校验。
+      await git(['fetch', `git@github.com:${homebrewRepository}.git`, 'main']);
+    }
+    await git(['merge', '--ff-only', 'FETCH_HEAD']);
+  }
   async function managed(cask: HomebrewCaskInfo) {
     if (!cask.installedVersion) throw new Error('Homebrew 未登记已安装的 AstraGit，不能接管当前应用。');
     if (cask.appTarget !== appPath || await realpath(cask.appTarget) !== await realpath(appPath)) throw new Error('Homebrew 管理的是另一个 AstraGit 安装位置，请从该位置启动。');
@@ -54,7 +70,7 @@ export function createHomebrewUpdateService(options: { appPath: string; version:
       let cask = await inspect(brewPath); await managed(cask);
       if (cask.version !== update.latestVersion || cask.sha256 !== update.artifact?.sha256 || cask.url !== update.artifact.downloadUrl) {
         progress({ phase: 'updating', receivedBytes: 0, totalBytes: update.artifact?.sizeBytes ?? 0 });
-        await run(brewPath, ['update'], 5 * 60_000); cask = await inspect(brewPath); await managed(cask);
+        await refreshTap(brewPath); cask = await inspect(brewPath); await managed(cask);
       }
       assertHomebrewRelease(cask, update);
       const [cache, root] = await Promise.all([run(brewPath, ['--cache', '--cask', homebrewCask]), run(brewPath, ['--cache'])]);

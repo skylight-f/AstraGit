@@ -5,6 +5,7 @@ export function renderHomebrewCask(value) {
   const arm = manifest.artifacts.find(a => a.arch === 'arm64');
   const intel = manifest.artifacts.find(a => a.arch === 'x64');
   if (!arm || !intel) throw new Error('Homebrew 发布必须包含两个 Mac 架构。');
+  if (manifest.minimumSystemVersion !== '13.0') throw new Error('需同步调整 Homebrew 最低 macOS 版本。');
   return `cask "astragit" do
   arch arm: "arm64", intel: "x64"
 
@@ -17,7 +18,7 @@ export function renderHomebrewCask(value) {
   desc "Git workbench with AI commit messages and multi-repository commits"
   homepage "https://github.com/skylight-f/AstraGit"
 
-  depends_on macos: ">= ${manifest.minimumSystemVersion}"
+  depends_on macos: :ventura
 
   app "AstraGit.app"
 
