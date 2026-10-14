@@ -34,8 +34,10 @@ const existingTag = git('ls-remote', '--tags', 'origin', `refs/tags/${tag}`, `re
 if (existingTag) { const actual = existingTag.split('\n').at(-1).split(/\s+/u)[0]; if (actual !== sourceCommit) throw new Error('已有标签指向不同提交，拒绝覆盖。'); }
 else { git('tag', tag, sourceCommit); git('push', 'origin', `refs/tags/${tag}`); }
 if (!release) {
-  gh('release', 'create', tag, '--repo', repository, '--target', sourceCommit, '--draft', '--title', `AstraGit ${version}`, '--notes-file', notes);
-  release = JSON.parse(gh('api', `repos/${repository}/releases/tags/${tag}`));
+  // 草稿不能依赖 published-by-tag 查询；直接使用创建接口返回的真实 ID。
+  release = JSON.parse(execFileSync('gh', ['api', '--method', 'POST', `repos/${repository}/releases`, '--input', '-'], {
+    cwd: root, encoding: 'utf8', input: JSON.stringify({ tag_name: tag, target_commitish: sourceCommit, draft: true, name: `AstraGit ${version}`, body: await readFile(notes, 'utf8') }),
+  }));
 }
 // 重跑仅替换仍为草稿的包；两架构与清单都上传并检查后才公开。
 const assets = [...manifest.artifacts.map(artifact => join(output, artifact.fileName)), manifestPath];
