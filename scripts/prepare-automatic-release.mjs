@@ -56,7 +56,7 @@ export function prepareAutomaticRelease() {
   const version = selectAutomaticVersion(versions[0], [...tags, ...releases.map(release => release.tag_name)]);
   const tag = `v${version}`;
   const note = resolve(root, `releases/${tag}.md`); mkdirSync(resolve(root, 'releases'), { recursive: true });
-  if (!existsSync(note)) writeFileSync(note, `# AstraGit ${version}\n\n## 更新内容\n\n本版本包含 main 分支中通过检查的改动。[查看源码提交](https://github.com/${repository}/commit/${source})。\n\n## 安装与更新\n\n下载与 Mac 架构匹配的 DMG。应用内「应用更新」可以检查和下载更新；自动重启安装要求当前应用及新版使用同一 Developer ID 团队，且新版通过 Apple 公证。未配置签名、公证时需手动安装。\n\n项目、模型配置、草稿和用户数据独立存储于 AstraGit，不与 Zeus 共用。\n`, { flag: 'wx' });
+  if (!existsSync(note)) writeFileSync(note, `# AstraGit ${version}\n\n## 更新内容\n\n本版本包含 main 分支中通过检查的改动。[查看源码提交](https://github.com/${repository}/commit/${source})。\n\n## 安装与更新\n\nHomebrew 安装：\`brew install --cask skylight-f/tap/astragit\`；升级：\`brew upgrade --cask skylight-f/tap/astragit\`。应用内「应用更新」会识别 Homebrew 安装，校验下载后通过 brew 升级并重启；Homebrew 通道不要求应用自替换的 Developer ID 条件。\n\n也可下载与 Mac 架构匹配的 DMG。DMG 通道的自动重启安装要求当前应用及新版使用同一 Developer ID 团队，且新版通过 Apple 公证；条件不足时可校验下载并手动安装。两种方式均保留 macOS 安全检查。\n\n项目、模型配置、草稿和用户数据独立存储于 AstraGit，不与 Zeus 共用。\n`, { flag: 'wx' });
   for (const path of versionPaths) { const file = resolve(root, path); const data = JSON.parse(readFileSync(file, 'utf8')); writeFileSync(file, JSON.stringify({ ...data, version }, null, 2) + '\n'); }
   // 注入式工作区的包版本也写入锁文件，版本递增后继续支持 frozen install。
   execFileSync('pnpm', ['install', '--lockfile-only', '--ignore-scripts', '--no-frozen-lockfile'], { cwd: root, stdio: 'inherit' });

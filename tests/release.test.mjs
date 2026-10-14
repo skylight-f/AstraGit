@@ -7,6 +7,9 @@ import test from 'node:test';
 import { parseReleaseManifest } from '../packages/shared/dist/index.js';
 import { downloadVerifiedArtifact } from '../apps/desktop/src/main/releaseUpdateService.ts';
 import { selectAutomaticVersion } from '../scripts/prepare-automatic-release.mjs';
+import { renderHomebrewCask } from '../scripts/homebrew-cask.mjs';
+import { verifyHomebrewRelease } from '../scripts/sync-homebrew-tap.mjs';
+import { assertHomebrewRelease, parseHomebrewCask } from '../apps/desktop/src/main/homebrewUpdateService.ts';
 
 test('release versions reserve existing tags and update manifests reject foreign apps, origins and invalid hashes', () => {
   assert.equal(selectAutomaticVersion('0.1.0', []), '0.1.0'); assert.equal(selectAutomaticVersion('0.1.0', ['v0.1.0', 'v0.1.2']), '0.1.3'); assert.equal(selectAutomaticVersion('0.2.0', ['v0.1.2']), '0.2.0');
@@ -16,6 +19,33 @@ test('release versions reserve existing tags and update manifests reject foreign
   assert.throws(() => parseReleaseManifest({ ...manifest, appId: 'dev.hypha.zeus' }));
   assert.throws(() => parseReleaseManifest({ ...manifest, artifacts: [{ ...artifact, downloadUrl: 'https://example.com/app.dmg' }] }));
   assert.throws(() => parseReleaseManifest({ ...manifest, artifacts: [{ ...artifact, sha256: 'bad' }] }));
+});
+
+test('Homebrew receipts reject foreign taps and drift between cask, release and selected architecture', () => {
+  const raw = { token: 'astragit', tap: 'skylight-f/tap', version: '0.2.0', installed: '0.1.0', url: 'https://github.com/skylight-f/AstraGit/releases/download/v0.2.0/AstraGit-0.2.0-arm64.dmg', sha256: 'a'.repeat(64), artifacts: [{ app: ['AstraGit.app'], target: '/Applications/AstraGit.app' }] };
+  const cask = parseHomebrewCask({ casks: [raw] });
+  const update = { currentVersion: '0.1.0', latestVersion: '0.2.0', status: 'available', installMethod: 'homebrew', artifact: { arch: 'arm64', kind: 'dmg', fileName: 'AstraGit-0.2.0-arm64.dmg', downloadUrl: raw.url, sha256: raw.sha256, sizeBytes: 200_000 } };
+  assertHomebrewRelease(cask, update);
+  assert.throws(() => parseHomebrewCask({ casks: [{ ...raw, tap: 'foreign/tap' }] }));
+  assert.throws(() => parseHomebrewCask({ casks: [{ ...raw, artifacts: [{ app: ['Zeus.app'], target: '/Applications/Zeus.app' }] }] }));
+  assert.throws(() => parseHomebrewCask({ casks: [raw, raw] }));
+  assert.throws(() => assertHomebrewRelease({ ...cask, version: '0.1.9' }, update));
+  assert.throws(() => assertHomebrewRelease({ ...cask, sha256: 'b'.repeat(64) }, update));
+  assert.throws(() => assertHomebrewRelease(cask, { ...update, artifact: { ...update.artifact, arch: 'x64' } }));
+});
+
+test('Homebrew publication binds both architecture hashes to the public release and rejects forged cask content', () => {
+  const artifacts = ['arm64', 'x64'].map((arch, i) => ({ arch, kind: 'dmg', fileName: `AstraGit-0.2.0-${arch}.dmg`, sha256: String(i + 1).repeat(64), sizeBytes: 200_000 + i, downloadUrl: `https://github.com/skylight-f/AstraGit/releases/download/v0.2.0/AstraGit-0.2.0-${arch}.dmg` }));
+  const manifest = { schemaVersion: 1, appId: 'com.astragit.desktop', repository: 'skylight-f/AstraGit', version: '0.2.0', sourceCommit: 'b'.repeat(40), signed: false, notarized: false, minimumSystemVersion: '13.0', artifacts };
+  const bytes = Buffer.from(JSON.stringify(manifest)); const cask = Buffer.from(renderHomebrewCask(manifest));
+  const asset = (name, body) => ({ name, size: body.length, digest: `sha256:${createHash('sha256').update(body).digest('hex')}` });
+  const release = { tag_name: 'v0.2.0', draft: false, prerelease: false, html_url: 'https://github.com/skylight-f/AstraGit/releases/tag/v0.2.0', assets: [...artifacts.map(a => ({ name: a.fileName, size: a.sizeBytes, digest: `sha256:${a.sha256}`, browser_download_url: a.downloadUrl })), asset('astragit-release-manifest.json', bytes), asset('astragit.rb', cask)] };
+  assert.equal(verifyHomebrewRelease(release, manifest, bytes, cask).version, '0.2.0');
+  assert.throws(() => renderHomebrewCask({ ...manifest, artifacts: [artifacts[0]] }));
+  assert.throws(() => verifyHomebrewRelease({ ...release, draft: true }, manifest, bytes, cask));
+  const forged = Buffer.from(cask.toString().replace('AstraGit.app', 'Zeus.app'));
+  const forgedRelease = { ...release, assets: release.assets.map(a => a.name === 'astragit.rb' ? asset(a.name, forged) : a) };
+  assert.throws(() => verifyHomebrewRelease(forgedRelease, manifest, bytes, forged), /不一致/u);
 });
 test('update download verifies bytes, revalidates cached files and removes interrupted partial downloads', async t => {
   const root = await mkdtemp(join(tmpdir(), 'astragit-download-')); t.after(() => rm(root, { recursive: true, force: true }));

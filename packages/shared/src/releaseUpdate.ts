@@ -1,5 +1,8 @@
 export const releaseRepository = 'skylight-f/AstraGit';
 export const releasePageUrl = `https://github.com/${releaseRepository}/releases`;
+export const homebrewTap = 'skylight-f/tap';
+export const homebrewRepository = 'skylight-f/homebrew-tap';
+export const homebrewCask = `${homebrewTap}/astragit`;
 export interface ReleaseArtifact { arch: 'arm64' | 'x64'; kind: 'dmg'; fileName: string; sha256: string; sizeBytes: number; downloadUrl: string }
 export interface ReleaseManifest {
   schemaVersion: 1; appId: 'com.astragit.desktop'; repository: typeof releaseRepository;
@@ -9,8 +12,9 @@ export interface ReleaseManifest {
 export interface ReleaseUpdateStatus {
   status: 'up_to_date' | 'available' | 'unavailable'; currentVersion: string; latestVersion: string;
   releasePageUrl: string; artifact: ReleaseArtifact | null; automaticInstallEnabled: boolean; reason: string;
+  installMethod: 'homebrew' | 'direct';
 }
-export interface ReleaseUpdateProgress { phase: 'downloading' | 'verifying' | 'ready'; receivedBytes: number; totalBytes: number }
+export interface ReleaseUpdateProgress { phase: 'updating' | 'downloading' | 'verifying' | 'installing' | 'ready'; receivedBytes: number; totalBytes: number }
 export function compareReleaseVersions(left: string, right: string): number {
   if (![left, right].every(value => /^\d+\.\d+\.\d+$/u.test(value))) throw new Error('发行版本号无效。');
   const a = left.split('.').map(Number); const b = right.split('.').map(Number);

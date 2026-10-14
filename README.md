@@ -49,9 +49,26 @@ Apple Silicon 产物为 `release/mac-arm64/AstraGit.app`；Intel 为 `release/ma
 
 公开仓库：[skylight-f/AstraGit](https://github.com/skylight-f/AstraGit)。`main` 推送经过 `verify:publish` 后，Actions 自动准备版本提交、构建 arm64/x64 DMG、校验摘要并发布 GitHub Release 与 `astragit-release-manifest.json`。失败重跑复用版本候选，不强推分支、不覆盖已公开的 Release。可手动重跑 Release 工作流；仓库变量 `ASTRAGIT_AUTO_RELEASE=false` 可暂停自动发行。
 
-应用启动时及每四小时检查更新，也可点击右上角 **应用更新**。下载按照架构匹配，校验大小和 SHA-256。满足当前应用与新版同一 Developer ID 签发团队、新版通过公证、安装目录可写时，用户可选择重启安装；辅助进程等待退出、替换应用并验证新版启动，失败时恢复旧应用。更新不迁移或清理用户数据。未满足自动安装条件时提供已校验 DMG 的手动安装入口。
+应用启动时及每四小时检查更新，也可点击右上角 **应用更新**。下载按照架构匹配，校验大小和 SHA-256，并识别当前应用的安装渠道。
 
-默认 CI 可以发布 ad-hoc 包。启用正式签名、公证时配置仓库 Secrets：`MACOS_CERTIFICATE`（P12 的 base64）、`MACOS_CERTIFICATE_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`。设 `REQUIRE_APPLE_DISTRIBUTION=true` 可要求签名和公证缺一即阻止发布。当前本地验收包没有 Developer ID 凭据，无法证明 Apple 公证或自动替换已安装签名应用的完整生产链路。
+### Homebrew 安装与升级
+
+```bash
+brew install --cask skylight-f/tap/astragit
+brew upgrade --cask skylight-f/tap/astragit
+```
+
+Apple Silicon 与 Intel 使用各自的 DMG 和摘要。应用核对 Homebrew 安装收据、当前 App 路径和身份后，显示 **Homebrew** 渠道。应用内下载使用系统网络栈写入 brew 的真实缓存并校验；点击 **通过 Homebrew 升级并重启** 后，辅助进程等待当前应用退出，执行仅针对 AstraGit 的 `brew upgrade --cask --require-sha`，复核版本收据、应用身份和新版页面/API 就绪。Homebrew 管理安装记录，这条渠道不要求 DMG 自替换所需的 Developer ID 条件；macOS 安全检查保留。
+
+卸载可用 `brew uninstall --cask skylight-f/tap/astragit`；只有主动增加 `--zap` 才清理 Cask 声明的本地配置。更新流程保留项目、模型配置与草稿。
+
+发行同时上传与清单一致的 `astragit.rb`。`skylight-f/homebrew-tap` 的独立工作流每 15 分钟核对公开发行并同步 Cask，也支持手动触发；定时任务实际执行时间由 GitHub 调度决定。它使用 Tap 自己的 `GITHUB_TOKEN`，无需跨仓库凭据。若在 AstraGit 设置 `HOMEBREW_TAP_TOKEN`，发布后还会立即同步 Tap。工作流模板位于 `scripts/templates/astragit-homebrew-sync.yml`，只更新 `Casks/astragit.rb`。
+
+### DMG 安装与升级
+
+手动 DMG 安装的应用继续使用 DMG 更新渠道。满足当前应用与新版同一 Developer ID 签发团队、新版通过公证、安装目录可写时，可选择重启安装；辅助进程等待退出、替换应用并验证新版启动，失败时恢复旧应用。条件不足时提供已校验 DMG 的手动安装入口。
+
+默认 CI 可以发布 ad-hoc 包。启用正式签名、公证时配置仓库 Secrets：`MACOS_CERTIFICATE`（P12 的 base64）、`MACOS_CERTIFICATE_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`。设 `REQUIRE_APPLE_DISTRIBUTION=true` 可要求签名和公证缺一即阻止发布。当前本地验收包没有 Developer ID 凭据，无法证明 Apple 公证或 DMG 渠道自动替换已安装签名应用的完整生产链路。
 
 显式本地安装包构建：`pnpm build:release`。该入口读取 Apple 发行凭据并生成 DMG；日常正式身份验收使用 `pnpm build:app`。
 

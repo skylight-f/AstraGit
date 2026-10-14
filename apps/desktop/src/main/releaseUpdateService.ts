@@ -1,11 +1,13 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { createReadStream, constants } from 'node:fs';
-import { access, lstat, mkdir, open, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, lstat, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compareReleaseVersions, parseReleaseManifest, releasePageUrl, type ReleaseArtifact, type ReleaseUpdateProgress, type ReleaseUpdateStatus } from '@astragit/shared';
+import { compareReleaseVersions, parseReleaseManifest, releasePageUrl, type ReleaseUpdateProgress, type ReleaseUpdateStatus } from '@astragit/shared';
 import { execFile, readSigningTeam, verifyReleaseApp } from './releaseVerification.js';
+import { downloadVerifiedArtifact, verifyDownloadedArtifact } from './releaseArtifact.js';
+import { createHomebrewUpdateService, type HomebrewPreparedUpdate } from './homebrewUpdateService.js';
 
 export interface ReleaseUpdateOptions {
   appPath: string; executablePath: string; dataDirectory: string; version: string; packaged: boolean;
@@ -17,14 +19,17 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions) {
   let checked: ReleaseUpdateStatus | null = null;
   let pending: Promise<ReleaseUpdateStatus> | null = null;
   let download: Promise<ReleaseUpdateStatus> | null = null;
-  let prepared: { status: ReleaseUpdateStatus; path: string } | null = null;
+  let prepared: { status: ReleaseUpdateStatus; path: string; homebrew?: HomebrewPreparedUpdate } | null = null;
   let installing = false;
   const fetchRelease = options.fetch ?? globalThis.fetch;
-  const current: ReleaseUpdateStatus = { status: 'unavailable', currentVersion: options.version, latestVersion: '', releasePageUrl, artifact: null, automaticInstallEnabled: false, reason: '' };
+  const homebrew = createHomebrewUpdateService({ appPath: options.appPath, version: options.version });
+  const current: ReleaseUpdateStatus = { status: 'unavailable', currentVersion: options.version, latestVersion: '', releasePageUrl, artifact: null, automaticInstallEnabled: false, reason: '', installMethod: 'direct' };
   async function check(): Promise<ReleaseUpdateStatus> {
     if (pending) return pending;
     pending = (async () => {
+      let installMethod: ReleaseUpdateStatus['installMethod'] = 'direct';
       try {
+        if (options.packaged && process.platform === 'darwin' && await homebrew.isManaged()) installMethod = 'homebrew';
         const response = await fetchRelease(`${releasePageUrl}/latest/download/astragit-release-manifest.json`, { signal: AbortSignal.timeout(20_000), headers: { 'user-agent': `AstraGit/${options.version}`, 'cache-control': 'no-cache' } });
         if (!response.ok) throw new Error(response.status === 404 ? '尚无公开发布的更新清单。' : `检查更新失败：HTTP ${response.status}`);
         const raw = await response.text(); if (raw.length > 128_000) throw new Error('更新清单过大。');
@@ -34,17 +39,17 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions) {
         const system = (await execFile('/usr/bin/sw_vers', ['-productVersion'])).stdout.trim().split('.').map(Number);
         const required = manifest.minimumSystemVersion.split('.').map(Number);
         const systemSupported = system[0]! > required[0]! || (system[0] === required[0] && (system[1] ?? 0) >= (required[1] ?? 0));
-        let installReason = '当前应用未使用 Developer ID 签名，需先手动安装签名版本。';
-        let installable = false;
-        if (options.packaged && process.platform === 'darwin' && basename(options.appPath) === 'AstraGit.app' && !options.appPath.startsWith('/Volumes/') && !options.appPath.includes('/AppTranslocation/')) {
+        let installReason = installMethod === 'homebrew' ? '由 Homebrew 管理，更新将通过 brew 升级并保留安装记录。' : '当前应用未使用 Developer ID 签名，需先手动安装签名版本。';
+        let installable = installMethod === 'homebrew';
+        if (installMethod === 'direct' && options.packaged && process.platform === 'darwin' && basename(options.appPath) === 'AstraGit.app' && !options.appPath.startsWith('/Volumes/') && !options.appPath.includes('/AppTranslocation/')) {
           const appStat = await lstat(options.appPath);
           if (appStat.isDirectory() && !appStat.isSymbolicLink() && await readSigningTeam(options.appPath)) {
             try { await access(dirname(options.appPath), constants.W_OK); installable = manifest.signed && manifest.notarized; installReason = installable ? '' : '本次发布未同时通过 Developer ID 签名与公证，请手动安装。'; }
             catch { installReason = '应用所在目录不可写，请手动安装。'; }
           }
         }
-        checked = { ...current, status: newer ? artifact && systemSupported ? 'available' : 'unavailable' : 'up_to_date', latestVersion: manifest.version, artifact, releasePageUrl: `${releasePageUrl}/tag/v${manifest.version}`, automaticInstallEnabled: installable && newer && systemSupported && Boolean(artifact), reason: !newer ? '已是最新版本。' : !systemSupported ? `新版要求 macOS ${manifest.minimumSystemVersion} 或更高版本。` : !artifact ? '本次发布没有匹配当前架构的安装包。' : installReason };
-      } catch (reason) { checked = { ...current, reason: `无法完成更新检查：${reason instanceof Error ? reason.message : String(reason)}。请稍后重试或查看发布页。` }; }
+        checked = { ...current, installMethod, status: newer ? artifact && systemSupported ? 'available' : 'unavailable' : 'up_to_date', latestVersion: manifest.version, artifact, releasePageUrl: `${releasePageUrl}/tag/v${manifest.version}`, automaticInstallEnabled: installable && newer && systemSupported && Boolean(artifact), reason: !newer ? '已是最新版本。' : !systemSupported ? `新版要求 macOS ${manifest.minimumSystemVersion} 或更高版本。` : !artifact ? '本次发布没有匹配当前架构的安装包。' : installReason };
+      } catch (reason) { checked = { ...current, installMethod, reason: `无法完成更新检查：${reason instanceof Error ? reason.message : String(reason)}。请稍后重试或查看发布页。` }; }
       return checked;
     })().finally(() => { pending = null; });
     return pending;
@@ -54,6 +59,10 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions) {
     download = (async () => {
       const update = await check();
       if (!options.packaged || update.status !== 'available' || !update.artifact) throw new Error('当前没有可下载的匹配更新。');
+      if (update.installMethod === 'homebrew') {
+        const item = await homebrew.prepare(update, options.onProgress, fetchRelease);
+        prepared = { status: update, path: item.cachePath, homebrew: item }; return update;
+      }
       const directory = join(options.dataDirectory, 'updates/downloads', update.latestVersion);
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const path = join(directory, update.artifact.fileName);
@@ -64,7 +73,7 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions) {
   }
   async function verifiedPrepared() {
     const update = await check();
-    if (!prepared || update.status !== 'available' || prepared.status.latestVersion !== update.latestVersion || prepared.status.artifact?.sha256 !== update.artifact?.sha256) throw new Error('当前更新与已下载的安装包不一致，请重新下载。');
+    if (!prepared || update.status !== 'available' || prepared.status.installMethod !== update.installMethod || prepared.status.latestVersion !== update.latestVersion || prepared.status.artifact?.sha256 !== update.artifact?.sha256) throw new Error('当前更新与已下载的安装包不一致，请重新下载。');
     await verifyDownloadedArtifact(prepared.path, update.artifact!); return { ...prepared, status: update };
   }
   async function install() {
@@ -73,6 +82,23 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions) {
     try {
       const item = await verifiedPrepared();
       if (!item.status.automaticInstallEnabled) throw new Error(item.status.reason || '当前环境不支持自动安装。');
+      if (item.status.installMethod === 'homebrew') {
+        if (!item.homebrew || !(await homebrew.isManaged())) throw new Error('Homebrew 安装记录已变化，请重新下载。');
+        if (!(await options.confirmRestart())) return { accepted: false };
+        const transaction = randomUUID(); const job = join(options.dataDirectory, 'updates', transaction);
+        await mkdir(job, { recursive: true, mode: 0o700 });
+        const bootstrapPath = join(job, 'homebrew-installer.json');
+        await writeFile(bootstrapPath, JSON.stringify({ transaction, mainPid: process.pid, target: resolve(options.appPath), dataDirectory: options.dataDirectory, prepared: item.homebrew }), { mode: 0o600, flag: 'wx' });
+        const child = spawn(options.executablePath, [fileURLToPath(new URL('./homebrewInstaller.js', import.meta.url)), bootstrapPath], { detached: true, stdio: 'ignore', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } });
+        await new Promise<void>((resolveSpawn, reject) => { child.once('spawn', resolveSpawn); child.once('error', reject); }); child.unref();
+        const deadline = Date.now() + 10_000;
+        while (Date.now() < deadline) {
+          if (await stat(join(job, 'ready')).catch(() => null)) { handedOff = true; options.quit(); return { accepted: true }; }
+          await new Promise(resolveWait => setTimeout(resolveWait, 100));
+        }
+        if (child.pid) { try { process.kill(child.pid, 'SIGTERM'); } catch { /* 交接失败时安装未开始。 */ } }
+        throw new Error('Homebrew 安装辅助进程未就绪，应用保持运行。');
+      }
       const team = await readSigningTeam(options.appPath); if (!team) throw new Error('当前应用没有可信签发团队。');
       const transaction = randomUUID();
       const job = join(options.dataDirectory, 'updates', transaction); await mkdir(job, { recursive: true, mode: 0o700 });
@@ -103,31 +129,4 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions) {
   return { check, prepare, install, status: () => checked, downloaded: async () => (await verifiedPrepared()).path };
 }
 
-export async function verifyDownloadedArtifact(path: string, artifact: ReleaseArtifact) {
-  const info = await lstat(path); if (!info.isFile() || info.isSymbolicLink() || info.size !== artifact.sizeBytes) throw new Error('更新安装包大小不符。');
-  const hash = createHash('sha256'); for await (const chunk of createReadStream(path)) hash.update(chunk);
-  if (hash.digest('hex') !== artifact.sha256) throw new Error('更新安装包 SHA-256 校验失败。');
-}
-export async function downloadVerifiedArtifact(artifact: ReleaseArtifact, path: string, progress: (value: ReleaseUpdateProgress) => void, fetchRelease: typeof globalThis.fetch = globalThis.fetch) {
-  progress({ phase: 'verifying', receivedBytes: 0, totalBytes: artifact.sizeBytes });
-  if (await verifyDownloadedArtifact(path, artifact).then(() => true, () => false)) { progress({ phase: 'ready', receivedBytes: artifact.sizeBytes, totalBytes: artifact.sizeBytes }); return; }
-  const temporary = `${path}.${randomUUID()}.partial`; const output = await open(temporary, 'wx', 0o600);
-  let received = 0; let notifiedAt = 0; const hash = createHash('sha256');
-  try {
-    const source = new URL(artifact.downloadUrl);
-    if (source.protocol !== 'https:' || !artifact.downloadUrl.startsWith(`${releasePageUrl}/download/`)) throw new Error('更新安装包来源无效。');
-    const response = await fetchRelease(artifact.downloadUrl, { signal: AbortSignal.timeout(10 * 60_000) });
-    // Electron net.fetch 的标准 Response 可以缺少 url；来源仍绑定固定发布仓库，最终字节必须匹配摘要。
-    const destination = response.url ? new URL(response.url) : source;
-    if (destination.protocol !== 'https:' || !(destination.hostname === 'github.com' || destination.hostname.endsWith('.githubusercontent.com')) || !response.ok || !response.body) throw new Error(`更新下载失败：HTTP ${response.status}`);
-    for await (const chunk of response.body) {
-      received += chunk.byteLength; if (received > artifact.sizeBytes) throw new Error('下载内容超过更新清单大小。');
-      hash.update(chunk); await output.writeFile(chunk);
-      if (Date.now() - notifiedAt > 150) { notifiedAt = Date.now(); progress({ phase: 'downloading', receivedBytes: received, totalBytes: artifact.sizeBytes }); }
-    }
-    progress({ phase: 'verifying', receivedBytes: received, totalBytes: artifact.sizeBytes });
-    if (received !== artifact.sizeBytes || hash.digest('hex') !== artifact.sha256) throw new Error('更新安装包不完整或 SHA-256 不匹配。');
-    await output.sync(); await output.close(); await rename(temporary, path);
-    progress({ phase: 'ready', receivedBytes: received, totalBytes: artifact.sizeBytes });
-  } finally { await output.close().catch(() => undefined); await rm(temporary, { force: true }); }
-}
+export { verifyDownloadedArtifact, downloadVerifiedArtifact } from './releaseArtifact.js';

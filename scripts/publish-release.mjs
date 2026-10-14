@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { renderHomebrewCask } from './homebrew-cask.mjs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
@@ -26,6 +27,8 @@ const manifest = { schemaVersion: 1, appId: 'com.astragit.desktop', repository, 
 if (process.env.REQUIRE_APPLE_DISTRIBUTION === 'true' && (!manifest.signed || !manifest.notarized)) throw new Error('发行产物未满足强制签名与公证要求。');
 const manifestPath = join(output, 'astragit-release-manifest.json');
 await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+const caskPath = join(output, 'astragit.rb');
+await writeFile(caskPath, renderHomebrewCask(manifest));
 const notes = join(root, 'releases', `${tag}.md`); await readFile(notes);
 const releases = JSON.parse(gh('api', `repos/${repository}/releases?per_page=100`, '--paginate', '--slurp')).flat();
 let release = releases.find(release => release.tag_name === tag);
@@ -40,9 +43,9 @@ if (!release) {
   }));
 }
 // 重跑仅替换仍为草稿的包；两架构与清单都上传并检查后才公开。
-const assets = [...manifest.artifacts.map(artifact => join(output, artifact.fileName)), manifestPath];
+const assets = [...manifest.artifacts.map(artifact => join(output, artifact.fileName)), manifestPath, caskPath];
 gh('release', 'upload', tag, '--repo', repository, '--clobber', ...assets);
 const publishedAssets = JSON.parse(gh('api', `repos/${repository}/releases/${release.id}/assets`));
-for (const path of assets) { const fileName = path.split('/').at(-1); const asset = publishedAssets.find(asset => asset.name === fileName); if (!asset || asset.size !== (await readFile(path)).length) throw new Error('Release 资产未完整上传。'); }
+for (const path of assets) { const fileName = path.split('/').at(-1); const asset = publishedAssets.find(asset => asset.name === fileName); const bytes = await readFile(path); if (!asset || asset.size !== bytes.length || asset.digest !== `sha256:${createHash('sha256').update(bytes).digest('hex')}`) throw new Error('Release 资产未完整上传或摘要不匹配。'); }
 gh('release', 'edit', tag, '--repo', repository, '--draft=false', '--latest');
 console.info(`已发布 https://github.com/${repository}/releases/tag/${tag}`);

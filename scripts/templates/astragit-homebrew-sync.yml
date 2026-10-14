@@ -1,0 +1,33 @@
+name: AstraGit Homebrew Sync
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/astragit-homebrew-sync.yml']
+  schedule:
+    - cron: '*/15 * * * *'
+permissions:
+  contents: write
+concurrency:
+  group: astragit-cask
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: github.repository == 'skylight-f/homebrew-tap'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: tap
+      - uses: actions/checkout@v4
+        with:
+          repository: skylight-f/AstraGit
+          ref: main
+          path: astragit
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: 核对公开资产并同步 AstraGit Cask
+        run: node astragit/scripts/sync-homebrew-tap.mjs tap

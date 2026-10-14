@@ -102,7 +102,7 @@ try {
   const asar = requireBuilder('@electron/asar');
   const archive = join(appPath, 'Contents/Resources/app.asar');
   const archiveFiles = new Set(asar.listPackage(archive));
-  const requiredFiles = ['dist/main/main.js', 'dist/main/releaseInstaller.js', 'dist/main/releaseUpdateService.js', 'dist/preload/index.cjs', 'dist/renderer/index.html', 'LICENSE', 'THIRD_PARTY_NOTICES.md'];
+  const requiredFiles = ['dist/main/main.js', 'dist/main/releaseInstaller.js', 'dist/main/releaseUpdateService.js', 'dist/main/releaseArtifact.js', 'dist/main/homebrewUpdateService.js', 'dist/main/homebrewInstaller.js', 'dist/preload/index.cjs', 'dist/renderer/index.html', 'LICENSE', 'THIRD_PARTY_NOTICES.md'];
   for (const name of ['git-server', 'git-core', 'ai-runtime', 'shared', 'storage']) {
     requiredFiles.push(`node_modules/@astragit/${name}/dist/index.js`);
   }

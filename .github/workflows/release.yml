@@ -91,6 +91,8 @@ jobs:
   publish:
     needs: [candidate, build]
     runs-on: ubuntu-latest
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -111,3 +113,13 @@ jobs:
           RELEASE_TAG: ${{ needs.candidate.outputs.tag }}
           REQUIRE_APPLE_DISTRIBUTION: ${{ vars.REQUIRE_APPLE_DISTRIBUTION }}
         run: node scripts/publish-release.mjs
+      - name: 检出 Homebrew Tap（已配置跨库 token 时立即同步）
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: skylight-f/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: .tmp/homebrew-tap
+      - name: 同步 Homebrew Cask
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        run: node scripts/sync-homebrew-tap.mjs .tmp/homebrew-tap
