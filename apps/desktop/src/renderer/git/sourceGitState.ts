@@ -75,6 +75,16 @@ export function buildSourceCommitUnits(repositories: ProjectGitRepositoryWorkben
         units.set(parent.id, parentUnit);
       }
     }
+  } else {
+    // 暂存模式保持既有 gitlink 版本；其关联子仓库仍需先推送，避免发布不可获取的引用。
+    for (const unit of units.values()) {
+      if (!unit.repository.isSubmodule) continue;
+      for (const parent of repositories) {
+        const module = parent.snapshot.submodules?.find(module => [parent.relativePath === '.' ? '' : parent.relativePath, module.path].filter(Boolean).join('/') === unit.repository.relativePath);
+        const parentUnit = units.get(parent.id);
+        if (module && parentUnit?.paths.includes(module.path) && !parentUnit.dependsOn.includes(unit.repository.id)) parentUnit.dependsOn.push(unit.repository.id);
+      }
+    }
   }
   const ordered: SourceCommitUnit[] = [];
   const seen = new Set<string>();

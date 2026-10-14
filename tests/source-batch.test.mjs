@@ -28,6 +28,8 @@ test('a project commits child before parent, preserves unchecked staging, and re
     const remote = join(root, `${record.id}.git`); await exec('git', ['init', '--bare', remote]); await gitAt(record.path)('remote', 'remove', 'origin').catch(() => undefined); await gitAt(record.path)('remote', 'add', 'origin', remote); await gitAt(record.path)('push', '-u', 'origin', 'main');
     await writeFile(join(record.path, 'selected.txt'), `${record.id} changed\n`);
   }
+  await parentGit('config', '-f', '.gitmodules', 'submodule.lib.url', join(root, 'child.git'));
+  await parentGit('add', '.gitmodules'); await parentGit('commit', '-m', 'test: map module publication URL'); await parentGit('push', 'origin', 'main');
   await writeFile(join(project, 'other.txt'), 'keep parent staged\n'); await parentGit('add', 'other.txt');
   const snapshot = async () => ({ projectId: 'project', projectName: 'project', refreshedAt: new Date().toISOString(), repositories: await Promise.all(records.map(async record => ({ ...record, snapshot: await getProjectGitRepositorySnapshot(record.path) }))) });
   const actions = [];
@@ -64,4 +66,26 @@ test('a project commits child before parent, preserves unchecked staging, and re
   assert.deepEqual(await Promise.all([parentGit('rev-parse', 'HEAD'), childGit('rev-parse', 'HEAD'), nestedGit('rev-parse', 'HEAD')]), heads);
   assert.equal(actions.filter(action => action.startsWith('commit:')).length, 3);
   assert.equal((await exec('git', ['--git-dir', join(root, 'parent.git'), 'rev-parse', 'main'])).stdout.trim(), heads[0]);
+  const clone = join(root, 'recursive-clone');
+  await exec('git', ['-c', 'protocol.file.allow=always', 'clone', '--recurse-submodules', '--branch', 'main', join(root, 'parent.git'), clone]);
+  assert.equal(await gitAt(join(clone, 'lib'))('rev-parse', 'HEAD'), heads[1]);
+  // 暂存的父引用保持原 SHA，但子仓库推送失败时不能提前公开父引用。
+  await childGit('commit', '--allow-empty', '-m', 'test: pending module commit');
+  const stagedReference = await childGit('rev-parse', 'HEAD');
+  await parentGit('add', 'lib');
+  await writeFile(join(childPath, 'selected.txt'), 'second staged module change\n'); await childGit('add', 'selected.txt');
+  const stagedUnits = buildSourceCommitUnits((await snapshot()).repositories, { parent: ['lib'], child: ['selected.txt'] }, 'staged', false);
+  assert.deepEqual(stagedUnits.map(unit => unit.repository.id), ['child', 'parent']);
+  const stagedRows = [];
+  for (const unit of stagedUnits) {
+    const preview = (await client.previewGitCommitSelection('project', [{ repositoryId: unit.repository.id, relativePath: unit.repository.relativePath, paths: unit.paths }], 'staged')).repositories[0];
+    stagedRows.push({ ...rows.find(row => row.repositoryId === unit.repository.id), paths: unit.paths, ordinaryPaths: unit.ordinaryPaths, gitlinks: unit.gitlinks, dependsOn: unit.dependsOn, mode: 'staged', expectedHead: preview.headSha, fingerprint: preview.fingerprint });
+  }
+  await validateSourceReview(client, 'project', stagedRows, true);
+  await writeFile(hook, '#!/bin/sh\nexit 1\n'); await chmod(hook, 0o755);
+  await runSourceBatch({ client, projectId: 'project', rows: stagedRows, push: true, stopped: () => false, onResults: value => { results = value; }, onActive: () => {}, onCommitted: () => {} });
+  assert.equal(results.find(row => row.repositoryId === 'parent').status, 'push_blocked');
+  assert.equal((await parentGit('ls-tree', 'HEAD', 'lib')).split(/\s+/u)[2], stagedReference);
+  assert.notEqual(await childGit('rev-parse', 'HEAD'), stagedReference);
+  assert.equal(await parentGit('diff', '--cached', '--name-only'), 'other.txt');
 });

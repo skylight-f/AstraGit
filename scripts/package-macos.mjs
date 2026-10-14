@@ -47,13 +47,11 @@ async function assertInternalLinks(directory) {
 }
 
 try {
-  // Legacy deploy supports pnpm 10's ordinary workspace links and produces a
-  // self-contained production tree without changing workspace install settings.
-  const deployArgs = ['--filter', '@astragit/desktop', 'deploy', '--prod', '--legacy', '--offline', appDirectory];
+  // 使用共享锁文件生成部署锁文件；无需重新解析 semver 或依赖机器上的元数据缓存。
+  const deployArgs = ['--filter', '@astragit/desktop', 'deploy', '--prod', '--offline', appDirectory];
   if (process.env.npm_execpath) await run(process.execPath, [process.env.npm_execpath, ...deployArgs]);
   else await run('pnpm', deployArgs);
-  // pnpm legacy deploy leaves an unused self-reference to the source desktop
-  // package in its virtual store. Remove only that verified bookkeeping link.
+  // 兼容旧 pnpm 生成的自引用 bookkeeping 链接，只移除指向已验证源码目录的一项。
   const selfLink = join(appDirectory, 'node_modules/.pnpm/node_modules/@astragit/desktop');
   if (await realpath(selfLink).catch(() => null) === desktop) await unlink(selfLink);
   await assertInternalLinks(appDirectory);
@@ -78,6 +76,7 @@ try {
       extends: null,
       appId,
       productName,
+      buildVersion: manifest.version,
       electronVersion,
       electronDist: join(dirname(electronManifest), 'dist'),
       directories: { app: appDirectory, output, buildResources: join(desktop, 'build') },
