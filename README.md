@@ -41,6 +41,8 @@ macOS 首次启动会在 `.tmp/development-runtime` 准备独立的 **AstraGit D
 
 按变更风险运行 `pnpm lint`、`pnpm typecheck`、`pnpm test`。`typecheck` 和 `test` 会先构建本地服务依赖，干净目录无需预先准备声明文件。正式构建用于打包、签名、安装或明确要求的正式验收。
 
+每次代码修改交付前执行 `pnpm check:lockfile`，直接检查全部包清单与锁文件的一致性。依赖、构建资源、更新或发布链路变更须执行完整 `pnpm verify:publish`，并在干净临时目录运行 `pnpm install --frozen-lockfile`。本地检查与 CI 均保留 frozen-lockfile 约束；废弃的依赖必须同步从锁文件移除。
+
 ## macOS 应用构建
 
 ```bash
