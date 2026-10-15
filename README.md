@@ -35,9 +35,9 @@ macOS 首次启动会在 `.tmp/development-runtime` 准备独立的 **AstraGit D
 
 编译失败时保留正在运行的应用，终端显示错误；修复保存后自动重试。后端重启会重新建立 API 连接，已保存项目、草稿和设置从同一个开发数据目录恢复；尚未持久化的临时状态可能重置。退出开发应用或按 `Ctrl+C` 会关闭监听和 Vite，并等待当前 API/Git 操作结束、SQLite 和 AI 服务正常关闭。
 
-默认 Vite 地址为 `http://127.0.0.1:5179`，开发数据为 `.tmp/electron-development-data`。就绪时终端显示 Main PID、页面地址和 API 地址；`.tmp/dev-session.json` 记录同样的开发状态，不含令牌。修改启动脚本本身后重新执行 `pnpm dev`。
+默认 Vite 地址为 `http://127.0.0.1:5179`，开发数据为 `.tmp/electron-development-data`。就绪时终端显示 Main PID、页面/API 地址及开发身份；`.tmp/dev-session.json` 记录同样的开发状态，不含令牌。修改启动脚本本身后重新执行 `pnpm dev`。
 
-系统钥匙串可能要求本人授权；应用已关闭本机服务后仍可能等待原生钥匙串返回。该系统授权不属于热更新完成的保证，验收边界见下方记录。
+开发版的 Electron 内部名称为 `AstraGit Development <工作区标识>`，同一工作区重启保持一致，不同工作区与正式版 `AstraGit` 分离，防止开发热重启反复请求正式版 `AstraGit Safe Storage`。Cookie 加密与 AI Key 的现有存储保护保持启用。钥匙串锁定、开发运行环境换签名等场景仍可能需要本人授权；此修复不代替系统授权。详见 [开发版钥匙串隔离修复](docs/开发版钥匙串隔离修复-2026-10-15.md)。
 
 按变更风险运行 `pnpm lint`、`pnpm typecheck`、`pnpm test`。`typecheck` 和 `test` 会先构建本地服务依赖，干净目录无需预先准备声明文件。正式构建用于打包、签名、安装或明确要求的正式验收。
 
@@ -80,7 +80,7 @@ brew install --cask skylight-f/tap/astragit
 brew upgrade --cask skylight-f/tap/astragit
 ```
 
-Apple Silicon 与 Intel 使用各自的 DMG 和摘要。应用核对 Homebrew 安装收据、当前 App 路径和身份后，显示 **Homebrew** 渠道。应用内先使用系统网络栈下载到独立更新目录并校验；点击 **通过 Homebrew 升级并重启** 后，在应用退出前同步 Tap、核对 Cask 的版本、URL 和 SHA-256，再将安装包原子写入 brew 的真实缓存。若 Tap 尚未同步，保留已下载文件并提示稍后重试升级。准备成功并确认后，辅助进程等待当前应用退出，执行仅针对 AstraGit 的 `brew upgrade --cask --require-sha`，复核版本收据、应用身份和新版页面/API 就绪。Homebrew 管理安装记录，这条渠道不要求 DMG 自替换所需的 Developer ID 条件；macOS 安全检查保留。
+Apple Silicon 与 Intel 使用各自的 DMG 和摘要。应用核对 Homebrew 安装收据、当前 App 路径和身份后，显示 **Homebrew** 渠道。下载与升级按 Zeus 当前源码的命令链执行：Cask 未匹配时由 `brew update` 同步 Homebrew 信息，再核对版本、URL 和 SHA-256；使用 `brew fetch --cask --retry` 预取，读取真实 `.incomplete` 文件显示进度，短暂网络错误有限重试。完整缓存复验通过后显示 **通过 Homebrew 升级并重启**，取消重启保留缓存。安装前再次核对 Cask 和缓存，确认后辅助进程等待当前应用退出，执行仅针对 AstraGit 的 `brew upgrade --cask --no-quit --yes --require-sha`，复核版本收据、应用身份和新版页面/API 就绪。若远端 Cask 尚未同步，明确显示发布版本与 Cask 版本并保持应用运行。Homebrew 管理安装记录，这条渠道不要求 DMG 自替换所需的 Developer ID 条件；macOS 安全检查保留。详见 [Homebrew 更新对齐 Zeus](docs/Homebrew更新对齐Zeus-2026-10-15.md)。
 
 卸载可用 `brew uninstall --cask skylight-f/tap/astragit`；只有主动增加 `--zap` 才清理 Cask 声明的本地配置。更新流程保留项目、模型配置与草稿。
 

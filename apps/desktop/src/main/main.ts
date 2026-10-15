@@ -7,16 +7,23 @@ import { pathToFileURL } from 'node:url';
 import { startGitServer, type RunningGitServer } from '@astragit/git-server';
 import { resolveCliSearchPath } from '@astragit/ai-runtime';
 import { createReleaseUpdateService } from './releaseUpdateService.js';
+import { applicationIdentity } from './applicationIdentity.js';
 
 let mainWindow: BrowserWindow | null = null;
 let creatingWindow: Promise<void> | null = null;
 let gitServer: RunningGitServer | null = null;
 let bootstrapToken = '';
 let shuttingDown = false;
-// Set Electron's identity before readiness so browser storage, cookies and login
-// state also live in AstraGit's own directory, including the development shell.
-app.setName('AstraGit');
-const dataDirectory = resolve(process.env.ASTRAGIT_USER_DATA_DIR ?? join(app.getPath('appData'), 'AstraGit'));
+// Set identity before readiness: Electron uses this name for macOS Safe Storage
+// as well as browser storage. Keep development and installed credentials apart.
+const { development, name, dataDirectory } = applicationIdentity({
+  packaged: app.isPackaged,
+  rendererUrl: process.env.VITE_DEV_SERVER_URL,
+  appPath: app.getAppPath(),
+  appDataPath: app.getPath('appData'),
+  userDataDirectory: process.env.ASTRAGIT_USER_DATA_DIR,
+});
+app.setName(name);
 mkdirSync(dataDirectory, { recursive: true });
 app.setPath('userData', dataDirectory);
 app.setPath('sessionData', dataDirectory);
@@ -24,7 +31,6 @@ app.setPath('sessionData', dataDirectory);
 const ownsInstance = app.requestSingleInstanceLock();
 if (!ownsInstance) app.exit(0);
 const userDataPath = () => dataDirectory;
-const development = !app.isPackaged && Boolean(process.env.VITE_DEV_SERVER_URL);
 if (development) {
   // A normal quit drains requests and storage before the dev supervisor restarts.
   process.on('message', message => {
@@ -128,7 +134,7 @@ async function loadMainWindow(): Promise<void> {
   handle('astragit:renderer-ready', async () => {
     mkdirSync(join(dataDirectory, 'updates'), { recursive: true, mode: 0o700 });
     await writeFile(join(dataDirectory, 'updates/app-ready.json'), JSON.stringify({ pid: process.pid, version: app.getVersion(), readyAt: new Date().toISOString() }), { mode: 0o600 });
-    if (development && process.connected) process.send?.({ type: 'astragit:dev-ready', baseUrl: config.baseUrl });
+    if (development && process.connected) process.send?.({ type: 'astragit:dev-ready', baseUrl: config.baseUrl, applicationName: app.getName() });
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

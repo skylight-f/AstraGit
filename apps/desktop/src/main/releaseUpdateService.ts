@@ -23,7 +23,7 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
   let checked: ReleaseUpdateStatus | null = null;
   let pending: Promise<ReleaseUpdateStatus> | null = null;
   let download: Promise<ReleaseUpdateStatus> | null = null;
-  let prepared: { status: ReleaseUpdateStatus; path: string } | null = null;
+  let prepared: { status: ReleaseUpdateStatus; path: string; homebrew?: HomebrewPreparedUpdate } | null = null;
   let installing = false;
   const fetchRelease = options.fetch ?? globalThis.fetch;
   const homebrew = dependencies.homebrew ?? createHomebrewUpdateService({ appPath: options.appPath, version: options.version });
@@ -44,7 +44,7 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
         const system = (await systemVersion()).split('.').map(Number);
         const required = manifest.minimumSystemVersion.split('.').map(Number);
         const systemSupported = system[0]! > required[0]! || (system[0] === required[0] && (system[1] ?? 0) >= (required[1] ?? 0));
-        let installReason = installMethod === 'homebrew' ? '先下载并校验安装包；升级前同步 Homebrew，并保留安装记录。' : '当前应用未使用 Developer ID 签名，需先手动安装签名版本。';
+        let installReason = installMethod === 'homebrew' ? '由 Homebrew 同步安装信息、预取并校验更新；确认重启后升级，保留安装记录。' : '当前应用未使用 Developer ID 签名，需先手动安装签名版本。';
         let installable = installMethod === 'homebrew';
         if (installMethod === 'direct' && options.packaged && process.platform === 'darwin' && basename(options.appPath) === 'AstraGit.app' && !options.appPath.startsWith('/Volumes/') && !options.appPath.includes('/AppTranslocation/')) {
           const appStat = await lstat(options.appPath);
@@ -64,7 +64,11 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
     download = (async () => {
       const update = await check();
       if (!options.packaged || update.status !== 'available' || !update.artifact) throw new Error('当前没有可下载的匹配更新。');
-      // 两种安装渠道先独立下载，Homebrew Cask 尚未同步时也可完成校验。
+      if (update.installMethod === 'homebrew') {
+        const receipt = await homebrew.prepare(update, options.onProgress);
+        prepared = { status: update, path: receipt.cachePath, homebrew: receipt };
+        return update;
+      }
       const directory = join(options.dataDirectory, 'updates/downloads', update.latestVersion);
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const path = join(directory, update.artifact.fileName);
@@ -87,8 +91,10 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
       if (!item.status.automaticInstallEnabled) throw new Error(item.status.reason || '当前环境不支持自动安装。');
       if (item.status.installMethod === 'homebrew') {
         if (!(await homebrew.isManaged())) throw new Error('Homebrew 安装记录已变化，请重新检查更新。');
-        // 保持应用运行，先同步 Tap、核对 Cask 并准备 brew 缓存，成功后才请求退出。
-        const homebrewPrepared: HomebrewPreparedUpdate = await homebrew.prepare(item.status, item.path, options.onProgress);
+        if (!item.homebrew) throw new Error('缺少 Homebrew 预取记录，请重新下载。');
+        // Revalidate the brew-owned cache and receipt before asking to quit.
+        const homebrewPrepared = { ...item.homebrew, update: item.status };
+        await homebrew.validatePrepared(homebrewPrepared);
         if (!(await options.confirmRestart())) return { accepted: false };
         const transaction = randomUUID(); const job = join(options.dataDirectory, 'updates', transaction);
         await mkdir(job, { recursive: true, mode: 0o700 });

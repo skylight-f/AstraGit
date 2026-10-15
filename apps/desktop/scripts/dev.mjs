@@ -105,10 +105,10 @@ function startElectron() {
   electron = child;
   child.on('message', message => {
     if (!message || message.type !== 'astragit:dev-ready' || stopping || child !== electron) return;
-    console.info(`[dev] 就绪 Main PID=${child.pid} Renderer=${env.VITE_DEV_SERVER_URL} API=${message.baseUrl}`);
+    console.info(`[dev] 就绪 Main PID=${child.pid} Renderer=${env.VITE_DEV_SERVER_URL} API=${message.baseUrl} 身份=${message.applicationName}`);
     // No API token or model credentials are written to development status.
     sessionWrites = sessionWrites.then(() => writeFile(sessionPath, JSON.stringify({
-      controllerPid: process.pid, mainPid: child.pid, rendererUrl: env.VITE_DEV_SERVER_URL,
+      controllerPid: process.pid, mainPid: child.pid, rendererUrl: env.VITE_DEV_SERVER_URL, applicationName: message.applicationName,
       baseUrl: message.baseUrl, dataDirectory: env.ASTRAGIT_USER_DATA_DIR, readyAt: new Date().toISOString(),
     }, null, 2), { mode: 0o600 })).catch(error => console.error('[dev] 无法保存开发状态', error));
   });

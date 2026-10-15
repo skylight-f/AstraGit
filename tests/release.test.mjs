@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { parseReleaseManifest } from '../packages/shared/dist/index.js';
 import { createReleaseUpdateService, downloadVerifiedArtifact } from '../apps/desktop/src/main/releaseUpdateService.ts';
-import { cacheVerifiedArtifact } from '../apps/desktop/src/main/releaseArtifact.ts';
 import { selectAutomaticVersion } from '../scripts/prepare-automatic-release.mjs';
 import { renderHomebrewCask } from '../scripts/homebrew-cask.mjs';
 import { verifyHomebrewRelease } from '../scripts/sync-homebrew-tap.mjs';
@@ -30,14 +29,14 @@ test('Homebrew receipts reject foreign taps and drift between cask, release and 
   assert.throws(() => parseHomebrewCask({ casks: [{ ...raw, tap: 'foreign/tap' }] }));
   assert.throws(() => parseHomebrewCask({ casks: [{ ...raw, artifacts: [{ app: ['Zeus.app'], target: '/Applications/Zeus.app' }] }] }));
   assert.throws(() => parseHomebrewCask({ casks: [raw, raw] }));
-  assert.throws(() => assertHomebrewRelease({ ...cask, version: '0.1.9' }, update), /Homebrew 仍为 0\.1\.9.*无需重新下载/u);
+  assert.throws(() => assertHomebrewRelease({ ...cask, version: '0.1.9' }, update), /Homebrew 尚未同步.*发布版本为 0\.2\.0.*当前 Cask 为 0\.1\.9/u);
   assert.throws(() => assertHomebrewRelease({ ...cask, version: '0.2.1' }, update), /请重新检查并下载/u);
   assert.throws(() => assertHomebrewRelease({ ...cask, sha256: 'b'.repeat(64) }, update), /SHA-256.*已停止安装/u);
   assert.throws(() => assertHomebrewRelease(cask, { ...update, artifact: { ...update.artifact, arch: 'x64' } }));
 });
-test('Homebrew tap lag does not block downloads or quit the app, and installation retries reuse verified bytes', async t => {
+test('Homebrew owns preparation and cancelled installation retains the verified cache without quitting', async t => {
   const root = await mkdtemp(join(tmpdir(), 'astragit-homebrew-lag-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const bytes = Buffer.alloc(120_000, 43); let downloads = 0; let syncs = 0; let confirmations = 0; let quits = 0; let offline = false;
+  const bytes = Buffer.alloc(120_000, 43); let syncs = 0; let confirmations = 0; let quits = 0; let offline = false;
   const artifact = { arch: process.arch, kind: 'dmg', fileName: `AstraGit-0.2.0-${process.arch}.dmg`, sha256: createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.length, downloadUrl: `https://github.com/skylight-f/AstraGit/releases/download/v0.2.0/AstraGit-0.2.0-${process.arch}.dmg` };
   const manifest = { schemaVersion: 1, appId: 'com.astragit.desktop', repository: 'skylight-f/AstraGit', version: '0.2.0', sourceCommit: 'b'.repeat(40), signed: false, notarized: false, minimumSystemVersion: '13.0', artifacts: [artifact] };
   let cask = { version: '0.1.0', installedVersion: '0.1.0', tap: 'skylight-f/tap', url: artifact.downloadUrl, sha256: artifact.sha256, appTarget: '/Applications/AstraGit.app' };
@@ -48,49 +47,37 @@ test('Homebrew tap lag does not block downloads or quit the app, and installatio
         if (offline) throw new Error('simulated offline');
         return Response.json(manifest);
       }
-      assert.equal(url, artifact.downloadUrl); downloads++; return new Response(bytes);
+      assert.fail('Homebrew downloads must use brew fetch, not Electron artifact fetch.');
     },
     onProgress: () => {}, confirmRestart: async () => { confirmations++; return false; }, quit: () => { quits++; },
   }, { systemVersion: async () => '15.0', homebrew: {
     isManaged: async () => true,
-    prepare: async (update, path) => {
+    prepare: async update => {
       syncs++; assertHomebrewRelease(cask, update);
-      assert.deepEqual(await readFile(path), bytes);
+      const path = join(root, 'brew-cache.dmg'); await writeFile(path, bytes);
       return { update, brewPath: '/unused', cachePath: path };
     },
+    validatePrepared: async prepared => { assertHomebrewRelease(cask, prepared.update); assert.deepEqual(await readFile(prepared.cachePath), bytes); },
     install: async () => { assert.fail('The installer must not run without confirmation.'); },
   } });
+  await assert.rejects(service.prepare(), /Homebrew 尚未同步/u);
+  assert.equal(confirmations, 0); assert.equal(quits, 0);
+  cask = { ...cask, version: '0.2.0' };
   assert.equal((await service.prepare()).installMethod, 'homebrew');
-  assert.equal(downloads, 1); assert.equal(syncs, 0, 'Download must not depend on tap readiness.');
+  assert.equal(syncs, 2);
   offline = true;
   await assert.rejects(service.install(), /无法完成更新检查.*simulated offline/u);
   assert.equal(confirmations, 0); assert.equal(quits, 0);
   offline = false;
-  await assert.rejects(service.install(), /尚未同步/u);
-  assert.equal(confirmations, 0); assert.equal(quits, 0);
   assert.deepEqual(await readFile(await service.downloaded()), bytes);
   cask = { ...cask, version: '0.2.0', sha256: 'f'.repeat(64) };
   await assert.rejects(service.install(), /SHA-256/u);
   assert.equal(confirmations, 0); assert.equal(quits, 0);
   cask = { ...cask, sha256: artifact.sha256 };
   assert.deepEqual(await service.install(), { accepted: false });
-  assert.equal(confirmations, 1); assert.equal(quits, 0); assert.equal(downloads, 1);
-});
-
-test('Homebrew cache transfer preserves existing data on invalid downloads and publishes only verified bytes', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'astragit-homebrew-cache-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const bytes = Buffer.alloc(120_000, 44);
-  const artifact = { sha256: createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.length };
-  const source = join(root, 'download.dmg'); const cache = join(root, 'brew-cache.dmg');
-  const { writeFile } = await import('node:fs/promises');
-  await writeFile(source, bytes); await writeFile(cache, 'existing cached data');
-  await assert.rejects(cacheVerifiedArtifact(source, cache, { ...artifact, sha256: 'f'.repeat(64) }), /SHA-256/u);
-  assert.equal(await readFile(cache, 'utf8'), 'existing cached data');
-  await cacheVerifiedArtifact(source, cache, artifact);
-  assert.deepEqual(await readFile(cache), bytes);
-  await cacheVerifiedArtifact(source, cache, artifact);
-  await cacheVerifiedArtifact(source, source, artifact);
-  assert.deepEqual((await readdir(root)).sort(), ['brew-cache.dmg', 'download.dmg']);
+  assert.equal(confirmations, 1); assert.equal(quits, 0); assert.equal(syncs, 2);
+  assert.deepEqual(await service.install(), { accepted: false });
+  assert.equal(confirmations, 2); assert.equal(syncs, 2, 'Cancel retains the prepared Homebrew download.');
 });
 
 test('Homebrew publication binds both architecture hashes to the public release and rejects forged cask content', () => {
