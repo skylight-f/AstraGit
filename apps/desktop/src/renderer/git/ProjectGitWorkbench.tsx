@@ -701,7 +701,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         const element = (event.target as HTMLElement).closest<HTMLElement>('[data-git-context]');
         if (element?.dataset.gitContext) showGitContextMenu(event, JSON.parse(element.dataset.gitContext) as GitContextTarget);
       }}
-      aria-label={zh ? '项目 Git 工作台' : 'Project Git workbench'}
+      aria-label={zh ? '仓库管理' : 'Repository management'}
     >
       {busy || selectedRepository?.snapshot.integrationState ? (
         <div className="git-integration-actions">
@@ -2379,8 +2379,8 @@ function ConsoleSurface(props: { zh: boolean; history: ReturnType<typeof useGitO
       {props.history.total === 0 && !props.history.loading && !props.history.error ? (
         <section className="project-git-empty-surface">
           <ArrowsClockwise aria-hidden="true" />
-          <strong>{props.zh ? '这个项目还没有 Git 工作台操作记录' : 'No Git workbench operations for this project yet'}</strong>
-          <span>{props.zh ? '通过桌面 Git 工作台执行的操作会保存在这里。' : 'Operations performed through the desktop Git workbench are saved here.'}</span>
+          <strong>{props.zh ? '这个项目还没有仓库操作记录' : 'No repository operations for this project yet'}</strong>
+          <span>{props.zh ? '通过仓库管理执行的操作会保存在这里。' : 'Operations performed through Repository management are saved here.'}</span>
         </section>
       ) : null}
       {props.history.items.map((operation) => (

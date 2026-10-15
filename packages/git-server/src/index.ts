@@ -17,7 +17,7 @@ import { createManualModel, createModelConnectionService } from './modelConnecti
 import { createApplicationSecretStore, type SecretStore } from './securityCore.js';
 import { ProjectStore, type GitAppProject } from './projectStore.js';
 import { ProjectGitWorkbenchService, stableRepositoryId, type ProjectGitActionResponse, type ProjectGitWorkbenchSnapshot } from './projectGitWorkbenchService.js';
-import { generateGitCommitMessage } from './gitCommitMessageGeneration.js';
+import { generateGitCommitMessage, type GitCommitMessageInput } from './gitCommitMessageGeneration.js';
 import { createCommitCodexPool } from './gitCommitCodexGeneration.js';
 import { readGitCommitContext, readCommitFingerprint } from './gitCommitContext.js';
 import { sendNativeQueryRouteError } from './nativeQueryRouteError.js';
@@ -471,7 +471,7 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
         controller.signal.throwIfAborted();
         const multiple = contexts.length > 1;
         const budget = Math.floor(40_000 / contexts.length);
-        const input = {
+        const input: GitCommitMessageInput = {
           repositoryName: contexts.map(({ repository }) => repository.name).join(', '),
           stagedDiff: redactSensitiveText(
             contexts
@@ -487,7 +487,7 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
           recentCommits: contexts.flatMap(({ context }) => context.recentCommits.slice(0, Math.max(1, Math.floor(20 / contexts.length)))).map((message) => redactSensitiveText(message).text),
           truncated: contexts.some(({ context }) => context.truncated || context.stagedDiff.length > budget),
           language: body.language === 'en' ? ('en' as const) : ('zh-CN' as const),
-          ...(selection ? { scope: 'selection' as const } : {}),
+          ...(selection ? { scope: 'selection' as const, selectionMode } : {}),
           ...(typeof body.modelRef === 'string' ? { modelRef: body.modelRef } : {}),
         };
         const run = async () => {

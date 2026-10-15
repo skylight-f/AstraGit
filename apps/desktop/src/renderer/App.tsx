@@ -9,6 +9,7 @@ import { ProjectSourceChanges } from './git/ProjectSourceChanges.js';
 import { Settings } from './Settings.js';
 import { readLanguagePreference, resolveApplicationLanguage, saveLanguagePreference, type LanguagePreference } from './applicationPreferences.js';
 import { ReleaseUpdateButton } from './ReleaseUpdateButton.js';
+import { ZeusSelect } from './ZeusSelect.js';
 import { Button } from './ui/Button.js';
 import { ApplicationErrorDialogHost, reportApplicationError, useApplicationErrorDialog } from './ui/ApplicationErrorDialog.js';
 import { resolveProjectWorkspaceTabs, writeProjectWorkspaceTabs } from './projectWorkspacePersistence.js';
@@ -56,7 +57,7 @@ export function App(props: AppProps) {
   const workspaceInitialized = useRef(false);
   const activeView = activeProject ? projectViews[activeProject.id] ?? 'workbench' : 'workbench';
   const switchProjectView = (view: 'workbench' | 'source') => {
-    if (!activeProject) return;
+    if (!activeProject || sourceBatchBusy) return;
     if (view === 'source') setSourceVisited(current => ({ ...current, [activeProject.id]: true }));
     setProjectViews(current => {
       const next = { ...current, [activeProject.id]: view };
@@ -250,6 +251,23 @@ export function App(props: AppProps) {
       {inWorkbench && activeProject ? (
         <div className="gitapp-shell gitapp-shell--workbench macos-ai-app zeus-shell theme-light">
           <header className="gitapp-tabbar" aria-label={zh ? '项目页签' : 'Project tabs'}>
+            <ZeusSelect
+              className="gitapp-view-switch"
+              triggerClassName="gitapp-view-trigger"
+              ariaLabel={zh ? '切换项目视图' : 'Switch project view'}
+              triggerTitle={zh ? '切换项目视图' : 'Switch project view'}
+              value={activeView}
+              options={[
+                { value: 'workbench', label: zh ? '仓库管理' : 'Repository management' },
+                { value: 'source', label: zh ? '项目提交' : 'Project commits' },
+              ]}
+              onChange={switchProjectView}
+              disabled={sourceBatchBusy}
+              searchable={false}
+              popoverMinWidth={160}
+              popoverArrowAlignment="start"
+              size="compact"
+            />
             <nav className="gitapp-tabbar-slots" aria-label={zh ? '已打开的项目' : 'Open projects'}>
               {slotProjects.map(({ slot, project }) => {
                 const active = project.id === activeProject.id;
@@ -298,10 +316,6 @@ export function App(props: AppProps) {
             <button type="button" className="gitapp-tab-add" disabled={sourceBatchBusy} aria-label={zh ? '打开或添加项目' : 'Open or add project'} title={zh ? '打开或添加项目' : 'Open or add project'} onClick={() => setShowList(true)}>
               <Plus size={17} weight="regular" aria-hidden="true" />
             </button>
-            <nav className="gitapp-view-switch" aria-label={zh ? '切换项目视图' : 'Project view'}>
-              <button type="button" aria-pressed={activeView === 'workbench'} onClick={() => switchProjectView('workbench')}>{zh ? 'Git 工作台' : 'Git workbench'}</button>
-              <button type="button" aria-pressed={activeView === 'source'} onClick={() => switchProjectView('source')}>{zh ? '源码更改' : 'Source changes'}</button>
-            </nav>
             <div className="gitapp-tabbar-path" title={activeProject.localPath}>
               {activeProject.localPath}
             </div>

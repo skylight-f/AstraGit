@@ -5,17 +5,18 @@ export interface SourceBatchResult {
   repositoryId: string; repositoryName: string; branch: string; paths: string[]; mode: GitCommitSelectionMode;
   expectedHead: string; commitSha?: string; message: string; remote: string; targetBranch: string;
   dependsOn: string[]; status: SourceResultStatus; error?: string;
+  pushRequested?: boolean;
 }
 export interface SourceGitState {
   selected: Record<string, string[]>; sharedMessage: string; drafts: Record<string, string>;
   messageMode: 'shared' | 'individual'; selectionMode: GitCommitSelectionMode;
-  updateParents: boolean;
+  updateParents: boolean; fileView: 'tree' | 'flat';
   focus: { repositoryId: string; path: string } | null; collapsed: string[]; search: string;
   fingerprints: Record<string, string>; lastResults: SourceBatchResult[];
 }
 const sourceStates = new Map<string, SourceGitState>();
 export function readSourceGitState(projectId: string): SourceGitState {
-  const empty: SourceGitState = { selected: {}, sharedMessage: '', drafts: {}, messageMode: 'shared', selectionMode: 'worktree', updateParents: false, focus: null, collapsed: [], search: '', fingerprints: {}, lastResults: [] };
+  const empty: SourceGitState = { selected: {}, sharedMessage: '', drafts: {}, messageMode: 'shared', selectionMode: 'worktree', updateParents: false, fileView: 'tree', focus: null, collapsed: [], search: '', fingerprints: {}, lastResults: [] };
   if (sourceStates.has(projectId)) return sourceStates.get(projectId)!;
   try {
     const value: unknown = JSON.parse(localStorage.getItem(`astragit.source-git.v1:${projectId}`) ?? 'null');
@@ -28,11 +29,14 @@ export function readSourceGitState(projectId: string): SourceGitState {
       sharedMessage: typeof data.sharedMessage === 'string' ? data.sharedMessage.slice(0, 30_000) : '',
       drafts: strings(data.drafts), fingerprints: strings(data.fingerprints),
       messageMode: data.messageMode === 'individual' ? 'individual' : 'shared', selectionMode: data.selectionMode === 'staged' ? 'staged' : 'worktree',
-      updateParents: data.updateParents === true,
+      updateParents: data.updateParents === true, fileView: data.fileView === 'flat' ? 'flat' : 'tree',
       focus: data.focus && typeof data.focus.repositoryId === 'string' && typeof data.focus.path === 'string' ? data.focus : null,
       collapsed: Array.isArray(data.collapsed) ? data.collapsed.filter(value => typeof value === 'string').slice(0, 2000) : [],
       search: typeof data.search === 'string' ? data.search.slice(0, 200) : '',
-      lastResults: Array.isArray(data.lastResults) ? data.lastResults.filter(result => result && typeof result.repositoryId === 'string' && typeof result.status === 'string' && Array.isArray(result.paths) && Array.isArray(result.dependsOn)).slice(0, 20).map(result => ['queued', 'committing', 'pushing'].includes(result.status) ? { ...result, status: 'unknown' as const, error: '操作已中断，请在工作台核对提交与操作记录。' } : result) : [],
+      lastResults: Array.isArray(data.lastResults) ? data.lastResults.filter(result => result && typeof result.repositoryId === 'string' && typeof result.status === 'string' && Array.isArray(result.paths) && Array.isArray(result.dependsOn)).slice(0, 20).map(result => {
+        if (result.commitSha && (result.status === 'pushing' || (result.status === 'committed' && result.pushRequested))) return { ...result, status: 'push_blocked' as const, error: '提交已完成，推送流程已中断；可重试推送，不会重复提交。' };
+        return ['queued', 'committing', 'pushing'].includes(result.status) ? { ...result, status: 'unknown' as const, error: '操作已中断，请在工作台核对提交与操作记录。' } : result;
+      }) : [],
     };
   } catch { return empty; }
 }

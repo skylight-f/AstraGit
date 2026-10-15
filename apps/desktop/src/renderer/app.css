@@ -345,10 +345,10 @@ body {
 .gitapp-update-dialog footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .gitapp-update-dialog button { border: 1px solid #dce0e9; border-radius: 7px; padding: 7px 12px; font: inherit; cursor: pointer; background: #fff; color: inherit; }
 .gitapp-update-dialog button:disabled { opacity: .5; cursor: default; }
-.gitapp-view-switch { display: flex; flex: 0 0 auto; gap: 3px; padding: 3px; background: #ffffff; border: 1px solid #e0e3eb; border-radius: 9px; }
-.gitapp-view-switch button { min-height: 28px; padding: 4px 11px; border: 0; border-radius: 6px; background: transparent; color: #667085; font-size: 12px; white-space: nowrap; }
-.gitapp-view-switch button[aria-pressed="true"] { background: #eee7ff; color: #7446d8; }
-.gitapp-view-switch button:focus-visible { outline: 2px solid #8b66e6; outline-offset: 2px; }
+.gitapp-tabbar > .gitapp-view-switch { display: inline-flex; flex: 0 0 auto; inline-size: auto; min-inline-size: 0; }
+.gitapp-tabbar .gitapp-view-trigger { min-height: 34px; padding: 5px 7px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #5c6475; font-size: 12px; white-space: nowrap; -webkit-app-region: no-drag; }
+.gitapp-tabbar .gitapp-view-trigger:hover:not(:disabled), .gitapp-tabbar .gitapp-view-trigger[aria-expanded="true"] { background: #eee7ff; color: #7446d8; }
+.gitapp-tabbar .gitapp-view-trigger:focus-visible { outline: 2px solid #8b66e6; outline-offset: 2px; }
 
 /* —— 顶部项目页签：完全独立实现，不挂 Zeus slot 类 —— */
 .gitapp-tabbar {
@@ -360,7 +360,7 @@ body {
   min-height: 48px !important;
   height: 48px !important;
   box-sizing: border-box !important;
-  padding: 7px 14px 7px 90px !important;
+  padding: 7px 14px 7px 10px !important;
   gap: 8px !important;
   background: #f2f3f7 !important;
   border-bottom: 1px solid #e1e4ec !important;

@@ -59,6 +59,7 @@ test('a project commits child before parent, preserves unchecked staging, and re
   await runSourceBatch({ client, projectId: 'project', rows, push: true, stopped: () => false, onResults: value => { results = value; }, onActive: () => {}, onCommitted: () => {} });
   assert.deepEqual(actions.filter(action => action.startsWith('commit:')), ['commit:child', 'commit:parent', 'commit:nested']);
   assert.equal(results.find(row => row.repositoryId === 'child').status, 'push_failed'); assert.equal(results.find(row => row.repositoryId === 'parent').status, 'push_blocked'); assert.equal(results.find(row => row.repositoryId === 'nested').status, 'done');
+  assert.ok(results.every(row => row.pushRequested === true), 'Persist push intent so interrupted batches can resume only their pushes.');
   const heads = await Promise.all([parentGit('rev-parse', 'HEAD'), childGit('rev-parse', 'HEAD'), nestedGit('rev-parse', 'HEAD')]);
   assert.equal((await parentGit('ls-tree', 'HEAD', 'lib')).split(/\s+/u)[2], heads[1]); assert.equal(await parentGit('diff', '--cached', '--name-only'), 'other.txt'); assert.match(await readFile(join(project, 'other.txt'), 'utf8'), /keep parent staged/u);
   await rm(hook);

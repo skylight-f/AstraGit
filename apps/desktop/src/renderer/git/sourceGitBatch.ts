@@ -29,7 +29,7 @@ export async function runSourceBatch(input: {
   onActive: (repositoryId: string | null) => void; onCommitted: (row: SourceReviewRow) => void;
 }) {
   const { client, projectId, rows } = input;
-  let results: SourceBatchResult[] = rows.map(row => ({ ...row, status: 'queued' }));
+  let results: SourceBatchResult[] = rows.map(row => ({ ...row, status: 'queued', pushRequested: input.push }));
   const update = (id: string, patch: Partial<SourceBatchResult>) => { results = results.map(row => row.repositoryId === id ? { ...row, ...patch } : row); input.onResults(results); };
   input.onResults(results);
   try {

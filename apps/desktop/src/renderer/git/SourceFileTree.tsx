@@ -1,66 +1,76 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { Folder } from '@phosphor-icons/react/dist/csr/Folder';
-import { GitBranch } from '@phosphor-icons/react/dist/csr/GitBranch';
 import type { GitFileStatusSummary, ProjectGitRepositoryWorkbenchItem } from '../apiClient.js';
-import { GitFileStatusIcon, gitFileStatusCategory } from './GitFileStatusIcon.js';
+import { GitFileStatusIcon, gitFileStatusCategory, gitFileStatusLabel } from './GitFileStatusIcon.js';
 
 export function SourceCheckbox(props: { checked: boolean; mixed?: boolean; disabled?: boolean; label: string; onChange: (checked: boolean) => void }) {
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => { if (input.current) input.current.indeterminate = props.mixed === true; }, [props.mixed]);
   return <input ref={input} type="checkbox" aria-label={props.label} checked={props.checked} disabled={props.disabled} onChange={event => props.onChange(event.currentTarget.checked)} />;
 }
-interface Node { name: string; path: string; children: Map<string, Node>; file?: GitFileStatusSummary }
-function tree(files: GitFileStatusSummary[]) {
-  const root: Node = { name: '', path: '', children: new Map() };
-  for (const file of files) {
-    let current = root;
-    for (const part of file.path.split('/')) {
-      const path = current.path ? `${current.path}/${part}` : part;
-      const next = current.children.get(part) ?? { name: part, path, children: new Map() };
-      current.children.set(part, next); current = next;
-    }
-    current.file = file;
-  }
-  return root;
-}
+import { repositoryColor } from './repositoryColor.js';
+
 interface Props {
   repository: ProjectGitRepositoryWorkbenchItem; files: GitFileStatusSummary[]; selected: string[];
-  focusedPath?: string; focusedRepository?: string; collapsed: string[]; filter: string; disabled: boolean; zh: boolean;
+  focusedPath?: string; focusedRepository?: string; collapsed: string[]; view: 'tree' | 'flat';
+  group: string; selectable: boolean; disabled: boolean; zh: boolean;
   onToggle: (paths: string[], checked: boolean) => void; onFocus: (path: string) => void;
-  onCollapse: (key: string) => void;
+  onSelectRepository: () => void; onCollapse: (key: string) => void;
 }
+
+/** 沿用 Zeus SourceGitChanges 的分组、仓库单行标题和平铺 / 树形选择。 */
 export function SourceRepositoryTree(props: Props) {
-  const selected = new Set(props.selected);
-  const repository = props.repository;
-  const prefix = `${repository.id}:`;
-  const chosen = props.files.filter(file => selected.has(file.path)).length;
-  const filter = props.filter.trim().toLocaleLowerCase();
-  const matchesRepository = repository.name.toLocaleLowerCase().includes(filter) || repository.relativePath.toLocaleLowerCase().includes(filter);
-  const shown = props.files.filter(file => !filter || matchesRepository || file.path.toLocaleLowerCase().includes(filter));
-  if (!shown.length) return null;
-  const renderNode = (node: Node): ReactNode => {
-    if (node.file) return <div key={node.path} className={`source-git-file${props.focusedRepository === repository.id && props.focusedPath === node.path ? ' is-active' : ''}`}>
-      <SourceCheckbox label={props.zh ? `选择 ${repository.name}/${node.path}` : `Select ${repository.name}/${node.path}`} checked={selected.has(node.path)} disabled={props.disabled} onChange={checked => props.onToggle([node.path], checked)} />
-      <button type="button" onClick={() => props.onFocus(node.path)} title={node.path}><GitFileStatusIcon category={gitFileStatusCategory(node.file)} zh={props.zh} /><span>{node.name}</span><small>{node.file.indexStatus !== ' ' && node.file.indexStatus !== '?' ? node.file.workingTreeStatus !== ' ' ? props.zh ? '部分暂存' : 'Partial' : props.zh ? '已暂存' : 'Staged' : props.zh ? '工作区' : 'Worktree'}</small></button>
-    </div>;
-    const paths = props.files.filter(file => file.path.startsWith(`${node.path}/`)).map(file => file.path);
-    const count = paths.filter(path => selected.has(path)).length;
-    const collapsed = props.collapsed.includes(prefix + node.path);
-    return <div key={node.path} className="source-git-directory"><div className="source-git-directory-heading">
-      <button type="button" className="source-git-expand" aria-label={`${collapsed ? props.zh ? '展开' : 'Expand' : props.zh ? '收起' : 'Collapse'} ${node.path}`} aria-expanded={!collapsed} onClick={() => props.onCollapse(prefix + node.path)}>{collapsed ? <CaretRight /> : <CaretDown />}</button>
-      <SourceCheckbox label={props.zh ? `选择目录 ${repository.name}/${node.path}` : `Select directory ${repository.name}/${node.path}`} checked={count === paths.length} mixed={count > 0 && count < paths.length} disabled={props.disabled} onChange={checked => props.onToggle(paths, checked)} />
-      <Folder /><span>{node.name}</span>
-    </div>{collapsed ? null : <div className="source-git-directory-children">{[...node.children.values()].map(renderNode)}</div>}</div>;
-  };
-  const collapsed = props.collapsed.includes(repository.id);
+  const { repository, files, selected } = props;
+  const key = `${props.group}:${repository.id}`;
+  const chosen = files.filter(file => selected.includes(file.path)).length;
+  const collapsed = props.collapsed.includes(key);
+  if (!files.length) return null;
   return <section className="source-git-repository" aria-label={repository.name}>
     <div className={`source-git-repository-heading${props.focusedRepository === repository.id ? ' is-active' : ''}`}>
-      <button type="button" className="source-git-expand" aria-label={`${collapsed ? props.zh ? '展开仓库' : 'Expand repository' : props.zh ? '收起仓库' : 'Collapse repository'} ${repository.name}`} aria-expanded={!collapsed} onClick={() => props.onCollapse(repository.id)}>{collapsed ? <CaretRight /> : <CaretDown />}</button>
-      <SourceCheckbox label={props.zh ? `选择仓库 ${repository.name}` : `Select repository ${repository.name}`} checked={chosen === props.files.length} mixed={chosen > 0 && chosen < props.files.length} disabled={props.disabled} onChange={checked => props.onToggle(props.files.map(file => file.path), checked)} />
-      <button type="button" className="source-git-repository-focus" onClick={() => props.onFocus(shown[0]!.path)}><strong>{repository.name}</strong><small><GitBranch />{repository.snapshot.branch}</small><small>{repository.isSubmodule ? props.zh ? '子模块 · ' : 'Submodule · ' : ''}{repository.relativePath}</small></button>
-      <span>{chosen}/{props.files.length}</span>
-    </div>{collapsed ? null : <div className="source-git-repository-files">{[...tree(shown).children.values()].map(renderNode)}</div>}
+      <button type="button" className="source-git-icon source-git-expand" aria-label={`${collapsed ? props.zh ? '展开仓库' : 'Expand repository' : props.zh ? '收起仓库' : 'Collapse repository'} ${repository.name}`} aria-expanded={!collapsed} onClick={() => { props.onSelectRepository(); props.onCollapse(key); }}>{collapsed ? <CaretRight /> : <CaretDown />}</button>
+      {props.selectable ? <SourceCheckbox label={props.zh ? `选择仓库 ${repository.name}` : `Select repository ${repository.name}`} checked={chosen === files.length} mixed={chosen > 0 && chosen < files.length} disabled={props.disabled} onChange={checked => props.onToggle(files.map(file => file.path), checked)} /> : null}
+      <span className="source-git-repository-color" style={{ '--repository-color': repositoryColor(repository.id) } as CSSProperties} />
+      <button type="button" className="source-git-repository-focus" onClick={props.onSelectRepository} title={`${repository.name} · ${repository.relativePath} · ${repository.snapshot.branch}`}><strong>{repository.name}</strong><small>{repository.snapshot.branch}</small></button>
+    </div>
+    {collapsed ? null : <SourceChangeTree {...props} prefix="" collapsePrefix={key} />}
   </section>;
+}
+function SourceChangeTree(props: Props & { prefix: string; collapsePrefix: string }) {
+  const folders = new Map<string, GitFileStatusSummary[]>();
+  const files: GitFileStatusSummary[] = [];
+  for (const file of props.files) {
+    const rest = file.path.slice(props.prefix.length);
+    const slash = rest.indexOf('/');
+    if (props.view === 'tree' && slash >= 0 && slash < rest.length - 1) {
+      const folder = rest.slice(0, slash + 1);
+      folders.set(folder, [...(folders.get(folder) ?? []), file]);
+    } else files.push(file);
+  }
+  return <div className="source-git-file-tree" data-view={props.view}>
+    {[...folders].sort(([a], [b]) => a.localeCompare(b)).map(([folder, children]) => {
+      const path = props.prefix + folder;
+      const key = `${props.collapsePrefix}:${path}`;
+      const collapsed = props.collapsed.includes(key);
+      const paths = children.map(file => file.path);
+      const chosen = paths.filter(path => props.selected.includes(path)).length;
+      return <div key={folder} className="source-git-directory">
+        <div className="source-git-directory-heading">
+          <button type="button" className="source-git-icon source-git-expand" aria-label={`${collapsed ? props.zh ? '展开目录' : 'Expand directory' : props.zh ? '收起目录' : 'Collapse directory'} ${path}`} aria-expanded={!collapsed} onClick={() => props.onCollapse(key)}>{collapsed ? <CaretRight /> : <CaretDown />}</button>
+          {props.selectable ? <SourceCheckbox label={`${props.zh ? '选择目录' : 'Select directory'} ${props.repository.name}/${path}`} checked={chosen === paths.length} mixed={chosen > 0 && chosen < paths.length} disabled={props.disabled} onChange={checked => props.onToggle(paths, checked)} /> : null}
+          <Folder aria-hidden="true" /><span>{folder.slice(0, -1)}</span><small>{paths.length}</small>
+        </div>
+        {collapsed ? null : <SourceChangeTree {...props} files={children} prefix={path} />}
+      </div>;
+    })}
+    {files.sort((a, b) => a.path.localeCompare(b.path)).map(file => <div key={file.path} className={`source-git-file${props.focusedRepository === props.repository.id && props.focusedPath === file.path ? ' is-active' : ''}`}>
+      {props.selectable ? <SourceCheckbox label={`${props.zh ? '选择' : 'Select'} ${props.repository.name}/${file.path}`} checked={props.selected.includes(file.path)} disabled={props.disabled} onChange={checked => props.onToggle([file.path], checked)} /> : null}
+      <button type="button" onClick={() => props.onFocus(file.path)} title={`${file.originalPath ? `${file.originalPath} → ` : ''}${file.path} · ${gitFileStatusLabel(gitFileStatusCategory(file), props.zh)}`}>
+        {props.repository.snapshot.submodules?.some(module => module.path === file.path) ? <Folder aria-hidden="true" /> : <GitFileStatusIcon category={gitFileStatusCategory(file)} zh={props.zh} />}
+        <span className="source-git-file-name">{props.view === 'flat' ? file.path.slice(file.path.lastIndexOf('/') + 1) : file.path.slice(props.prefix.length)}</span>
+        {props.view === 'flat' && file.path.includes('/') ? <span className="source-git-file-directory">{file.path.slice(0, file.path.lastIndexOf('/'))}</span> : null}
+      </button>
+    </div>)}
+  </div>;
 }
