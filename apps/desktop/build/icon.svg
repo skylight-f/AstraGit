@@ -1,5 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <rect x="72" y="72" width="880" height="880" rx="196" fill="#245EEA"/>
-  <path d="M280 318L218 392L280 466M744 558L806 632L744 706" fill="none" stroke="#B6D8FF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="512" y="618" text-anchor="middle" font-family="Arial,sans-serif" font-size="320" font-weight="700" letter-spacing="-14" fill="white">AG</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="AstraGit">
+  <defs>
+    <linearGradient id="ag-lower" x1="130" y1="520" x2="648" y2="870" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1768ff"/>
+      <stop offset=".46" stop-color="#7026ff"/>
+      <stop offset="1" stop-color="#f719c8"/>
+    </linearGradient>
+    <linearGradient id="ag-upper" x1="540" y1="272" x2="942" y2="140" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a91dff"/>
+      <stop offset="1" stop-color="#ff1cba"/>
+    </linearGradient>
+    <linearGradient id="ag-diagonal" x1="260" y1="180" x2="870" y2="792" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8027ff"/>
+      <stop offset=".3" stop-color="#3035ff"/>
+      <stop offset=".65" stop-color="#15a9f8"/>
+      <stop offset="1" stop-color="#05ede4"/>
+    </linearGradient>
+  </defs>
+  <!-- Astra 家族的几何叠片、黑色字标面板与短横线；AG 标识独立 Git 应用。 -->
+  <path d="M70 746 244 340 788 648 530 950Z" fill="url(#ag-lower)"/>
+  <path d="M480 190 950 134 800 444 588 378Z" fill="url(#ag-upper)"/>
+  <path d="M114 334 344 78 954 604 780 906Z" fill="url(#ag-diagonal)"/>
+  <path d="M256 248H768V760H256Z" fill="#080809"/>
+  <text x="512" y="588" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="330" font-weight="700" letter-spacing="-14" fill="#fff">AG</text>
+  <path d="M300 660H480V696H300Z" fill="#fff"/>
 </svg>

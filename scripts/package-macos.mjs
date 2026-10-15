@@ -83,6 +83,7 @@ try {
       electronDist: join(dirname(electronManifest), 'dist'),
       directories: { app: appDirectory, output, buildResources: join(desktop, 'build') },
       files: ['dist/**', 'package.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', '!**/*.map', '!**/*.d.ts'],
+      extraResources: [{ from: join(desktop, 'build/icon.png'), to: 'branding/icon.png' }],
       asar: true,
       npmRebuild: false,
       artifactName: 'AstraGit-${version}-${arch}.${ext}',
@@ -101,6 +102,8 @@ try {
   const requireBuilder = createRequire(createRequire(import.meta.url).resolve('electron-builder'));
   const asar = requireBuilder('@electron/asar');
   const archive = join(appPath, 'Contents/Resources/app.asar');
+  const packagedIcon = await readFile(join(appPath, 'Contents/Resources/branding/icon.png'));
+  if (!packagedIcon.equals(await readFile(join(desktop, 'build/icon.png')))) throw new Error('Packaged Dock icon does not match the AstraGit icon source.');
   const archiveFiles = new Set(asar.listPackage(archive));
   const requiredFiles = ['dist/main/main.js', 'dist/main/releaseInstaller.js', 'dist/main/releaseUpdateService.js', 'dist/main/releaseArtifact.js', 'dist/main/homebrewUpdateService.js', 'dist/main/homebrewInstaller.js', 'dist/preload/index.cjs', 'dist/renderer/index.html', 'LICENSE', 'THIRD_PARTY_NOTICES.md'];
   for (const name of ['git-server', 'git-core', 'ai-runtime', 'shared', 'storage']) {

@@ -6,6 +6,7 @@
   "description": "AstraGit 独立应用：Git 工作台 + AI 提交说明，不含会话",
   "scripts": {
     "dev": "pnpm --filter @astragit/desktop dev",
+    "icons:generate": "node scripts/generate-icons.mjs",
     "setup:desktop": "pnpm --filter @astragit/desktop exec install-electron",
     "check:isolation": "node scripts/check-isolation.mjs",
     "test": "pnpm --filter '@astragit/git-server...' -r build && node --import tsx --test tests/*.test.mjs",

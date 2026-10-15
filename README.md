@@ -51,6 +51,10 @@ Apple Silicon 产物为 `release/mac-arm64/AstraGit.app`；Intel 为 `release/ma
 
 这是可在本机直接运行的生产构建，尚未做 Developer ID 签名或 Apple 发行公证。构建命令不会生成 DMG、发布或安装到 `/Applications`。
 
+### 图标资源
+
+图标沿用 Astra（Zeus 定制版）的彩色几何叠片、黑色面板与白色字标风格，使用 `AG` 标识 AstraGit。唯一设计源为 `apps/desktop/build/icon.svg`，项目列表 Logo 与页面图标直接引用它。在 macOS 执行 `pnpm icons:generate`，通过系统 AppKit 和 iconutil 生成透明 PNG 与完整尺寸 ICNS；无需额外图形依赖。Main 显式设置 Dock PNG，打包时复制到应用资源目录，开发运行环境使用同源 ICNS。运行中的 `pnpm dev` 监听 PNG / ICNS，生成完成后自动重启开发应用。
+
 ## 同一项目的两种视图
 
 打开项目后，顶部可以切换 **仓库管理** 和 **项目提交**。工作台保留原有暂存、分支、历史和逐块操作；项目提交只列出该项目目录内发现的仓库，不跨项目提交。

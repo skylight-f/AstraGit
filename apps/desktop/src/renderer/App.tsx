@@ -19,6 +19,8 @@ import './ui/primitives.css';
 import './agentdesk-theme.css';
 import './app.css';
 
+const applicationIconUrl = new URL('../../build/icon.svg', import.meta.url).href;
+
 export interface AppProps {
   client: DashboardClient;
   language: 'zh-CN' | 'en-US';
@@ -337,7 +339,7 @@ export function App(props: AppProps) {
         <div className="gitapp-shell gitapp-list-page macos-ai-app theme-light">
           <header className="gitapp-hero">
             <div className="gitapp-logo" aria-hidden="true">
-              <span>AG</span>
+              <img src={applicationIconUrl} alt="" width="48" height="48" />
             </div>
             <div>
               <h1>AstraGit</h1>

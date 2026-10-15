@@ -202,6 +202,7 @@ async function start() {
       await rm(sessionPath, { force: true });
       watchSources(join(desktop, 'src/main'));
       watchSources(join(desktop, 'src/preload'));
+      watchConfigs(join(desktop, 'build'), ['icon.png', 'icon.icns']);
       watchConfigs(desktop, ['tsconfig.main.json', 'tsconfig.preload.json', 'package.json']);
       watchConfigs(workspace, ['tsconfig.base.json', 'pnpm-workspace.yaml', 'pnpm-lock.yaml', 'package.json']);
       for (const name of packages) {
