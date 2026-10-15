@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { localDataError, readLocalJson, writeLocalJson } from './localJsonFile.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -25,7 +26,8 @@ export function createMacOSKeychainStore(options: { service?: string } = {}): Se
   return {
     async setSecret(account, value) {
       validateAccount(account);
-      await run(['add-generic-password', '-U', '-s', service, '-a', account, '-w', value]);
+      try { await run(['add-generic-password', '-U', '-s', service, '-a', account, '-w', value]); }
+      catch { throw new Error('本应用钥匙串保存失败，请检查 macOS 钥匙串授权。'); }
     },
     async getSecret(account) {
       validateAccount(account);
@@ -34,7 +36,7 @@ export function createMacOSKeychainStore(options: { service?: string } = {}): Se
         return stdout.trim() || undefined;
       } catch (error) {
         if (missing(error)) return undefined;
-        throw error;
+        throw new Error('本应用钥匙串读取失败，请检查 macOS 钥匙串授权。');
       }
     },
     async deleteSecret(account) {
@@ -42,7 +44,7 @@ export function createMacOSKeychainStore(options: { service?: string } = {}): Se
       try {
         await run(['delete-generic-password', '-s', service, '-a', account]);
       } catch (error) {
-        if (!missing(error)) throw error;
+        if (!missing(error)) throw new Error('本应用钥匙串删除失败，请检查 macOS 钥匙串授权。');
       }
     },
   };
@@ -51,17 +53,13 @@ export function createMacOSKeychainStore(options: { service?: string } = {}): Se
 /** 文件回退：非 macOS 或 security 不可用时，密钥落在 0600 文件中。 */
 export function createFileSecretStore(filePath: string): SecretStore {
   const readAll = (): Record<string, string> => {
-    if (!existsSync(filePath)) return {};
-    try {
-      const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
-      return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
-    } catch {
-      return {};
-    }
+    const parsed = readLocalJson(filePath);
+    if (parsed === undefined) return Object.create(null);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Object.values(parsed).every(value => typeof value === 'string')) throw localDataError(filePath, '校验');
+    return Object.assign(Object.create(null), parsed);
   };
   const writeAll = (data: Record<string, string>) => {
-    mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+    writeLocalJson(filePath, data);
   };
   return {
     async setSecret(account, value) {
@@ -78,4 +76,20 @@ export function createFileSecretStore(filePath: string): SecretStore {
       writeAll(data);
     },
   };
+}
+
+/** Existing fallback keys stay readable across restarts, without migration. */
+export async function createApplicationSecretStore(dataDirectory: string, native = () => createMacOSKeychainStore()): Promise<SecretStore> {
+  const filePath = join(dataDirectory, 'secrets.json');
+  const fallback = createFileSecretStore(filePath);
+  if (existsSync(filePath)) {
+    await fallback.getSecret('probe');
+    return fallback;
+  }
+  if (process.platform !== 'darwin') return fallback;
+  try {
+    const store = native();
+    await store.getSecret('probe');
+    return store;
+  } catch { return fallback; }
 }

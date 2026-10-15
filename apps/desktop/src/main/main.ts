@@ -5,9 +5,11 @@ import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { startGitServer, type RunningGitServer } from '@astragit/git-server';
+import { resolveCliSearchPath } from '@astragit/ai-runtime';
 import { createReleaseUpdateService } from './releaseUpdateService.js';
 
 let mainWindow: BrowserWindow | null = null;
+let creatingWindow: Promise<void> | null = null;
 let gitServer: RunningGitServer | null = null;
 let bootstrapToken = '';
 let shuttingDown = false;
@@ -18,7 +20,20 @@ const dataDirectory = resolve(process.env.ASTRAGIT_USER_DATA_DIR ?? join(app.get
 mkdirSync(dataDirectory, { recursive: true });
 app.setPath('userData', dataDirectory);
 app.setPath('sessionData', dataDirectory);
+// One Main/server owns each data directory, including after window close.
+const ownsInstance = app.requestSingleInstanceLock();
+if (!ownsInstance) app.exit(0);
 const userDataPath = () => dataDirectory;
+const development = !app.isPackaged && Boolean(process.env.VITE_DEV_SERVER_URL);
+if (development) {
+  // A normal quit drains requests and storage before the dev supervisor restarts.
+  process.on('message', message => {
+    if (message && typeof message === 'object' && 'type' in message && message.type === 'astragit:dev-stop') app.quit();
+  });
+  process.on('disconnect', () => app.quit());
+  process.on('SIGTERM', () => app.quit());
+  process.on('SIGINT', () => app.quit());
+}
 const releaseUpdate = createReleaseUpdateService({
   appPath: resolve(process.execPath, '../../..'), executablePath: process.execPath, dataDirectory,
   version: app.getVersion(), packaged: app.isPackaged,
@@ -40,6 +55,7 @@ async function ensureServer(): Promise<{ baseUrl: string; apiToken: string }> {
     dataDirectory,
     projectRoot: process.env.ASTRAGIT_PROJECT_ROOT ?? dataDirectory,
     apiToken: bootstrapToken,
+    fetch: (input, init) => net.fetch(input as string, init),
     codexHome: process.env.ASTRAGIT_CODEX_HOME ?? join(dataDirectory, 'codex'),
     codexNativeEnabled: process.env.ASTRAGIT_CODEX_ENABLED !== '0',
     currentCodexRuntimeCommandPath: () => process.env.ASTRAGIT_CODEX_COMMAND ?? 'codex',
@@ -48,6 +64,12 @@ async function ensureServer(): Promise<{ baseUrl: string; apiToken: string }> {
 }
 
 async function createWindow(): Promise<void> {
+  if (creatingWindow) return creatingWindow;
+  creatingWindow = loadMainWindow().finally(() => { creatingWindow = null; });
+  return creatingWindow;
+}
+
+async function loadMainWindow(): Promise<void> {
   const config = await ensureServer();
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -62,6 +84,8 @@ async function createWindow(): Promise<void> {
       sandbox: false,
     },
   });
+  const window = mainWindow;
+  window.once('closed', () => { if (mainWindow === window) mainWindow = null; });
 
   // 必须在加载页面前注册 IPC，避免渲染层首屏 invoke 早于 handler。
   ipcMain.removeHandler('astragit:get-bootstrap');
@@ -91,6 +115,7 @@ async function createWindow(): Promise<void> {
   handle('astragit:renderer-ready', async () => {
     mkdirSync(join(dataDirectory, 'updates'), { recursive: true, mode: 0o700 });
     await writeFile(join(dataDirectory, 'updates/app-ready.json'), JSON.stringify({ pid: process.pid, version: app.getVersion(), readyAt: new Date().toISOString() }), { mode: 0o600 });
+    if (development && process.connected) process.send?.({ type: 'astragit:dev-ready', baseUrl: config.baseUrl });
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -107,6 +132,9 @@ async function resolveRendererUrl(): Promise<string> {
 }
 
 app.whenReady().then(async () => {
+  if (!ownsInstance) return;
+  // Finder does not inherit nvm/Homebrew/pnpm paths. Git hooks use this PATH too.
+  process.env.PATH = await resolveCliSearchPath();
   if (!existsSync(userDataPath())) mkdirSync(userDataPath(), { recursive: true });
   await createWindow();
   app.on('activate', () => {
@@ -115,6 +143,15 @@ app.whenReady().then(async () => {
 }).catch((error: unknown) => {
   console.error('[AstraGit] 启动失败', error);
   app.exit(1);
+});
+
+app.on('second-instance', () => {
+  if (shuttingDown) return;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  } else if (app.isReady()) void createWindow();
 });
 
 app.on('window-all-closed', () => {

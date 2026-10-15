@@ -17,9 +17,14 @@ function devCspPlugin(): Plugin {
 }
 
 export default defineConfig(({ command }) => ({
-  root: '.',
+  root: import.meta.dirname,
   base: './',
   plugins: [react(), devCspPlugin()],
+  // Dev reads shared source directly; production uses the built local package.
+  ...(command === 'serve' ? {
+    resolve: { alias: [{ find: /^@astragit\/shared$/u, replacement: resolve(import.meta.dirname, '../../packages/shared/src/index.ts') }] },
+    optimizeDeps: { exclude: ['@astragit/shared'] },
+  } : {}),
   build: {
     outDir: 'dist/renderer',
     emptyOutDir: true,
@@ -32,6 +37,4 @@ export default defineConfig(({ command }) => ({
     port: 5179,
     strictPort: true,
   },
-  // 生产构建若仍带 unsafe-inline，由主进程可再收紧；开发优先保证可运行。
-  ...(command === 'serve' ? {} : {}),
 }));

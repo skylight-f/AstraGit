@@ -2,9 +2,7 @@
 export interface LocalApiTransport {
   readonly protocol: 'astragit-local-api-v1';
   request<T>(path: string, init?: RequestInit): Promise<T>;
-  requestBlob(path: string): Promise<Blob>;
   requestStream<T>(path: string, init: RequestInit, onEvent: (event: T) => void): Promise<void>;
-  connectEvents<T>(onEvent: (event: T) => void, options?: { afterEventId?: string }): WebSocket;
 }
 
 export interface LocalApiConnection {
@@ -65,28 +63,6 @@ export function createLocalApiTransport(options: { getConnection(): LocalApiConn
     }
   };
 
-  const requestBlob = async (path: string): Promise<Blob> => {
-    const connection = options.getConnection();
-    const response = await fetch(`${connection.baseUrl}${path}`, {
-      headers: { authorization: `Bearer ${connection.apiToken}` },
-    });
-    if (!response.ok) throw await responseError(response, path);
-    return response.blob();
-  };
-
-  const connectEvents = <T>(onEvent: (event: T) => void): WebSocket => {
-    const connection = options.getConnection();
-    const wsUrl = new URL(`${connection.baseUrl.replace(/^http/u, 'ws')}/api/events`);
-    const socket = new WebSocket(wsUrl.toString(), buildAstraGitWebSocketProtocol(connection.apiToken));
-    socket.addEventListener('message', (message) => {
-      void decodeWebSocketMessage(message.data).then((text) => {
-        if (!text) return;
-        onEvent(JSON.parse(text) as T);
-      });
-    });
-    return socket;
-  };
-
   const requestStream = async <T>(path: string, init: RequestInit, onEvent: (event: T) => void): Promise<void> => {
     const connection = options.getConnection();
     const headers = new Headers(init.headers);
@@ -120,7 +96,7 @@ export function createLocalApiTransport(options: { getConnection(): LocalApiConn
     }
   };
 
-  return { protocol: 'astragit-local-api-v1', request, requestBlob, requestStream, connectEvents };
+  return { protocol: 'astragit-local-api-v1', request, requestStream };
 }
 
 export function jsonRequest(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body: unknown): RequestInit {
@@ -206,15 +182,4 @@ async function responseError(response: Response, path: string): Promise<AstraGit
 
 function createClientTraceId(path: string): string {
   return `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}_${path.replace(/[^\w]+/g, '').slice(-24)}`;
-}
-
-function buildAstraGitWebSocketProtocol(token: string): string {
-  return `astragit-local-api-v1,${token}`;
-}
-
-async function decodeWebSocketMessage(data: unknown): Promise<string> {
-  if (typeof data === 'string') return data;
-  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
-  if (ArrayBuffer.isView(data)) return new TextDecoder().decode(data);
-  return '';
 }

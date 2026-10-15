@@ -2,6 +2,16 @@
 /** 新安装与旧设置缺省时使用的任务分支命名空间。 */
 export const defaultTaskBranchPrefix = 'astragit';
 
+/** UI preflight for concrete branch names; Git remains the final authority. */
+export function gitBranchNameIssue(value: string): 'required' | 'whitespace' | 'invalid' | null {
+  const name = value.trim();
+  if (!name) return 'required';
+  if (Array.from(name).some(character => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127)) return 'whitespace';
+  if (name === '@' || name.startsWith('-') || name.startsWith('/') || name.endsWith('/') || name.endsWith('.') || name.includes('..') || name.includes('@{') || name.includes('//') || Array.from(name).some(character => '~^:?*[\\'.includes(character))) return 'invalid';
+  if (name.split('/').some(segment => segment.startsWith('.') || segment.endsWith('.lock'))) return 'invalid';
+  return null;
+}
+
 /**
  * 将用户输入规范为不带结尾斜杠的 Git 分支前缀。
  * 这里只接受会稳定生成合法完整分支名的结构，完整分支仍由 Git 自身最终校验。

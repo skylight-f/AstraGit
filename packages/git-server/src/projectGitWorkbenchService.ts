@@ -142,8 +142,10 @@ export class ProjectGitWorkbenchService {
     } catch (error) {
       if (operation.status === 'running') {
         const output = redactGitOutput(error instanceof Error ? error.message : String(error));
+        const code = isRecord(error) && typeof error.code === 'string' ? error.code : '';
+        const rejectedBeforeChange = new Set(['ASTRAGIT_GIT_BRANCH_INVALID', 'ASTRAGIT_GIT_BRANCH_REQUIRED', 'ASTRAGIT_GIT_BRANCH_NOT_FOUND', 'ASTRAGIT_GIT_CHECKOUT_BLOCKED', 'ASTRAGIT_GIT_CHECKOUT_BRANCH_IN_USE', 'ASTRAGIT_GIT_CHECKOUT_CONFLICTED']).has(code);
         this.operations.update(operation.id, {
-          status: commands.length ? 'unknown_after_write' : 'failed_before_write',
+          status: commands.length && !rejectedBeforeChange ? 'unknown_after_write' : 'failed_before_write',
           durationMs: Date.now() - Date.parse(operation.startedAt),
           output: output.slice(0, 65_536),
           commands,

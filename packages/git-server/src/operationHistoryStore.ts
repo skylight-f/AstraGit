@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { ProjectGitOperationPage, ProjectGitOperationRecord } from '@astragit/git-core';
+import { localDataError, readLocalJson, writeLocalJson } from './localJsonFile.js';
 
 interface StoredOperation extends ProjectGitOperationRecord {
   projectId: string;
@@ -14,13 +14,16 @@ const operationStatuses = new Set<ProjectGitOperationRecord['status']>(['running
 /** 保存工作台操作的真实状态；进程中断后，未结束的写操作按结果未知展示。 */
 export class OperationHistoryStore {
   private readonly filePath: string;
-  private records: StoredOperation[];
+  private records: StoredOperation[] | null = null;
 
   constructor(dataDirectory: string) {
     this.filePath = join(dataDirectory, 'git-operation-history.json');
-    this.records = this.read();
+  }
+
+  private ensureRecords(): StoredOperation[] {
+    if (this.records) return this.records;
     let changed = false;
-    this.records = this.records.map((record) => {
+    const records = this.read().map((record): StoredOperation => {
       if (record.status !== 'running') return record;
       changed = true;
       return {
@@ -29,7 +32,9 @@ export class OperationHistoryStore {
         output: record.output || '应用在操作结束前退出，请检查当前仓库状态。',
       };
     });
-    if (changed) this.write();
+    if (changed) this.write(records);
+    else this.records = records;
+    return records;
   }
 
   start(projectId: string, repositoryId: string, repositoryName: string, action: string): StoredOperation {
@@ -46,33 +51,33 @@ export class OperationHistoryStore {
       commands: [],
       limitations: [],
     };
-    this.records.unshift(record);
-    this.records = this.records.slice(0, maximumRecords);
-    this.write();
+    this.write([record, ...this.ensureRecords()].slice(0, maximumRecords));
     return record;
   }
 
   update(id: string, change: Partial<ProjectGitOperationRecord>): void {
-    const record = this.records.find((item) => item.id === id);
+    const records = this.ensureRecords();
+    const index = records.findIndex((item) => item.id === id);
+    const record = records[index];
     if (!record) return;
+    this.write(records.map((item) => item.id === id ? { ...item, ...change } : item));
+    // Keep the reference returned by start() current only after persistence.
     Object.assign(record, change);
-    this.write();
+    this.records![index] = record;
   }
 
   list(projectId: string, cursor?: string): ProjectGitOperationPage {
     const offset = cursor === undefined ? 0 : Number(cursor);
     if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('操作历史分页位置无效。');
-    const records = this.records.filter((record) => record.projectId === projectId);
+    const records = this.ensureRecords().filter((record) => record.projectId === projectId);
     const items = records.slice(offset, offset + pageSize).map(({ projectId: _projectId, ...record }) => record);
     return { items, total: records.length, nextCursor: offset + pageSize < records.length ? String(offset + pageSize) : null };
   }
 
   private read(): StoredOperation[] {
-    if (!existsSync(this.filePath)) return [];
-    try {
-      const value: unknown = JSON.parse(readFileSync(this.filePath, 'utf8'));
-      if (!Array.isArray(value)) return [];
-      return value.filter((item): item is StoredOperation =>
+    const value = readLocalJson(this.filePath);
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || !value.every((item): item is StoredOperation =>
         typeof item === 'object' && item !== null &&
         typeof item.id === 'string' && typeof item.projectId === 'string' &&
         typeof item.repositoryId === 'string' && typeof item.repositoryName === 'string' &&
@@ -82,16 +87,12 @@ export class OperationHistoryStore {
         operationStatuses.has(item.status) && typeof item.output === 'string' &&
         (item.commands === null || (Array.isArray(item.commands) && item.commands.every((command: unknown) => typeof command === 'string'))) &&
         Array.isArray(item.limitations),
-      ).slice(0, maximumRecords);
-    } catch {
-      return [];
-    }
+      )) throw localDataError(this.filePath, '校验');
+    return value.slice(0, maximumRecords);
   }
 
-  private write(): void {
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    const temporary = `${this.filePath}.${process.pid}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify(this.records, null, 2)}\n`, 'utf8');
-    renameSync(temporary, this.filePath);
+  private write(records: StoredOperation[]): void {
+    writeLocalJson(this.filePath, records);
+    this.records = records;
   }
 }

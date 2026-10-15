@@ -9,7 +9,6 @@ import type {
   ProjectGitAction,
   ProjectGitActionResponse,
   ProjectGitCommitDetail,
-  ProjectGitSnapshotResult,
   ProjectGitWorkbenchSnapshot,
   ProjectGitOperationPage,
   GitCommitSelectionMode,
@@ -35,15 +34,13 @@ export interface GitApiClient {
   loadGitDiff: () => Promise<GitDiffSummary>;
   loadProjectGitStatus: (projectId: string) => Promise<GitStatusSummary>;
   loadProjectGitWorkbench: (projectId: string) => Promise<ProjectGitWorkbenchSnapshot>;
-  loadConversationGitHistory: (projectId: string, repositoryId: string, offset: number, ref?: string) => Promise<{ commits: NonNullable<GitStatusSummary['recentCommits']>; hasMore: boolean }>;
+  loadProjectGitHistory: (projectId: string, repositoryId: string, offset: number, ref?: string) => Promise<{ commits: NonNullable<GitStatusSummary['recentCommits']>; hasMore: boolean }>;
   loadProjectGitCommit: (projectId: string, repositoryId: string, commitHash: string) => Promise<ProjectGitCommitDetail>;
   loadProjectGitComparisonDiff: (projectId: string, repositoryId: string, ref: string, mode: 'current' | 'working-tree') => Promise<GitDiffSummary>;
   executeProjectGitAction: (projectId: string, repositoryId: string, input: ProjectGitAction) => Promise<ProjectGitActionResponse>;
   cancelProjectGitAction: (projectId: string, repositoryId: string) => Promise<{ cancelled: boolean }>;
   loadProjectGitDiff: (projectId: string) => Promise<GitDiffSummary>;
-  createProjectGitSnapshot: (projectId: string, taskId: string) => Promise<ProjectGitSnapshotResult>;
   exportProjectGitPatch: (projectId: string) => Promise<GitPatchExport>;
-  loadTaskGitDiff: (taskId: string) => Promise<GitDiffSummary>;
   exportGitPatch: () => Promise<GitPatchExport>;
   createGitConfirmation: (input: CreateGitConfirmationRequest) => Promise<GitOperationConfirmation>;
   confirmGitOperation: (confirmationId: string) => Promise<GitOperationConfirmation>;
@@ -91,7 +88,7 @@ export function createGitApiClient(transport: LocalApiTransport): GitApiClient {
     loadGitDiff: () => transport.request<GitDiffSummary>('/api/git/diff'),
     loadProjectGitStatus: (projectId) => transport.request<GitStatusSummary>(`${projectGitPath(projectId)}/status`),
     loadProjectGitWorkbench: (projectId) => transport.request<ProjectGitWorkbenchSnapshot>(`${projectGitPath(projectId)}/workbench`),
-    loadConversationGitHistory: async (projectId, repositoryId, offset, ref) =>
+    loadProjectGitHistory: async (projectId, repositoryId, offset, ref) =>
       transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/history?offset=${offset}${ref ? `&ref=${encodeURIComponent(ref)}` : ''}`),
     loadProjectGitCommit: (projectId, repositoryId, commitHash) => transport.request<ProjectGitCommitDetail>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/commits/${encodeURIComponent(commitHash)}`),
     loadProjectGitComparisonDiff: (projectId, repositoryId, ref, mode) => transport.request<GitDiffSummary>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/compare?ref=${encodeURIComponent(ref)}&mode=${mode}`),
@@ -106,15 +103,6 @@ export function createGitApiClient(transport: LocalApiTransport): GitApiClient {
     },
     cancelProjectGitAction: (projectId, repositoryId) => transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/cancel`, jsonRequest('POST', {})),
     loadProjectGitDiff: (projectId) => transport.request<GitDiffSummary>(`${projectGitPath(projectId)}/diff`),
-    createProjectGitSnapshot: async (projectId, taskId) => {
-      const body = await buildWorkspaceGitCommandRequest({
-        commandType: workspaceGitClientCommandTypes.projectSnapshotCreate,
-        scopeKind: 'git_repository',
-        scopeId: `project:${projectId}`,
-        value: { taskId },
-      });
-      return transport.request<ProjectGitSnapshotResult>(`${projectGitPath(projectId)}/snapshot`, jsonRequest('POST', body));
-    },
     exportProjectGitPatch: async (projectId) => {
       const body = await buildWorkspaceGitCommandRequest({
         commandType: workspaceGitClientCommandTypes.projectPatchExport,
@@ -124,7 +112,6 @@ export function createGitApiClient(transport: LocalApiTransport): GitApiClient {
       });
       return transport.request<GitPatchExport>(`${projectGitPath(projectId)}/patch`, jsonRequest('POST', body));
     },
-    loadTaskGitDiff: (taskId) => transport.request<GitDiffSummary>(`/api/tasks/${encodeURIComponent(taskId)}/diff`),
     exportGitPatch: () => transport.request<GitPatchExport>('/api/git/patch'),
     createGitConfirmation: async (input) => {
       const body = await buildGitCommandRequest({

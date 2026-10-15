@@ -1,0 +1,67 @@
+import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+import test from 'node:test';
+import { startGitServer } from '../packages/git-server/dist/index.js';
+import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
+import { resolveCliSearchPath } from '../packages/ai-runtime/dist/index.js';
+import { gitBranchNameIssue } from '../packages/shared/dist/index.js';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
+
+const execute = promisify(execFile);
+
+test('desktop client commits with restored hook tools and switches valid branches while preserving blocked local changes', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'astragit-desktop-git-'));
+  const repository = join(root, 'repo'); const data = join(root, 'data'); const tools = join(root, 'tools');
+  await mkdir(repository); await mkdir(tools);
+  let server;
+  const original = { PATH: process.env.PATH, SHELL: process.env.SHELL, ASTRAGIT_TEST_TOOL_PATH: process.env.ASTRAGIT_TEST_TOOL_PATH };
+  t.after(async () => {
+    for (const [key, value] of Object.entries(original)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    await server?.close(); await rm(root, { recursive: true, force: true });
+  });
+  const git = async (...args) => (await execute('git', args, { cwd: repository })).stdout.trim();
+  await git('init', '--initial-branch=main'); await git('config', 'user.name', 'AstraGit Test'); await git('config', 'user.email', 'test@astragit.invalid'); await git('config', 'commit.gpgsign', 'false');
+  await writeFile(join(repository, 'README.md'), 'baseline\n'); await git('add', 'README.md'); await git('commit', '-m', 'test: baseline');
+  await git('branch', 'feature/中文#123');
+  await writeFile(join(repository, 'README.md'), 'baseline\ncommit via desktop client\n'); await git('add', 'README.md');
+  await writeFile(join(repository, '.git/hooks/pre-commit'), '#!/bin/sh\nset -e\npnpm --version > .git/hook-tool-result\nnode --version >> .git/hook-tool-result\n', { mode: 0o755 });
+  await git('config', 'core.hooksPath', '.git/hooks');
+  await writeFile(join(tools, 'pnpm'), '#!/bin/sh\nprintf "fixture-pnpm\\n"\n', { mode: 0o755 });
+  await symlink(process.execPath, join(tools, 'node'));
+  const shell = join(root, 'login-shell');
+  await writeFile(shell, '#!/bin/sh\nprintf "welcome\\0%s\\0" "$ASTRAGIT_TEST_TOOL_PATH:/usr/bin:/bin"\n', { mode: 0o755 });
+  server = await startGitServer({ dataDirectory: data, projectRoot: repository, apiToken: 'desktop-git-fixture', codexNativeEnabled: false, secretStore: createFileSecretStore(join(data, 'secrets.json')) });
+  const client = createDashboardClientLike({ baseUrl: server.baseUrl, apiToken: server.apiToken });
+  const project = await client.createProject({ localPath: repository });
+  const repo = (await client.loadProjectGitWorkbench(project.id)).repositories[0];
+  const action = value => client.executeProjectGitAction(project.id, repo.id, value);
+  const initialHead = await git('rev-parse', 'HEAD');
+  process.env.PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
+  await assert.rejects(() => action({ type: 'commit', message: 'test: hook tools' }), /pnpm/u);
+  assert.equal(await git('rev-parse', 'HEAD'), initialHead);
+  process.env.SHELL = shell; process.env.ASTRAGIT_TEST_TOOL_PATH = tools;
+  process.env.PATH = await resolveCliSearchPath();
+  assert.equal(process.env.PATH.split(':')[0], tools);
+  const committed = await action({ type: 'commit', message: 'test: hook tools' });
+  assert.equal(committed.result.outcome, 'completed');
+  assert.match(await readFile(join(repository, '.git/hook-tool-result'), 'utf8'), /^fixture-pnpm\nv\d/u);
+  assert.notEqual(await git('rev-parse', 'HEAD'), initialHead);
+  assert.equal(gitBranchNameIssue('feature/中文#123'), null);
+  assert.equal(gitBranchNameIssue('feature/FE35 EOS任务中心'), 'whitespace');
+  const beforeInvalid = await git('rev-parse', 'HEAD');
+  await assert.rejects(() => action({ type: 'create_branch', branchName: 'feature/FE35 EOS任务中心' }), error => error.error === 'ASTRAGIT_GIT_BRANCH_INVALID');
+  assert.equal(await git('rev-parse', 'HEAD'), beforeInvalid);
+  assert.equal((await client.loadProjectGitOperations(project.id)).items[0].status, 'failed_before_write');
+  await action({ type: 'checkout', branchName: 'feature/中文#123' });
+  assert.equal(await git('branch', '--show-current'), 'feature/中文#123');
+  assert.ok((await client.loadProjectGitHistory(project.id, repo.id, 0)).commits.length);
+  await writeFile(join(repository, 'README.md'), 'uncommitted content must survive\n');
+  await assert.rejects(() => action({ type: 'checkout', branchName: 'main' }), error => error.error === 'ASTRAGIT_GIT_CHECKOUT_BLOCKED');
+  assert.equal(await readFile(join(repository, 'README.md'), 'utf8'), 'uncommitted content must survive\n');
+  assert.equal(await git('branch', '--show-current'), 'feature/中文#123');
+  assert.equal((await client.loadProjectGitOperations(project.id)).items[0].status, 'failed_before_write');
+});

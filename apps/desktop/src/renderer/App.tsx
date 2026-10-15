@@ -2,11 +2,12 @@ import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { FolderOpen } from '@phosphor-icons/react/dist/csr/FolderOpen';
 import { Plus } from '@phosphor-icons/react/dist/csr/Plus';
 import { X } from '@phosphor-icons/react/dist/csr/X';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardClient, GitAppProject, ProjectRecord } from './apiClient.js';
 import { ProjectGitWorkbench } from './git/ProjectGitWorkbench.js';
 import { ProjectSourceChanges } from './git/ProjectSourceChanges.js';
-import { ModelSettings } from './ModelSettings.js';
+import { Settings } from './Settings.js';
+import { readLanguagePreference, resolveApplicationLanguage, saveLanguagePreference, type LanguagePreference } from './applicationPreferences.js';
 import { ReleaseUpdateButton } from './ReleaseUpdateButton.js';
 import { Button } from './ui/Button.js';
 import { ApplicationErrorDialogHost, reportApplicationError, useApplicationErrorDialog } from './ui/ApplicationErrorDialog.js';
@@ -28,7 +29,14 @@ interface ProjectSlot {
 }
 
 export function App(props: AppProps) {
-  const zh = props.language === 'zh-CN';
+  const [languagePreference, setLanguagePreference] = useState(readLanguagePreference);
+  const language = resolveApplicationLanguage(languagePreference, props.language);
+  const zh = language === 'zh-CN';
+  useEffect(() => { document.documentElement.lang = language; }, [language]);
+  const changeLanguage = (value: LanguagePreference) => {
+    try { saveLanguagePreference(value); setLanguagePreference(value); }
+    catch (reason) { reportApplicationError(reason, { language: zh ? 'zh-CN' : 'en' }); }
+  };
   const [projects, setProjects] = useState<GitAppProject[] | null>(null);
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null);
   const [slots, setSlots] = useState<ProjectSlot[]>([]);
@@ -45,6 +53,7 @@ export function App(props: AppProps) {
   });
   const [sourceVisited, setSourceVisited] = useState<Record<string, boolean>>({});
   const [sourceBatchBusy, setSourceBatchBusy] = useState(false);
+  const workspaceInitialized = useRef(false);
   const activeView = activeProject ? projectViews[activeProject.id] ?? 'workbench' : 'workbench';
   const switchProjectView = (view: 'workbench' | 'source') => {
     if (!activeProject) return;
@@ -94,6 +103,10 @@ export function App(props: AppProps) {
 
   // 启动：恢复上次打开的项目页签
   useEffect(() => {
+    // Fast Refresh re-runs effects. Restore only once per mounted App so a
+    // component save keeps the current list/settings/workbench navigation.
+    if (workspaceInitialized.current) return;
+    workspaceInitialized.current = true;
     void (async () => {
       const list = await refresh();
       const restored = resolveProjectWorkspaceTabs(list);
@@ -292,16 +305,16 @@ export function App(props: AppProps) {
             <div className="gitapp-tabbar-path" title={activeProject.localPath}>
               {activeProject.localPath}
             </div>
-            <button type="button" className="gitapp-settings-trigger" onClick={() => setSettingsOpen(true)}>{zh ? 'AI 设置' : 'AI settings'}</button>
+            <button type="button" className="gitapp-settings-trigger" onClick={() => setSettingsOpen(true)}>{zh ? '设置' : 'Settings'}</button>
             <ReleaseUpdateButton zh={zh} disabled={sourceBatchBusy} />
           </header>
 
           <div className="gitapp-workbench-host" key={activeProject.id}>
             <div className="gitapp-view-pane" hidden={activeView !== 'workbench'}>
-              <ProjectGitWorkbench project={activeProject} client={props.client} language={props.language} modelSettingsRevision={modelSettingsRevision} />
+              <ProjectGitWorkbench project={activeProject} client={props.client} language={language} modelSettingsRevision={modelSettingsRevision} />
             </div>
             {sourceVisited[activeProject.id] || activeView === 'source' ? <div className="gitapp-view-pane" hidden={activeView !== 'source'}>
-              <ProjectSourceChanges project={activeProject} client={props.client} language={props.language} active={activeView === 'source'} modelSettingsRevision={modelSettingsRevision} onBusyChange={setSourceBatchBusy} />
+              <ProjectSourceChanges project={activeProject} client={props.client} language={language} active={activeView === 'source'} modelSettingsRevision={modelSettingsRevision} onBusyChange={setSourceBatchBusy} />
             </div> : null}
           </div>
           <ApplicationErrorDialogHost language={zh ? 'zh-CN' : 'en'} />
@@ -321,7 +334,7 @@ export function App(props: AppProps) {
                 {zh ? '返回工作台' : 'Back to workbench'}
               </Button>
             ) : null}
-            <Button type="button" variant="secondary" className="gitapp-hero-settings" onClick={() => setSettingsOpen(true)}>{zh ? 'AI 设置' : 'AI settings'}</Button>
+            <Button type="button" variant="secondary" className="gitapp-hero-settings" onClick={() => setSettingsOpen(true)}>{zh ? '设置' : 'Settings'}</Button>
             <ReleaseUpdateButton zh={zh} />
           </header>
 
@@ -379,7 +392,7 @@ export function App(props: AppProps) {
           <ApplicationErrorDialogHost language={zh ? 'zh-CN' : 'en'} />
         </div>
       )}
-      {settingsOpen ? <ModelSettings client={props.client} language={props.language} onClose={() => setSettingsOpen(false)} onChanged={modelSettingsChanged} /> : null}
+      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} onClose={() => setSettingsOpen(false)} onModelsChanged={modelSettingsChanged} /> : null}
     </>
   );
 }

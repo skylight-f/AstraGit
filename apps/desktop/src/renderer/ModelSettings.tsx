@@ -5,7 +5,7 @@ import { ModalPortal } from './ui/ModalPortal.js';
 
 type Templates = Awaited<ReturnType<DashboardClient['loadModelConnectionTemplates']>>;
 
-export function ModelSettings(props: { client: DashboardClient; language: 'zh-CN' | 'en-US'; onClose: () => void; onChanged: () => void }) {
+export function ModelSettings(props: { client: DashboardClient; language: 'zh-CN' | 'en-US'; onClose: () => void; onChanged: () => void; embedded?: boolean }) {
   const zh = props.language === 'zh-CN';
   const [templates, setTemplates] = useState<Templates | null>(null);
   const [connections, setConnections] = useState<ModelConnection[]>([]);
@@ -16,22 +16,27 @@ export function ModelSettings(props: { client: DashboardClient; language: 'zh-CN
   const [apiKey, setApiKey] = useState('');
   const [manualModel, setManualModel] = useState<Record<string, string>>({});
   const [replacementKeys, setReplacementKeys] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState<{ id: string; name: string; baseUrl: string; modelsPath: string } | null>(null);
   const [login, setLogin] = useState<CodexLogin | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     let active = true;
-    void Promise.all([props.client.loadModelConnectionTemplates(), props.client.loadModelConnections(), props.client.loadCodexAccount()])
-      .then(([nextTemplates, nextConnections, nextAccount]) => {
+    void Promise.all([props.client.loadModelConnectionTemplates(), props.client.loadModelConnections()])
+      .then(([nextTemplates, nextConnections]) => {
         if (!active) return;
         setTemplates(nextTemplates);
         setConnections(nextConnections);
-        setAccount(nextAccount);
       })
       .catch((error: unknown) => {
         if (active) setMessage(errorText(error));
       });
+    void props.client.loadCodexAccount().then(nextAccount => {
+      if (active) setAccount(nextAccount);
+    }).catch(error => {
+      if (active) setAccount({ available: false, signedIn: false, message: errorText(error) });
+    });
     return () => { active = false; };
   }, [props.client]);
 
@@ -128,6 +133,22 @@ export function ModelSettings(props: { client: DashboardClient; language: 'zh-CN
     });
   }
 
+  async function saveConnectionEdit(): Promise<void> {
+    if (!editing) return;
+    const connection = connections.find(item => item.id === editing.id);
+    const nextUrl = editing.baseUrl.trim();
+    if (!connection || !allowHttp(nextUrl)) return;
+    await perform(async () => {
+      await props.client.updateModelConnection(connection.id, {
+        ...connection, name: editing.name.trim(), baseUrl: nextUrl,
+        modelsPath: editing.modelsPath.trim(), allowInsecureHttp: nextUrl.startsWith('http://'),
+      });
+      setEditing(null);
+      await reloadConnections();
+      setMessage(zh ? '连接配置已更新，原 API Key 和模型选择已保留。' : 'Connection updated. Your API key and model selections are preserved.');
+    });
+  }
+
   async function refreshModels(connection: ModelConnection): Promise<void> {
     await perform(async () => {
       const result = await props.client.refreshModelConnectionModels(connection.id);
@@ -168,6 +189,7 @@ export function ModelSettings(props: { client: DashboardClient; language: 'zh-CN
     if (!window.confirm(zh ? `移除模型连接「${connection.name}」？` : `Remove model connection “${connection.name}”?`)) return;
     await perform(async () => {
       await props.client.removeModelConnection(connection.id);
+      if (editing?.id === connection.id) setEditing(null);
       await reloadConnections();
     });
   }
@@ -181,22 +203,21 @@ export function ModelSettings(props: { client: DashboardClient; language: 'zh-CN
     });
   }
 
-  return (
-    <ModalPortal role="dialog" aria-label={zh ? 'AI 模型设置' : 'AI model settings'} rootClassName="gitapp-settings-root" onDismiss={props.onClose}>
-      <div className="gitapp-settings-panel" data-modal-surface="dialog">
+  const content = (
+      <div className={props.embedded ? 'gitapp-settings-model-content' : 'gitapp-settings-panel'} data-modal-surface="dialog">
         <header className="gitapp-settings-header">
           <div>
             <h2>{zh ? 'AI 模型设置' : 'AI model settings'}</h2>
             <p>{zh ? '配置提交说明使用的模型。API Key 保存在本机。' : 'Configure models for commit messages. API keys stay on this device.'}</p>
           </div>
-          <Button onClick={props.onClose}>{zh ? '完成' : 'Done'}</Button>
+          {!props.embedded ? <Button onClick={props.onClose}>{zh ? '完成' : 'Done'}</Button> : null}
         </header>
 
         {message ? <p className="gitapp-settings-message" role="status">{message}</p> : null}
 
         <section className="gitapp-settings-section">
           <h3>Codex</h3>
-          <p>{account === null ? (zh ? '正在读取账户状态…' : 'Loading account…') : account.signedIn ? (zh ? '已登录，可在提交区选择 Codex 模型。' : 'Signed in. Codex models are available in the commit panel.') : account.message || (zh ? '尚未登录。' : 'Not signed in.')}</p>
+          <p>{account === null ? (zh ? '正在读取账户状态…' : 'Loading account…') : account.signedIn ? (zh ? '已登录，可在提交区选择 Codex 模型。' : 'Signed in. Codex models are available in the commit panel.') : account.code === 'ASTRAGIT_CODEX_DISABLED' ? (zh ? 'Codex 尚未启用。' : 'Codex is disabled.') : account.message || (zh ? '尚未登录。' : 'Not signed in.')}</p>
           {account?.codexHome ? <small title={account.codexHome}>{zh ? '独立数据目录：' : 'Separate data directory: '}{account.codexHome}</small> : null}
           {account?.available && !account.signedIn ? <Button disabled={busy || Boolean(login)} onClick={() => void startLogin()}>{zh ? '登录 Codex' : 'Sign in to Codex'}</Button> : null}
           {login ? <a href={login.authUrl} target="_blank" rel="noopener noreferrer">{zh ? '在浏览器中打开登录页面 ↗' : 'Open sign in page ↗'}</a> : null}
@@ -209,8 +230,22 @@ export function ModelSettings(props: { client: DashboardClient; language: 'zh-CN
             <div className="gitapp-settings-connection" key={connection.id}>
               <div className="gitapp-settings-connection-heading">
                 <div><strong>{connection.name}</strong><small>{connection.baseUrl} · {connection.apiKeyConfigured ? (zh ? '已配置密钥' : 'Key configured') : (zh ? '未配置密钥' : 'No key')}</small></div>
+                <Button size="compact" disabled={busy} onClick={() => setEditing({ id: connection.id, name: connection.name, baseUrl: connection.baseUrl, modelsPath: connection.modelsPath })}>{zh ? '编辑连接' : 'Edit connection'}</Button>
                 <Button variant="danger" size="compact" disabled={busy} onClick={() => void removeConnection(connection)}>{zh ? '移除' : 'Remove'}</Button>
               </div>
+              {editing?.id === connection.id ? (
+                <div className="gitapp-settings-editor">
+                  <div className="gitapp-settings-form">
+                    <label>{zh ? '连接名称' : 'Connection name'}<input disabled={busy} value={editing.name} onChange={event => setEditing({ ...editing, name: event.target.value })} /></label>
+                    <label>{zh ? '连接 API 地址' : 'Connection API URL'}<input disabled={busy} value={editing.baseUrl} onChange={event => setEditing({ ...editing, baseUrl: event.target.value })} spellCheck={false} /></label>
+                    <label>{zh ? '模型目录路径' : 'Models path'}<input disabled={busy} value={editing.modelsPath} onChange={event => setEditing({ ...editing, modelsPath: event.target.value })} spellCheck={false} /></label>
+                  </div>
+                  <div className="gitapp-settings-row">
+                    <Button size="compact" variant="primary" disabled={busy || !editing.name.trim() || !editing.baseUrl.trim() || !editing.modelsPath.trim()} onClick={() => void saveConnectionEdit()}>{zh ? '保存连接配置' : 'Save connection settings'}</Button>
+                    <Button size="compact" disabled={busy} onClick={() => setEditing(null)}>{zh ? '取消编辑' : 'Cancel edit'}</Button>
+                  </div>
+                </div>
+              ) : null}
               <label className="gitapp-settings-toggle">
                 <input type="checkbox" checked={connection.enabled} disabled={busy} onChange={(event) => void setConnectionEnabled(connection, event.currentTarget.checked)} />
                 <span>{zh ? '启用连接' : 'Enable connection'}</span>
@@ -253,8 +288,8 @@ export function ModelSettings(props: { client: DashboardClient; language: 'zh-CN
           <Button variant="primary" disabled={busy || !name.trim() || !baseUrl.trim() || !apiKey.trim()} onClick={() => void createConnection()}>{busy ? (zh ? '处理中…' : 'Working…') : (zh ? '保存连接' : 'Save connection')}</Button>
         </section>
       </div>
-    </ModalPortal>
   );
+  return props.embedded ? content : <ModalPortal role="dialog" aria-label={zh ? 'AI 模型设置' : 'AI model settings'} rootClassName="gitapp-settings-root" onDismiss={props.onClose}>{content}</ModalPortal>;
 }
 
 function errorText(error: unknown): string {

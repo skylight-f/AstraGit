@@ -49,7 +49,7 @@ import { WarningCircleIcon as WarningCircle } from '@phosphor-icons/react/dist/c
 import type { DashboardClient, GitDiffHunk, GitFileDiff, ProjectGitAction, ProjectGitCommitDetail, ProjectGitOperationRecord, ProjectGitRepositoryWorkbenchItem, ProjectGitWorkbenchSnapshot, ProjectRecord } from '../apiClient.js';
 import { Button } from '../ui/Button.js';
 import { ModalPortal } from '../ui/ModalPortal.js';
-import { reportApplicationError, useApplicationErrorDialog, VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
+import { reportApplicationError, VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
 import { ProjectGitDiffWindow, SideBySideDiff } from './ProjectGitDiffViewer.js';
 
 type GitTab = 'changes' | 'stash' | 'log' | 'console';
@@ -67,7 +67,7 @@ export interface ProjectGitWorkbenchProps {
   project: ProjectRecord;
   client: Pick<
     DashboardClient,
-    'loadConversationGitHistory' | 'loadProjectGitWorkbench' | 'loadProjectGitOperations' | 'loadProjectGitCommit' | 'loadProjectGitComparisonDiff' | 'executeProjectGitAction' | 'cancelProjectGitAction' | 'generateGitCommitMessage' | 'loadGitCommitModels'
+    'loadProjectGitHistory' | 'loadProjectGitWorkbench' | 'loadProjectGitOperations' | 'loadProjectGitCommit' | 'loadProjectGitComparisonDiff' | 'executeProjectGitAction' | 'cancelProjectGitAction' | 'generateGitCommitMessage' | 'loadGitCommitModels'
   >;
   language: 'zh-CN' | 'en-US';
   modelSettingsRevision?: number;
@@ -80,9 +80,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const [snapshot, setSnapshot] = useState<ProjectGitWorkbenchSnapshot | null>(() => readCachedProjectGitWorkbench(props.client, props.project.id));
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(() => (snapshot ? 'ready' : 'loading'));
   const [error, setError] = useState<string | null>(null);
-  useApplicationErrorDialog(error, {
-    language: zh ? 'zh-CN' : 'en',
-  });
+  // errorMessage() reports the original failure once; this state is its inline summary.
   const [tab, setTab] = useState<GitTab>(() => (props.conversationScope ? 'changes' : readRememberedTab(props.project.id)));
   const [subtree, setSubtree] = useState<{ repositoryId: string; path: string } | null>(null);
   const [selectedRepositoryId, setSelectedRepositoryId] = useState(() => projectGitViewPreferences.get(props.project.id)?.repositoryId ?? '');
@@ -218,7 +216,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     setHistoryLoading(true);
     setHistoryError('');
     try {
-      const page = await props.client.loadConversationGitHistory(props.project.id, selectedRepository.id, previous.length, historyRef || undefined);
+      const page = await props.client.loadProjectGitHistory(props.project.id, selectedRepository.id, previous.length, historyRef || undefined);
       if (request !== historyRequest.current) return;
       const commits = [...previous, ...page.commits].filter((commit, index, items) => items.findIndex((item) => item.hash === commit.hash) === index);
       setHistoryPage({ key, commits, hasMore: page.hasMore });

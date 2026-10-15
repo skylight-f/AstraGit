@@ -14,7 +14,7 @@ export interface GitCommitMessageInput {
 }
 
 /** 仅生成可编辑的文本草稿；不创建会话、不调用工具、不执行 Git 写操作。 */
-export async function generateGitCommitMessage(service: ModelConnectionService, projectId: string, input: GitCommitMessageInput, signal?: AbortSignal): Promise<{ message: string; model: string }> {
+export async function generateGitCommitMessage(service: ModelConnectionService, projectId: string, input: GitCommitMessageInput, signal?: AbortSignal, fetcher: typeof fetch = fetch): Promise<{ message: string; model: string }> {
   if (!input.files.length || !input.stagedDiff.trim()) throw failure(input.scope === 'selection' ? '请先勾选需要提交的文件。' : '请先暂存需要提交的改动。', 400);
   const connections = await service.loadRuntimeConnections();
   const available = connections
@@ -44,7 +44,7 @@ export async function generateGitCommitMessage(service: ModelConnectionService, 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 80_000);
   try {
-    const response = await fetch(modelConnectionRequestEndpoint(connection.baseUrl, protocol), { method: 'POST', headers, body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal });
+    const response = await fetcher(modelConnectionRequestEndpoint(connection.baseUrl, protocol), { method: 'POST', headers, body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal });
     if (!response.ok) throw failure(`AI 生成失败（HTTP ${response.status}），请检查模型连接后重试。`, 502);
     const payload: unknown = await response.json();
     const value = record(payload);

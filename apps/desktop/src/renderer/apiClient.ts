@@ -45,6 +45,7 @@ export interface SaveModelConnection {
 }
 
 export interface CodexAccount {
+  code?: string;
   available: boolean;
   signedIn: boolean;
   message?: string;

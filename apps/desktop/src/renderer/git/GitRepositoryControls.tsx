@@ -1,4 +1,5 @@
 import './gitWorkspace.css';
+import { gitBranchNameIssue } from '@astragit/shared';
 import { repositoryColor } from './repositoryColor.js';
 import { VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
@@ -668,6 +669,11 @@ export function NewBranchDialog(props: {
 }) {
   const [repositoryId, setRepositoryId] = useState('');
   const [branchName, setBranchName] = useState('');
+  const issue = gitBranchNameIssue(branchName);
+  const issueId = useId();
+  const issueMessage = issue === 'required' ? props.zh ? '请输入分支名称。' : 'Enter a branch name.' : issue === 'whitespace'
+    ? props.zh ? '分支名称不能包含空格、制表符或换行。可使用连字符或下划线连接词语。' : 'Branch names cannot contain spaces, tabs or line breaks. Use hyphens or underscores between words.'
+    : props.zh ? '分支名称不能包含 ..、@{、~、^、:、?、*、[、\\，或无效的路径段。' : 'Use a valid Git branch name without .., @{, ~, ^, :, ?, *, [, \\ or invalid path segments.';
   useEffect(() => {
     if (!props.open) return;
     setRepositoryId(props.selectedRepository?.id ?? props.repositories[0]?.id ?? '');
@@ -696,7 +702,8 @@ export function NewBranchDialog(props: {
           ) : null}
           <label>
             <span>{props.zh ? '分支名称' : 'Branch name'}</span>
-            <input value={branchName} onChange={(event) => setBranchName(event.currentTarget.value)} autoFocus placeholder="feature/example" />
+            <input value={branchName} onChange={(event) => setBranchName(event.currentTarget.value)} autoFocus placeholder="feature/example" aria-invalid={Boolean(branchName && issue)} aria-describedby={branchName && issue ? issueId : undefined} />
+            {branchName && issue ? <small id={issueId} role="alert">{issueMessage}</small> : null}
           </label>
         </main>
         <footer>
@@ -706,7 +713,7 @@ export function NewBranchDialog(props: {
           <Button
             variant="primary"
             busy={props.busy?.action === 'create_branch'}
-            disabled={!repository || !branchName.trim() || props.busy !== null}
+            disabled={!repository || Boolean(issue) || props.busy !== null}
             onClick={async () => {
               if (!repository) return;
               const outcome = await props.onExecute(repository, { type: 'create_branch', branchName: branchName.trim(), baseRef }, props.zh ? '新建并签出分支' : 'Create and checkout branch');

@@ -14,7 +14,7 @@ import { createCodexAppServerManager, modelConnectionTemplates, type CodexAppSer
 import { GitCommandApplication } from './gitCommandApplication.js';
 import { registerGitCommandRoutes } from './gitCommandRoutes.js';
 import { createManualModel, createModelConnectionService } from './modelConnectionService.js';
-import { createMacOSKeychainStore, createFileSecretStore, type SecretStore } from './securityCore.js';
+import { createApplicationSecretStore, type SecretStore } from './securityCore.js';
 import { ProjectStore, type GitAppProject } from './projectStore.js';
 import { ProjectGitWorkbenchService, stableRepositoryId, type ProjectGitActionResponse, type ProjectGitWorkbenchSnapshot } from './projectGitWorkbenchService.js';
 import { generateGitCommitMessage } from './gitCommitMessageGeneration.js';
@@ -31,6 +31,8 @@ export interface StartGitServerOptions {
   host?: string;
   port?: number;
   apiToken: string;
+  /** Desktop supplies Chromium networking; standalone hosts may use Node fetch. */
+  fetch?: typeof fetch;
   /** Allows isolated hosts and tests to supply their own application credential store. */
   secretStore?: SecretStore;
   codexHome?: string;
@@ -49,6 +51,7 @@ export interface RunningGitServer {
 
 export async function startGitServer(options: StartGitServerOptions): Promise<RunningGitServer> {
   const dataDirectory = options.dataDirectory;
+  const secretStore = options.secretStore ?? await createApplicationSecretStore(dataDirectory);
   const projects = new ProjectStore(dataDirectory);
   const db = await createAstraGitDatabase(join(dataDirectory, 'git-app.db'));
   const settings = new SettingRepository(db);
@@ -56,19 +59,11 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
   const deliveries = new CommandDeliveryRepository(db);
   const artifacts = new ArtifactStore(db, join(dataDirectory, 'artifacts', 'content-addressed'), () => new Date().toISOString(), { writeFaultReporter: db });
   await artifacts.initialize();
-  let secretStore = options.secretStore;
-  if (!secretStore) {
-    try {
-      secretStore = createMacOSKeychainStore({ service: 'AstraGit' });
-      await secretStore.getSecret('probe');
-    } catch {
-      secretStore = createFileSecretStore(join(dataDirectory, 'secrets.json'));
-    }
-  }
   const modelConnections = createModelConnectionService({
     settings,
     secretStore,
     save: () => db.save(),
+    fetch: options.fetch,
   });
 
   const redactSensitiveText = (value: string): { text: string; redacted: boolean } => {
@@ -333,7 +328,7 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
 
   // —— Codex 账户 ——
   server.get('/api/codex/account', async () => {
-    if (!codexAppServerManager) return { available: false, signedIn: false, message: 'Codex 尚未启用。' };
+    if (!codexAppServerManager) return { available: false, signedIn: false, code: 'ASTRAGIT_CODEX_DISABLED', message: 'Codex 尚未启用。' };
     try {
       const capabilities = await codexAppServerManager.ensureReady({
         commandPath: options.currentCodexRuntimeCommandPath?.() ?? '',
@@ -506,7 +501,7 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
               onText: (text) => emit({ type: 'text', text }),
             });
           }
-          return await generateGitCommitMessage(modelConnections, project.id, input, controller.signal);
+          return await generateGitCommitMessage(modelConnections, project.id, input, controller.signal, options.fetch);
         };
         const result = await run();
         const fingerprints = await Promise.all(contexts.map(({ repository, paths }) => readCommitFingerprint(repository.localPath, paths, selectionMode)));

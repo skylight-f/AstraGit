@@ -67,11 +67,19 @@ test('isolated application stages changes, generates a draft, commits and restor
     response.writeHead(404).end('{}');
   });
   await new Promise((resolve, reject) => { modelServer.once('error', reject); modelServer.listen(0, '127.0.0.1', resolve); });
-  const modelUrl = `http://127.0.0.1:${modelServer.address().port}/v1`;
+  const modelOrigin = `http://127.0.0.1:${modelServer.address().port}`;
+  const modelUrl = 'https://models.astragit.invalid/v1';
+  const networkRequests = [];
   async function start() {
     running = await startGitServer({
       dataDirectory: data, projectRoot: data, apiToken: 'astragit-test-token', codexNativeEnabled: false,
       secretStore: createFileSecretStore(join(data, 'secrets.json')),
+      fetch: async (input, init) => {
+        const url = new URL(input);
+        assert.equal(url.hostname, 'models.astragit.invalid');
+        networkRequests.push(url.pathname);
+        return fetch(`${modelOrigin}${url.pathname}`, init);
+      },
     });
   }
   async function request(path, { method = 'GET', body, status = 200 } = {}) {
@@ -107,6 +115,7 @@ test('isolated application stages changes, generates a draft, commits and restor
   const stream = await request(`/api/projects/${project.id}/git/commit-message`, { method: 'POST', body: { repositoryId: repo.id, relativePath: repo.relativePath, language: 'zh-CN', modelRef: available.items[0].id, stream: true } });
   const result = stream.trim().split('\n').map((line) => JSON.parse(line)).find((event) => event.type === 'result');
   assert.equal(result?.message, 'docs: 补充独立应用说明', stream);
+  assert.deepEqual(networkRequests, ['/v1/models', '/v1/chat/completions'], 'Catalog and draft generation must both use the host network adapter.');
   assert.match(prompt.stagedDiff, /\+independent app/u);
   assert.deepEqual(prompt.files, ['README.md']);
   assert.equal((await git('rev-parse', 'HEAD')).stdout.trim(), originalHead, 'Draft generation must not commit.');
@@ -121,6 +130,10 @@ test('isolated application stages changes, generates a draft, commits and restor
   const connections = await json('/api/model-connections');
   assert.equal(connections.items[0].apiKeyConfigured, true);
   assert.equal(connections.items[0].models[0].id, 'test-model');
+  const edited = await json(`/api/model-connections/${connection.id}`, { method: 'PATCH', body: { ...connections.items[0], name: 'Edited connection', baseUrl: 'https://models.astragit.invalid/v2' } });
+  assert.equal(edited.apiKeyConfigured, true);
+  assert.equal(edited.models[0].enabled, true);
+  assert.equal(edited.baseUrl, 'https://models.astragit.invalid/v2');
   const manual = await json(`/api/model-connections/${connection.id}/models`, { method: 'POST', body: { modelId: 'manual-model' } });
   assert.equal(manual.models.find((model) => model.id === 'manual-model').enabled, true);
   const operations = await json(`/api/projects/${project.id}/git/operations`);
