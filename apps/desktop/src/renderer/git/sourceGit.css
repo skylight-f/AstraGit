@@ -129,6 +129,7 @@
   min-width: 0;
 }
 .source-git-files {
+  --source-git-indent: 16px;
   flex: 1;
   min-height: 55px;
   overflow: auto;
@@ -186,7 +187,7 @@
   font-weight: 650;
 }
 .source-git-repository {
-  margin-left: 10px;
+  margin-inline-start: var(--source-git-indent);
 }
 .source-git-repository-color {
   background: var(--repository-color);
@@ -196,7 +197,7 @@
   flex-shrink: 0;
 }
 .source-git-file-tree {
-  padding-left: 14px;
+  padding-inline-start: var(--source-git-indent);
 }
 .source-git-files input[type='checkbox'] {
   appearance: auto;
@@ -210,10 +211,15 @@
 .source-git-file {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 0 3px 0 14px;
+  gap: 5px;
+  padding: 0 4px;
   border-radius: 4px;
   min-width: 0;
+}
+/* 叶子节点也保留折叠箭头列，复选框与同层目录对齐。 */
+.source-git-file::before {
+  content: '';
+  flex: 0 0 12px;
 }
 .source-git-file.is-active {
   background: var(--zeus-source-list-selected);
@@ -224,7 +230,7 @@
   align-items: center;
   flex: 1;
   min-width: 0;
-  padding: 4px 2px;
+  padding: 4px 0;
   border: 0;
   background: transparent;
   text-align: left;
@@ -239,9 +245,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.source-git-file-tree[data-view='flat'] > .source-git-file {
-  padding-left: 0;
 }
 .source-git-file-tree[data-view='flat'] .source-git-file-name {
   max-width: 65%;
