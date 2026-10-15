@@ -19,7 +19,14 @@ export function ReleaseUpdateButton(props: { zh: boolean; disabled?: boolean }) 
     return () => { live = false; clearInterval(timer); unsubscribe?.(); };
   }, []);
   useEffect(() => { if (opened) dialog.current?.showModal(); else dialog.current?.close(); }, [opened]);
-  const run = async (action: () => Promise<unknown>) => { setBusy(true); setError(''); try { await action(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setBusy(false); } };
+  const run = async (action: () => Promise<unknown>) => {
+    setBusy(true); setError(''); setProgress(null);
+    try { await action(); }
+    catch (reason) {
+      setProgress(null);
+      setError((reason instanceof Error ? reason.message : String(reason)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/u, ''));
+    } finally { setBusy(false); }
+  };
   if (!window.astraGit?.checkUpdate) return null;
   return <>
     <button type="button" className="gitapp-settings-trigger gitapp-update-trigger" disabled={props.disabled} onClick={() => setOpened(true)}>{update?.status === 'available' ? label('有可用更新', 'Update available') : label('应用更新', 'App updates')}</button>

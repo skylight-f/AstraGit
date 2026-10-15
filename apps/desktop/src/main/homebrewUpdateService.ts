@@ -1,9 +1,9 @@
 import { constants } from 'node:fs';
 import { access, lstat, mkdir, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { homebrewCask, homebrewRepository, homebrewTap, releasePageUrl, type ReleaseUpdateProgress, type ReleaseUpdateStatus } from '@astragit/shared';
+import { compareReleaseVersions, homebrewCask, homebrewRepository, homebrewTap, releasePageUrl, type ReleaseUpdateProgress, type ReleaseUpdateStatus } from '@astragit/shared';
 import { execFile } from './releaseVerification.js';
-import { downloadVerifiedArtifact, verifyDownloadedArtifact } from './releaseArtifact.js';
+import { cacheVerifiedArtifact, verifyDownloadedArtifact } from './releaseArtifact.js';
 
 export interface HomebrewCaskInfo { version: string; installedVersion: string | null; tap: string; url: string; sha256: string; appTarget: string }
 export interface HomebrewPreparedUpdate { update: ReleaseUpdateStatus; brewPath: string; cachePath: string }
@@ -16,7 +16,12 @@ export function parseHomebrewCask(value: unknown): HomebrewCaskInfo {
 }
 export function assertHomebrewRelease(cask: HomebrewCaskInfo, update: ReleaseUpdateStatus) {
   const artifact = update.artifact;
-  if (!artifact || update.status !== 'available' || update.installMethod !== 'homebrew' || cask.version !== update.latestVersion || cask.url !== artifact.downloadUrl || cask.sha256 !== artifact.sha256 || artifact.fileName !== `AstraGit-${update.latestVersion}-${artifact.arch}.dmg` || artifact.downloadUrl !== `${releasePageUrl}/download/v${update.latestVersion}/${artifact.fileName}`) throw new Error('Homebrew Cask 尚未同步或与发布清单不一致，请稍后重试。');
+  if (!artifact || update.status !== 'available' || update.installMethod !== 'homebrew' || artifact.fileName !== `AstraGit-${update.latestVersion}-${artifact.arch}.dmg` || artifact.downloadUrl !== `${releasePageUrl}/download/v${update.latestVersion}/${artifact.fileName}`) throw new Error('Homebrew 更新清单的版本、架构或来源无效。');
+  if (cask.version !== update.latestVersion) {
+    if (compareReleaseVersions(cask.version, update.latestVersion) < 0) throw new Error(`安装包 ${update.latestVersion} 已下载并校验，但 Homebrew 仍为 ${cask.version}，尚未同步。请稍后再次点击升级，无需重新下载。`);
+    throw new Error(`Homebrew 已更新为 ${cask.version}，与已下载的 ${update.latestVersion} 不一致。请重新检查并下载最新更新。`);
+  }
+  if (cask.url !== artifact.downloadUrl || cask.sha256 !== artifact.sha256) throw new Error(`Homebrew ${cask.version} 的下载地址或 SHA-256 与发布清单不一致，已停止安装。请稍后重试或查看发布页。`);
 }
 export async function inspectHomebrewApp(path: string, versions: string[]) {
   const info = await lstat(path);
@@ -64,8 +69,9 @@ export function createHomebrewUpdateService(options: { appPath: string; version:
       if (!output.split(/\r?\n/u).some(line => ['astragit', homebrewCask].includes(line.trim().split(/\s/u)[0]!))) return false;
       await managed(await inspect(brew)); return true;
     },
-    async prepare(update: ReleaseUpdateStatus, progress: (value: ReleaseUpdateProgress) => void, fetchRelease?: typeof globalThis.fetch): Promise<HomebrewPreparedUpdate> {
+    async prepare(update: ReleaseUpdateStatus, downloadedPath: string, progress: (value: ReleaseUpdateProgress) => void): Promise<HomebrewPreparedUpdate> {
       if (!update.artifact || update.currentVersion !== options.version || update.artifact.arch !== process.arch) throw new Error('Homebrew 更新与当前应用版本或架构不一致。');
+      await verifyDownloadedArtifact(downloadedPath, update.artifact);
       const brewPath = await binary(); if (!brewPath) throw new Error('未找到 Homebrew。');
       let cask = await inspect(brewPath); await managed(cask);
       if (cask.version !== update.latestVersion || cask.sha256 !== update.artifact?.sha256 || cask.url !== update.artifact.downloadUrl) {
@@ -78,8 +84,10 @@ export function createHomebrewUpdateService(options: { appPath: string; version:
       const inside = relative(resolve(cacheRoot), resolve(cachePath));
       if (!isAbsolute(cachePath) || !isAbsolute(cacheRoot) || !inside || inside.startsWith('..') || isAbsolute(inside)) throw new Error('Homebrew 缓存位置无效。');
       await mkdir(dirname(cachePath), { recursive: true });
-      // 使用桌面系统网络栈预取至 brew 的真实缓存；brew 升级时再次校验并保留安装登记。
-      await downloadVerifiedArtifact(update.artifact!, cachePath, progress, fetchRelease);
+      // 下载可先于 Tap 同步完成；安装前匹配 Cask 后才将已校验的安装包写入 brew 缓存。
+      progress({ phase: 'verifying', receivedBytes: 0, totalBytes: update.artifact.sizeBytes });
+      await cacheVerifiedArtifact(downloadedPath, cachePath, update.artifact);
+      progress({ phase: 'ready', receivedBytes: update.artifact.sizeBytes, totalBytes: update.artifact.sizeBytes });
       return { update, brewPath, cachePath };
     },
     async install(prepared: HomebrewPreparedUpdate, progress: (value: ReleaseUpdateProgress) => void) {

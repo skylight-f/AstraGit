@@ -15,31 +15,36 @@ export interface ReleaseUpdateOptions {
   onProgress: (progress: ReleaseUpdateProgress) => void;
   confirmRestart: () => Promise<boolean>; quit: () => void;
 }
-export function createReleaseUpdateService(options: ReleaseUpdateOptions) {
+export interface ReleaseUpdateDependencies {
+  homebrew?: ReturnType<typeof createHomebrewUpdateService>;
+  systemVersion?: () => Promise<string>;
+}
+export function createReleaseUpdateService(options: ReleaseUpdateOptions, dependencies: ReleaseUpdateDependencies = {}) {
   let checked: ReleaseUpdateStatus | null = null;
   let pending: Promise<ReleaseUpdateStatus> | null = null;
   let download: Promise<ReleaseUpdateStatus> | null = null;
-  let prepared: { status: ReleaseUpdateStatus; path: string; homebrew?: HomebrewPreparedUpdate } | null = null;
+  let prepared: { status: ReleaseUpdateStatus; path: string } | null = null;
   let installing = false;
   const fetchRelease = options.fetch ?? globalThis.fetch;
-  const homebrew = createHomebrewUpdateService({ appPath: options.appPath, version: options.version });
+  const homebrew = dependencies.homebrew ?? createHomebrewUpdateService({ appPath: options.appPath, version: options.version });
+  const systemVersion = dependencies.systemVersion ?? (async () => (await execFile('/usr/bin/sw_vers', ['-productVersion'])).stdout.trim());
   const current: ReleaseUpdateStatus = { status: 'unavailable', currentVersion: options.version, latestVersion: '', releasePageUrl, artifact: null, automaticInstallEnabled: false, reason: '', installMethod: 'direct' };
   async function check(): Promise<ReleaseUpdateStatus> {
     if (pending) return pending;
     pending = (async () => {
       let installMethod: ReleaseUpdateStatus['installMethod'] = 'direct';
       try {
-        if (options.packaged && process.platform === 'darwin' && await homebrew.isManaged()) installMethod = 'homebrew';
+        if (options.packaged && await homebrew.isManaged()) installMethod = 'homebrew';
         const response = await fetchRelease(`${releasePageUrl}/latest/download/astragit-release-manifest.json`, { signal: AbortSignal.timeout(20_000), headers: { 'user-agent': `AstraGit/${options.version}`, 'cache-control': 'no-cache' } });
         if (!response.ok) throw new Error(response.status === 404 ? '尚无公开发布的更新清单。' : `检查更新失败：HTTP ${response.status}`);
         const raw = await response.text(); if (raw.length > 128_000) throw new Error('更新清单过大。');
         const manifest = parseReleaseManifest(JSON.parse(raw));
         const artifact = manifest.artifacts.find(artifact => artifact.arch === process.arch) ?? null;
         const newer = compareReleaseVersions(manifest.version, options.version) > 0;
-        const system = (await execFile('/usr/bin/sw_vers', ['-productVersion'])).stdout.trim().split('.').map(Number);
+        const system = (await systemVersion()).split('.').map(Number);
         const required = manifest.minimumSystemVersion.split('.').map(Number);
         const systemSupported = system[0]! > required[0]! || (system[0] === required[0] && (system[1] ?? 0) >= (required[1] ?? 0));
-        let installReason = installMethod === 'homebrew' ? '由 Homebrew 管理，更新将通过 brew 升级并保留安装记录。' : '当前应用未使用 Developer ID 签名，需先手动安装签名版本。';
+        let installReason = installMethod === 'homebrew' ? '先下载并校验安装包；升级前同步 Homebrew，并保留安装记录。' : '当前应用未使用 Developer ID 签名，需先手动安装签名版本。';
         let installable = installMethod === 'homebrew';
         if (installMethod === 'direct' && options.packaged && process.platform === 'darwin' && basename(options.appPath) === 'AstraGit.app' && !options.appPath.startsWith('/Volumes/') && !options.appPath.includes('/AppTranslocation/')) {
           const appStat = await lstat(options.appPath);
@@ -59,10 +64,7 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions) {
     download = (async () => {
       const update = await check();
       if (!options.packaged || update.status !== 'available' || !update.artifact) throw new Error('当前没有可下载的匹配更新。');
-      if (update.installMethod === 'homebrew') {
-        const item = await homebrew.prepare(update, options.onProgress, fetchRelease);
-        prepared = { status: update, path: item.cachePath, homebrew: item }; return update;
-      }
+      // 两种安装渠道先独立下载，Homebrew Cask 尚未同步时也可完成校验。
       const directory = join(options.dataDirectory, 'updates/downloads', update.latestVersion);
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const path = join(directory, update.artifact.fileName);
@@ -73,6 +75,7 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions) {
   }
   async function verifiedPrepared() {
     const update = await check();
+    if (update.status === 'unavailable') throw new Error(update.reason || '暂时无法核对更新，请稍后重试。已下载的安装包会保留。');
     if (!prepared || update.status !== 'available' || prepared.status.installMethod !== update.installMethod || prepared.status.latestVersion !== update.latestVersion || prepared.status.artifact?.sha256 !== update.artifact?.sha256) throw new Error('当前更新与已下载的安装包不一致，请重新下载。');
     await verifyDownloadedArtifact(prepared.path, update.artifact!); return { ...prepared, status: update };
   }
@@ -83,12 +86,14 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions) {
       const item = await verifiedPrepared();
       if (!item.status.automaticInstallEnabled) throw new Error(item.status.reason || '当前环境不支持自动安装。');
       if (item.status.installMethod === 'homebrew') {
-        if (!item.homebrew || !(await homebrew.isManaged())) throw new Error('Homebrew 安装记录已变化，请重新下载。');
+        if (!(await homebrew.isManaged())) throw new Error('Homebrew 安装记录已变化，请重新检查更新。');
+        // 保持应用运行，先同步 Tap、核对 Cask 并准备 brew 缓存，成功后才请求退出。
+        const homebrewPrepared: HomebrewPreparedUpdate = await homebrew.prepare(item.status, item.path, options.onProgress);
         if (!(await options.confirmRestart())) return { accepted: false };
         const transaction = randomUUID(); const job = join(options.dataDirectory, 'updates', transaction);
         await mkdir(job, { recursive: true, mode: 0o700 });
         const bootstrapPath = join(job, 'homebrew-installer.json');
-        await writeFile(bootstrapPath, JSON.stringify({ transaction, mainPid: process.pid, target: resolve(options.appPath), dataDirectory: options.dataDirectory, prepared: item.homebrew }), { mode: 0o600, flag: 'wx' });
+        await writeFile(bootstrapPath, JSON.stringify({ transaction, mainPid: process.pid, target: resolve(options.appPath), dataDirectory: options.dataDirectory, prepared: homebrewPrepared }), { mode: 0o600, flag: 'wx' });
         const child = spawn(options.executablePath, [fileURLToPath(new URL('./homebrewInstaller.js', import.meta.url)), bootstrapPath], { detached: true, stdio: 'ignore', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } });
         await new Promise<void>((resolveSpawn, reject) => { child.once('spawn', resolveSpawn); child.once('error', reject); }); child.unref();
         const deadline = Date.now() + 10_000;

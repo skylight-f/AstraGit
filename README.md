@@ -74,7 +74,7 @@ brew install --cask skylight-f/tap/astragit
 brew upgrade --cask skylight-f/tap/astragit
 ```
 
-Apple Silicon 与 Intel 使用各自的 DMG 和摘要。应用核对 Homebrew 安装收据、当前 App 路径和身份后，显示 **Homebrew** 渠道。应用内下载使用系统网络栈写入 brew 的真实缓存并校验；点击 **通过 Homebrew 升级并重启** 后，辅助进程等待当前应用退出，执行仅针对 AstraGit 的 `brew upgrade --cask --require-sha`，复核版本收据、应用身份和新版页面/API 就绪。Homebrew 管理安装记录，这条渠道不要求 DMG 自替换所需的 Developer ID 条件；macOS 安全检查保留。
+Apple Silicon 与 Intel 使用各自的 DMG 和摘要。应用核对 Homebrew 安装收据、当前 App 路径和身份后，显示 **Homebrew** 渠道。应用内先使用系统网络栈下载到独立更新目录并校验；点击 **通过 Homebrew 升级并重启** 后，在应用退出前同步 Tap、核对 Cask 的版本、URL 和 SHA-256，再将安装包原子写入 brew 的真实缓存。若 Tap 尚未同步，保留已下载文件并提示稍后重试升级。准备成功并确认后，辅助进程等待当前应用退出，执行仅针对 AstraGit 的 `brew upgrade --cask --require-sha`，复核版本收据、应用身份和新版页面/API 就绪。Homebrew 管理安装记录，这条渠道不要求 DMG 自替换所需的 Developer ID 条件；macOS 安全检查保留。
 
 卸载可用 `brew uninstall --cask skylight-f/tap/astragit`；只有主动增加 `--zap` 才清理 Cask 声明的本地配置。更新流程保留项目、模型配置与草稿。
 

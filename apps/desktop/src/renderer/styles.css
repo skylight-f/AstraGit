@@ -11120,9 +11120,15 @@ html[data-zeus-theme='dark'] .startup-failure-shell {
     inset 0 1px 1px oklch(20% 0.012 255 / 0.04);
 }
 
-.macos-ai-app select:disabled {
+/* 局部背景简写会重置箭头的尺寸、定位和重复方式；禁用态恢复图标时必须完整声明。 */
+.macos-ai-app select:disabled,
+.macos-ai-app select[aria-disabled='true'] {
   background-color: var(--zeus-control-disabled-bg);
   background-image: var(--zeus-select-caret-icon);
+  background-position: right 13px center;
+  background-repeat: no-repeat;
+  background-size: 12px 12px;
+  padding-inline-end: 32px;
 }
 
 .macos-ai-app select option {

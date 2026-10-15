@@ -1,12 +1,22 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { open, rename, rm, lstat } from 'node:fs/promises';
+import { constants, createReadStream } from 'node:fs';
+import { copyFile, open, rename, rm, lstat } from 'node:fs/promises';
 import { releasePageUrl, type ReleaseArtifact, type ReleaseUpdateProgress } from '@astragit/shared';
 
 export async function verifyDownloadedArtifact(path: string, artifact: ReleaseArtifact) {
   const info = await lstat(path); if (!info.isFile() || info.isSymbolicLink() || info.size !== artifact.sizeBytes) throw new Error('更新安装包大小不符。');
   const hash = createHash('sha256'); for await (const chunk of createReadStream(path)) hash.update(chunk);
   if (hash.digest('hex') !== artifact.sha256) throw new Error('更新安装包 SHA-256 校验失败。');
+}
+export async function cacheVerifiedArtifact(source: string, path: string, artifact: ReleaseArtifact) {
+  await verifyDownloadedArtifact(source, artifact);
+  if (await verifyDownloadedArtifact(path, artifact).then(() => true, () => false)) return;
+  const temporary = `${path}.${randomUUID()}.partial`;
+  try {
+    await copyFile(source, temporary, constants.COPYFILE_EXCL);
+    await verifyDownloadedArtifact(temporary, artifact);
+    await rename(temporary, path);
+  } finally { await rm(temporary, { force: true }); }
 }
 export async function downloadVerifiedArtifact(artifact: ReleaseArtifact, path: string, progress: (value: ReleaseUpdateProgress) => void, fetchRelease: typeof globalThis.fetch = globalThis.fetch) {
   progress({ phase: 'verifying', receivedBytes: 0, totalBytes: artifact.sizeBytes });
