@@ -1,26 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="AstraGit">
   <defs>
-    <linearGradient id="ag-lower" x1="130" y1="520" x2="648" y2="870" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#1768ff"/>
-      <stop offset=".46" stop-color="#7026ff"/>
-      <stop offset="1" stop-color="#f719c8"/>
+    <linearGradient id="ag-violet" x1="140" y1="756" x2="572" y2="174" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2352ff"/>
+      <stop offset="1" stop-color="#8b29ff"/>
     </linearGradient>
-    <linearGradient id="ag-upper" x1="540" y1="272" x2="942" y2="140" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#a91dff"/>
-      <stop offset="1" stop-color="#ff1cba"/>
+    <linearGradient id="ag-pink" x1="380" y1="194" x2="904" y2="388" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9c28ff"/>
+      <stop offset="1" stop-color="#f52bc0"/>
     </linearGradient>
-    <linearGradient id="ag-diagonal" x1="260" y1="180" x2="870" y2="792" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#8027ff"/>
-      <stop offset=".3" stop-color="#3035ff"/>
-      <stop offset=".65" stop-color="#15a9f8"/>
-      <stop offset="1" stop-color="#05ede4"/>
+    <linearGradient id="ag-cyan" x1="248" y1="494" x2="848" y2="872" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3555ff"/>
+      <stop offset=".55" stop-color="#118df8"/>
+      <stop offset="1" stop-color="#00dfd7"/>
     </linearGradient>
   </defs>
-  <!-- Astra 家族的几何叠片、黑色字标面板与短横线；AG 标识独立 Git 应用。 -->
-  <path d="M70 746 244 340 788 648 530 950Z" fill="url(#ag-lower)"/>
-  <path d="M480 190 950 134 800 444 588 378Z" fill="url(#ag-upper)"/>
-  <path d="M114 334 344 78 954 604 780 906Z" fill="url(#ag-diagonal)"/>
-  <path d="M256 248H768V760H256Z" fill="#080809"/>
-  <text x="512" y="588" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="330" font-weight="700" letter-spacing="-14" fill="#fff">AG</text>
-  <path d="M300 660H480V696H300Z" fill="#fff"/>
+  <!-- JetBrains 式黑色字标方块与彩色几何叠片；叠片轮廓独立于 Astra。 -->
+  <path d="M114 716 284 122 692 248 520 908Z" fill="url(#ag-violet)"/>
+  <path d="M290 218 910 128 758 660 514 578Z" fill="url(#ag-pink)"/>
+  <path d="M148 600 438 400 934 694 618 938Z" fill="url(#ag-cyan)"/>
+  <path d="M246 246H778V778H246Z" fill="#080809"/>
+  <!-- AG 固定为矢量轮廓，系统图标与页面 Logo 不依赖字体。 -->
+  <path transform="translate(10 0)" d="M508.53 596.00 L456.64 596.00 L436.02 542.34 L341.59 542.34 L322.10 596.00 L271.50 596.00 L363.51 359.78 L413.94 359.78 Z M420.71 502.54 L388.16 414.89 L356.26 502.54 Z M629.72 509.15 L629.72 469.35 L732.52 469.35 L732.52 563.45 Q717.53 577.95 689.09 588.99 Q660.65 600.03 631.49 600.03 Q594.43 600.03 566.88 584.48 Q539.32 568.93 525.46 540.01 Q511.61 511.08 511.61 477.08 Q511.61 440.18 527.08 411.50 Q542.54 382.82 572.35 367.51 Q595.07 355.75 628.91 355.75 Q672.90 355.75 697.63 374.20 Q722.37 392.65 729.46 425.20 L682.08 434.06 Q677.09 416.66 663.31 406.59 Q649.54 396.52 628.91 396.52 Q597.65 396.52 579.20 416.34 Q560.75 436.16 560.75 475.15 Q560.75 517.21 579.44 538.23 Q598.13 559.26 628.43 559.26 Q643.41 559.26 658.48 553.38 Q673.54 547.50 684.34 539.12 L684.34 509.15 Z" fill="#fff"/>
+  <path d="M284 670H462V706H284Z" fill="#fff"/>
 </svg>

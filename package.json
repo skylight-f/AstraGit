@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "pnpm --filter @astragit/desktop dev",
     "icons:generate": "node scripts/generate-icons.mjs",
+    "check:icons": "node scripts/check-icons.mjs",
     "setup:desktop": "pnpm --filter @astragit/desktop exec install-electron",
     "check:lockfile": "pnpm install --lockfile-only --frozen-lockfile --offline",
     "check:isolation": "node scripts/check-isolation.mjs",
@@ -14,9 +15,9 @@
     "lint": "eslint .",
     "typecheck": "pnpm --filter '@astragit/git-server...' -r build && pnpm --filter '@astragit/*' -r --if-present typecheck",
     "build": "pnpm --filter '@astragit/*' -r --if-present build",
-    "build:app": "pnpm check:isolation && pnpm build && node scripts/package-macos.mjs",
-    "build:release": "pnpm check:isolation && pnpm build && node scripts/package-macos.mjs --release",
-    "verify:publish": "pnpm check:lockfile && pnpm check:isolation && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "build:app": "pnpm check:isolation && pnpm check:icons && pnpm build && node scripts/package-macos.mjs",
+    "build:release": "pnpm check:isolation && pnpm check:icons && pnpm build && node scripts/package-macos.mjs --release",
+    "verify:publish": "pnpm check:lockfile && pnpm check:isolation && pnpm check:icons && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "packageManager": "pnpm@10.31.0",
   "engines": {

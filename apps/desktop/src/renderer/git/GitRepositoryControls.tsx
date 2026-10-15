@@ -983,19 +983,16 @@ export function BranchTreeEntry(props: Parameters<typeof BranchDirectoryTree>[0]
       className={props.node.branch === (props.selected ?? props.current) ? 'is-current' : ''}
       data-checked-out={props.node.branch === props.current || undefined}
       aria-current={props.selected === props.node.branch ? 'true' : undefined}
+      aria-label={props.node.branch === props.current ? `${props.node.branch}, ${props.zh ? '当前检出分支' : 'Checked out branch'}${divergenceLabel ? `, ${divergenceLabel}` : ''}` : undefined}
       style={{ paddingLeft: `${props.depth * 20 + 25}px` }}
       onClick={() => props.onSelect?.(props.node.branch)}
       onDoubleClick={() => props.onCheckout?.(props.node.branch)}
       onContextMenu={(event) => props.onContextMenu(event, props.node.branch)}
       title={props.onCheckout ? (props.zh ? `双击切换到分支“${props.node.branch}”` : `Double-click to check out '${props.node.branch}'`) : undefined}
     >
+      {props.node.branch === props.current ? <span className="git-current-branch-dot" aria-hidden="true" /> : null}
       {props.hideBranchIcons ? null : <GitBranch aria-hidden="true" />}
       <span>{props.node.name}</span>
-      {props.node.branch === props.current ? (
-        <small className="git-checked-out-mark" title={props.zh ? '当前检出分支' : 'Checked out branch'}>
-          ✓
-        </small>
-      ) : null}
       {divergenceText ? (
         <span className="git-tracking-badge" aria-label={divergenceLabel} title={divergenceLabel}>
           {divergenceText}

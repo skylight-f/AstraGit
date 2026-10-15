@@ -1,7 +1,8 @@
 import { execFile as execute } from 'node:child_process';
-import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { writeIconManifest } from './check-icons.mjs';
 
 const execFile = promisify(execute);
 if (process.platform !== 'darwin') throw new Error('图标生成使用 macOS AppKit 与 iconutil，请在 macOS 执行。');
@@ -18,12 +19,15 @@ try {
   for (const size of [16, 32, 128, 256, 512]) {
     for (const scale of [1, 2]) {
       const pixels = size * scale;
-      await execFile('/usr/bin/sips', ['-z', String(pixels), String(pixels), png, '--out', join(iconset, `icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`)]);
+      const destination = join(iconset, `icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`);
+      if (pixels === 1024) await copyFile(png, destination);
+      else await execFile('/usr/bin/sips', ['-z', String(pixels), String(pixels), png, '--out', destination]);
     }
   }
   const icns = join(temporary, 'icon.icns');
   await execFile('/usr/bin/iconutil', ['-c', 'icns', iconset, '-o', icns]);
   await rename(png, join(directory, 'icon.png'));
   await rename(icns, join(directory, 'icon.icns'));
+  await writeIconManifest(root);
   console.info('已从 build/icon.svg 生成 1024px 透明 PNG 与完整 macOS ICNS。');
 } finally { await rm(temporary, { recursive: true, force: true }); }

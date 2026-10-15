@@ -140,6 +140,9 @@ async function rebuild() {
       await closeElectron();
       // A save during graceful shutdown needs compilation before launch too.
       if (pending || stopping) continue;
+      // Refresh the signed bundle only after its process exits; icon changes
+      // must update Finder and Dock as well as the hot-reloaded renderer.
+      electronExecutable = await developmentRuntime(workspace, desktop);
       startElectron();
     }
   } catch (error) {

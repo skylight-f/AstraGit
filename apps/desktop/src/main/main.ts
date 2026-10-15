@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, shell } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
@@ -55,14 +55,6 @@ const releaseUpdate = createReleaseUpdateService({
 
 function applicationIconPath(): string {
   return app.isPackaged ? join(process.resourcesPath, 'branding/icon.png') : join(app.getAppPath(), 'build/icon.png');
-}
-
-function applyApplicationDockIcon(): void {
-  if (process.platform !== 'darwin') return;
-  const icon = nativeImage.createFromPath(applicationIconPath());
-  if (icon.isEmpty()) throw new Error('AstraGit 应用图标无法读取。');
-  // 与 Astra 的实现一致，显式使用透明 PNG，保留几何轮廓与比例。
-  app.dock?.setIcon(icon);
 }
 
 async function ensureServer(): Promise<{ baseUrl: string; apiToken: string }> {
@@ -152,7 +144,7 @@ async function resolveRendererUrl(): Promise<string> {
 
 app.whenReady().then(async () => {
   if (!ownsInstance) return;
-  applyApplicationDockIcon();
+  // macOS 始终使用应用包登记的 ICNS，避免启动后换成另一条 PNG 渲染路径。
   // Finder does not inherit nvm/Homebrew/pnpm paths. Git hooks use this PATH too.
   process.env.PATH = await resolveCliSearchPath();
   if (!existsSync(userDataPath())) mkdirSync(userDataPath(), { recursive: true });
