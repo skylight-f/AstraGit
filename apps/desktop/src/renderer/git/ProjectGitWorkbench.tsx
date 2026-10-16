@@ -176,6 +176,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     return items.map((repository) => ({ ...repository, snapshot: { ...repository.snapshot, fileStatuses: visibleRepositoryFiles(repository, items) } }));
   }, [snapshot]);
   const selectedRepository = repositories.find((repository) => repository.id === selectedRepositoryId) ?? repositories[0] ?? null;
+  const activeOperationRepository = busy ? repositories.find((repository) => repository.id === busy.repositoryId) : selectedRepository;
   const stashRepository = repositories.find((repository) => repository.id === stashRepositoryId) ?? null;
   const remoteCheckoutRepository = repositories.find((repository) => repository.id === remoteCheckoutTarget?.repositoryId) ?? null;
   const activeStash = selectedRepository?.snapshot.stashes.find((stash) => stash.ref === selectedStashRef) ?? selectedRepository?.snapshot.stashes[0] ?? null;
@@ -704,40 +705,48 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       aria-label={zh ? '仓库管理' : 'Repository management'}
     >
       {busy || selectedRepository?.snapshot.integrationState ? (
-        <div className="git-integration-actions">
-          {' '}
-          {busy && !(props.conversationScope ?? false) ? (
-            <Button
-              variant="secondary"
-              size="compact"
-              onClick={() => {
-                void props.client.cancelProjectGitAction(props.project.id, busy.repositoryId).catch((reason: unknown) => setError(errorMessage(reason, zh)));
-              }}
-            >
-              {zh ? '中止操作' : 'Stop operation'}
-            </Button>
-          ) : null}
-          {selectedRepository?.snapshot.integrationState ? (
-            <>
+        <aside className="git-operation-notice" aria-label={zh ? 'Git 操作状态' : 'Git operation status'}>
+          <span className="git-operation-notice-status" role="status">
+            {busy ? <CircleNotch aria-hidden="true" className="project-git-spinner" /> : <WarningCircle aria-hidden="true" />}
+            <span>
+              <strong>{activeOperationRepository?.name}</strong>
+              <span>{busy ? `${operationActionLabels[busy.action][zh ? 0 : 1]}…` : (zh ? '合并或变基待完成' : 'Integration in progress')}</span>
+            </span>
+          </span>
+          <div className="git-operation-notice-actions">
+            {busy && !(props.conversationScope ?? false) ? (
               <Button
                 variant="secondary"
                 size="compact"
-                disabled={busy !== null || selectedRepository.snapshot.conflictFiles.length > 0}
-                onClick={() => void execute(selectedRepository, { type: 'continue_integration', kind: selectedRepository.snapshot.integrationState! }, zh ? '继续合并或变基' : 'Continue integration')}
+                onClick={() => {
+                  void props.client.cancelProjectGitAction(props.project.id, busy.repositoryId).catch((reason: unknown) => setError(errorMessage(reason, zh)));
+                }}
               >
-                {zh ? '继续' : 'Continue'}
+                {zh ? '中止操作' : 'Stop operation'}
               </Button>
-              <Button
-                variant="secondary"
-                size="compact"
-                disabled={busy !== null}
-                onClick={() => void execute(selectedRepository, { type: 'abort_integration', kind: selectedRepository.snapshot.integrationState! }, zh ? '终止合并或变基' : 'Abort integration')}
-              >
-                {zh ? '终止合并/变基' : 'Abort integration'}
-              </Button>
-            </>
-          ) : null}
-        </div>
+            ) : null}
+            {selectedRepository?.snapshot.integrationState ? (
+              <>
+                <Button
+                  variant="secondary"
+                  size="compact"
+                  disabled={busy !== null || selectedRepository.snapshot.conflictFiles.length > 0}
+                  onClick={() => void execute(selectedRepository, { type: 'continue_integration', kind: selectedRepository.snapshot.integrationState! }, zh ? '继续合并或变基' : 'Continue integration')}
+                >
+                  {zh ? '继续' : 'Continue'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="compact"
+                  disabled={busy !== null}
+                  onClick={() => void execute(selectedRepository, { type: 'abort_integration', kind: selectedRepository.snapshot.integrationState! }, zh ? '终止合并或变基' : 'Abort integration')}
+                >
+                  {zh ? '终止合并/变基' : 'Abort integration'}
+                </Button>
+              </>
+            ) : null}
+          </div>
+        </aside>
       ) : null}
 
       <MotionPresence>
@@ -2202,6 +2211,7 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
   const checked = props.stage === 'staged';
   const status = props.repository.snapshot.fileStatuses.find((file) => file.path === props.node.path);
   const category = gitFileStatusCategory(status, props.stage);
+  const submodule = props.repository.snapshot.submodules?.some((item) => item.path === props.node.path) ?? false;
   return (
     <div data-git-context={JSON.stringify({ kind: 'file', repositoryId: props.repository.id, ref: props.node.path, stage: props.stage })} className={`project-git-change-file-row${selected ? ' is-current' : ''}`}>
       <input
@@ -2227,7 +2237,7 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
         }}
         onDoubleClick={() => props.onOpenDiff(props.repository, props.node.path, { stage: props.stage })}
       >
-        <GitFileStatusIcon category={category} zh={props.zh} />
+        {submodule ? <Folder aria-hidden="true" /> : <GitFileStatusIcon category={category} zh={props.zh} />}
         <span>{props.node.name}</span>
       </button>
     </div>

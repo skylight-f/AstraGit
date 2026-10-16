@@ -4259,9 +4259,13 @@ a {
   font-size: 12px;
 }
 .project-git-sync-table :is(th, td) {
-  padding: 8px;
+  padding: 2px 8px;
   border-block-end: 0;
   text-align: start;
+  vertical-align: middle;
+}
+.project-git-sync-table thead th {
+  padding-block: 6px;
 }
 .project-git-sync-table th[scope='row'] {
   max-inline-size: 260px;
@@ -4273,8 +4277,11 @@ a {
   color: var(--zeus-product-muted);
 }
 .project-git-sync-table td > input:not([type='checkbox']) {
+  block-size: 28px;
+  min-block-size: 28px;
   min-inline-size: 160px;
   inline-size: 100%;
+  padding-block: 0;
 }
 .project-git-sync-results {
   display: grid;

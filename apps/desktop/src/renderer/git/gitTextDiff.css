@@ -1,0 +1,84 @@
+/* 与 Zeus 差异视图一致：整行红绿背景、替换片段加深、真实行号及等高补位。 */
+.astragit-text-diff {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  background: var(--zeus-product-line);
+  color: var(--zeus-product-text);
+  --diff-addition: var(--zeus-code-addition-text, #369766);
+  --diff-deletion: #d14b4b;
+}
+.astragit-text-diff.is-unified {
+  grid-template-columns: minmax(0, 1fr);
+}
+.astragit-diff-pane {
+  min-inline-size: 0;
+  max-block-size: 480px;
+  overflow: auto;
+  background: var(--zeus-product-panel);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  outline-offset: -2px;
+}
+.astragit-diff-lines {
+  min-inline-size: 100%;
+  inline-size: max-content;
+  font: 12px/20px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  tab-size: 4;
+}
+.astragit-diff-line {
+  display: grid;
+  grid-template-columns: 6ch 2ch minmax(0, 1fr);
+  min-block-size: 20px;
+}
+.astragit-text-diff.is-unified .astragit-diff-line {
+  grid-template-columns: 6ch 6ch 2ch minmax(0, 1fr);
+}
+.astragit-diff-line-number,
+.astragit-diff-line-sign {
+  padding-inline: 5px;
+  color: var(--zeus-product-muted);
+  text-align: end;
+  user-select: none;
+}
+.astragit-diff-line-sign {
+  padding-inline: 0;
+  text-align: center;
+}
+.astragit-diff-line > code {
+  display: block;
+  padding: 0 12px 0 2px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: pre;
+}
+.astragit-diff-line.is-addition {
+  background: color-mix(in srgb, var(--diff-addition) 14%, var(--zeus-product-panel));
+}
+.astragit-diff-line.is-deletion {
+  background: color-mix(in srgb, var(--diff-deletion) 14%, var(--zeus-product-panel));
+}
+.astragit-diff-line.is-addition .astragit-diff-line-sign {
+  color: var(--diff-addition);
+}
+.astragit-diff-line.is-deletion .astragit-diff-line-sign {
+  color: var(--diff-deletion);
+}
+.astragit-diff-line mark {
+  padding: 0;
+  border-radius: 2px;
+  color: inherit;
+  background: transparent;
+}
+.astragit-diff-line.is-addition mark {
+  background: color-mix(in srgb, var(--diff-addition) 30%, transparent);
+}
+.astragit-diff-line.is-deletion mark {
+  background: color-mix(in srgb, var(--diff-deletion) 30%, transparent);
+}
+.astragit-diff-line.is-empty,
+.astragit-diff-line.is-metadata {
+  background: var(--zeus-product-panel-muted);
+  color: var(--zeus-product-muted);
+}

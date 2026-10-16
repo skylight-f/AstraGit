@@ -81,13 +81,58 @@
   color: var(--zeus-product-text);
   font-size: 12px;
 }
-.git-integration-actions {
+.project-git-workbench {
+  position: relative;
+}
+/* 操作提示脱离文档流，出现和消失均不改变工作台各面板高度。 */
+.git-operation-notice {
+  position: absolute;
+  inset-block-end: 12px;
+  inset-inline-end: 12px;
+  z-index: 10;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  max-inline-size: calc(100% - 24px);
+  padding: 8px 10px;
+  border: 1px solid var(--zeus-product-line);
+  border-radius: 10px;
+  background: var(--zeus-product-panel);
+  box-shadow: 0 4px 18px rgb(0 0 0 / 12%);
+}
+.git-operation-notice-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+}
+.git-operation-notice-status > svg {
+  flex: 0 0 18px;
+  inline-size: 18px;
+  block-size: 18px;
+  color: var(--zeus-control-accent);
+}
+.git-operation-notice-status > span {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  font-size: 12px;
+}
+.git-operation-notice-status strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-inline-size: 240px;
+}
+.git-operation-notice-status > span > span {
+  color: var(--zeus-product-muted);
+}
+.git-operation-notice-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
-  padding: 6px 12px;
-  background: var(--zeus-source-list-hover);
-  border-bottom: 1px solid var(--zeus-product-line);
 }
 .macos-ai-app.zeus-shell .project-git-workbench .git-workspace-navigation {
   display: flex;

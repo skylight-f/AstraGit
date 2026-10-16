@@ -1,13 +1,15 @@
 import { ColumnsIcon as Columns } from '@phosphor-icons/react/dist/csr/Columns';
 import { FileIcon as File } from '@phosphor-icons/react/dist/csr/File';
 import { RowsIcon as Rows } from '@phosphor-icons/react/dist/csr/Rows';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardClient, GitDiffHunk, GitDiffSummary, GitFileDiff } from '../apiClient.js';
+import { alignedDiffRows, type DiffCell } from './gitDiffRows.js';
 import { useApplicationErrorDialog, VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
 
 import '../styles.css';
 import '../ui/primitives.css';
 import '../agentdesk-theme.css';
+import './gitTextDiff.css';
 
 type DiffViewMode = 'side-by-side' | 'unified';
 
@@ -126,7 +128,7 @@ export function ProjectGitDiffWindow(props: {
   );
 }
 
-/** 文本分栏差异视图：独立应用不引入 Monaco。 */
+/** 工作台、项目提交及独立窗口共用结构化差异与区块操作。 */
 export function SideBySideDiff(props: SideBySideDiffProps) {
   const [mode, setMode] = useState<DiffViewMode>('side-by-side');
   const file = props.diff?.fileDiffs[0] ?? null;
@@ -143,10 +145,10 @@ export function SideBySideDiff(props: SideBySideDiffProps) {
         <span>+{file.addedLines}</span>
         <em>-{file.deletedLines}</em>
         <span className="project-git-diff-mode" aria-label={props.zh ? '差异布局' : 'Diff layout'}>
-          <button type="button" className={mode === 'side-by-side' ? 'is-active' : ''} onClick={() => setMode('side-by-side')} title={props.zh ? '左右两栏' : 'Side-by-side'}>
+          <button type="button" className={mode === 'side-by-side' ? 'is-active' : ''} aria-pressed={mode === 'side-by-side'} onClick={() => setMode('side-by-side')} title={props.zh ? '左右两栏' : 'Side-by-side'}>
             <Columns aria-hidden="true" />
           </button>
-          <button type="button" className={mode === 'unified' ? 'is-active' : ''} onClick={() => setMode('unified')} title={props.zh ? '统一视图' : 'Unified'}>
+          <button type="button" className={mode === 'unified' ? 'is-active' : ''} aria-pressed={mode === 'unified'} onClick={() => setMode('unified')} title={props.zh ? '统一视图' : 'Unified'}>
             <Rows aria-hidden="true" />
           </button>
         </span>
@@ -192,7 +194,9 @@ function TextHunkSection(props: {
   onDiscard?: (file: GitFileDiff, hunk: GitDiffHunk, index: number) => void;
   discardLabel?: string;
 }) {
-  const range = props.zh ? `行 ${props.hunk.oldStart}–${props.hunk.oldStart + props.hunk.oldLines - 1}` : `lines ${props.hunk.oldStart}–${props.hunk.oldStart + props.hunk.oldLines - 1}`;
+  const oldRange = formatHunkRange(props.hunk.oldStart, props.hunk.oldLines, props.zh);
+  const newRange = formatHunkRange(props.hunk.newStart, props.hunk.newLines, props.zh);
+  const range = props.zh ? `原始行 ${oldRange} → 新行 ${newRange}` : `Old ${oldRange} → new ${newRange}`;
   return (
     <section className="project-git-diff-hunk" aria-label={`${props.zh ? '区块' : 'Hunk'} ${props.index + 1}`}>
       <header className="project-git-diff-hunk-header">
@@ -217,35 +221,70 @@ function TextHunkSection(props: {
           </span>
         ) : null}
       </header>
-      <pre className="project-git-diff-hunk-body" style={{ margin: 0, overflow: 'auto', maxHeight: 480 }}>
-        {props.unified
-          ? props.hunk.lines.map((line) => `${line.type === 'addition' ? '+' : line.type === 'deletion' ? '-' : ' '}${line.content}`).join('\n')
-          : renderSideBySide(props.hunk)}
-      </pre>
+      <TextHunkDiff hunk={props.hunk} unified={props.unified} zh={props.zh} />
     </section>
   );
 }
 
-function renderSideBySide(hunk: GitDiffHunk): string {
-  const left: string[] = [];
-  const right: string[] = [];
-  for (const line of hunk.lines) {
-    if (line.type === 'addition') {
-      left.push('');
-      right.push(`+${line.content}`);
-    } else if (line.type === 'deletion') {
-      left.push(`-${line.content}`);
-      right.push('');
-    } else {
-      left.push(` ${line.content}`);
-      right.push(` ${line.content}`);
-    }
-  }
-  const rows: string[] = [];
-  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
-    rows.push(`${(left[i] ?? '').padEnd(72, ' ')} | ${right[i] ?? ''}`);
-  }
-  return rows.join('\n');
+function TextHunkDiff(props: { hunk: GitDiffHunk; unified: boolean; zh: boolean }) {
+  const rows = useMemo(() => alignedDiffRows(props.hunk), [props.hunk]);
+  const highlightedLines = useMemo(() => ({
+    left: new Map(rows.flatMap((row) => row.left.number !== null && row.left.highlight ? [[row.left.number, row.left.highlight] as const] : [])),
+    right: new Map(rows.flatMap((row) => row.right.number !== null && row.right.highlight ? [[row.right.number, row.right.highlight] as const] : [])),
+  }), [rows]);
+  const left = useRef<HTMLDivElement>(null);
+  const right = useRef<HTMLDivElement>(null);
+  return (
+    <div className={`project-git-diff-hunk-body astragit-text-diff${props.unified ? ' is-unified' : ''}`}>
+      {props.unified ? (
+        <div className="astragit-diff-pane" role="region" tabIndex={0} aria-label={props.zh ? '统一差异' : 'Unified diff'}>
+          <div className="astragit-diff-lines">
+            {props.hunk.lines.map((line, index) => {
+              const cell: DiffCell = { content: line.content, number: line.oldLineNumber, kind: line.type };
+              cell.highlight = line.type === 'deletion' && line.oldLineNumber !== null
+                ? highlightedLines.left.get(line.oldLineNumber)
+                : line.type === 'addition' && line.newLineNumber !== null ? highlightedLines.right.get(line.newLineNumber) : undefined;
+              return <TextDiffLine key={index} cell={cell} unified newNumber={line.newLineNumber} />;
+            })}
+          </div>
+        </div>
+      ) : (['left', 'right'] as const).map((side) => (
+        <div
+          key={side}
+          ref={side === 'left' ? left : right}
+          className="astragit-diff-pane"
+          role="region"
+          tabIndex={0}
+          aria-label={side === 'left' ? (props.zh ? '变更前' : 'Before changes') : (props.zh ? '变更后' : 'After changes')}
+          onScroll={(event) => {
+            const other = side === 'left' ? right.current : left.current;
+            if (other && other.scrollTop !== event.currentTarget.scrollTop) other.scrollTop = event.currentTarget.scrollTop;
+          }}
+        >
+          <div className="astragit-diff-lines">
+            {rows.map((row, index) => <TextDiffLine key={index} cell={row[side]} />)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TextDiffLine(props: { cell: DiffCell; unified?: boolean; newNumber?: number | null }) {
+  const { cell } = props;
+  return (
+    <div className={`astragit-diff-line is-${cell.kind}`}>
+      <span className="astragit-diff-line-number" aria-hidden="true">{cell.number}</span>
+      {props.unified ? <span className="astragit-diff-line-number" aria-hidden="true">{props.newNumber}</span> : null}
+      <span className="astragit-diff-line-sign" aria-hidden="true">{cell.kind === 'addition' ? '+' : cell.kind === 'deletion' ? '−' : ' '}</span>
+      <code>{cell.highlight ? <>{cell.highlight.before}<mark>{cell.highlight.changed}</mark>{cell.highlight.after}</> : cell.content}</code>
+    </div>
+  );
+}
+
+function formatHunkRange(start: number, lines: number, zh: boolean): string {
+  if (lines === 0) return zh ? '空' : 'empty';
+  return lines === 1 ? String(start) : `${start}–${start + lines - 1}`;
 }
 
 function fileDiffEmptyMessage(file: { changeType: string; oldPath: string; newPath: string }, zh: boolean): string {
