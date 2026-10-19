@@ -18,7 +18,11 @@ export async function commitSelectedPaths(cwd: string, input: {
   let lock: Awaited<ReturnType<typeof open>> | undefined;
   let ownsLock = false;
   try {
-    lock = await open(lockPath, 'wx', 0o600);
+    try { lock = await open(lockPath, 'wx', 0o600); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw Object.assign(new Error('仓库索引已被锁定，请确认其他 Git 操作已结束后再重试。'), { code: 'ASTRAGIT_GIT_INDEX_LOCKED', operationStage: 'preflight', operationStatus: 'failed_before_write' });
+      throw error;
+    }
     ownsLock = true;
     const before = await readSelectedCommitFingerprint(cwd, input.selected, input.mode);
     if (input.expectedFingerprint && before !== input.expectedFingerprint) throw Object.assign(new Error('所选内容已变化，请刷新后重新确认提交。'), { code: 'ASTRAGIT_GIT_SELECTION_CHANGED' });
@@ -40,11 +44,11 @@ export async function commitSelectedPaths(cwd: string, input: {
 const config = ${JSON.stringify({ cwd, hooks: originalHooks, paths: input.paths, head: input.headSha })};
 const name = process.argv[2];
 const hook = spawnSync('git', ['-c', 'core.hooksPath=' + config.hooks, 'hook', 'run', '--ignore-missing', name, '--', ...process.argv.slice(3)], { cwd: config.cwd, stdio: 'inherit' });
-if (hook.error || hook.status !== 0) process.exit(hook.status || 1);
+if (hook.error || hook.status !== 0) { process.stderr.write('ASTRAGIT_GIT_HOOK_REJECTED: ' + name + ' hook failed\\n'); process.exit(hook.status || 1); }
 const diff = spawnSync('git', ['diff', '--cached', '--name-only', '--no-renames', '-z', ...(config.head ? [config.head] : [])], { cwd: config.cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
 if (diff.error || diff.status !== 0) process.exit(1);
 const allowed = new Set(config.paths);
-if (diff.stdout.split('\\0').filter(Boolean).some(path => !allowed.has(path))) { process.stderr.write('提交 hook 暂存了未勾选的文件，已阻止本次提交；请调整 hook 或重新选择范围。\\n'); process.exit(1); }
+if (diff.stdout.split('\\0').filter(Boolean).some(path => !allowed.has(path))) { process.stderr.write('ASTRAGIT_GIT_HOOK_SELECTION_CHANGED: 提交 hook 暂存了未勾选的文件，已阻止本次提交；请调整 hook 或重新选择范围。\\n'); process.exit(1); }
 `, { mode: 0o600 });
     const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
     for (const name of ['pre-commit', 'prepare-commit-msg', 'commit-msg']) await writeFile(join(hooks, name), `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${quote(process.execPath)} ${quote(guard)} ${quote(name)} "$@"\n`, { mode: 0o700 });

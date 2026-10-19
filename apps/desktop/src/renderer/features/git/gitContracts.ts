@@ -195,6 +195,8 @@ export interface ProjectGitActionResponse {
     branch: string;
     headSha: string;
     conflictFiles: string[];
+    operationStage?: 'integration' | 'restore';
+    savedStash?: string;
     stdout: string;
     stderr: string;
   };

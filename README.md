@@ -80,7 +80,7 @@ brew install --cask skylight-f/tap/astragit
 brew upgrade --cask skylight-f/tap/astragit
 ```
 
-Apple Silicon 与 Intel 使用各自的 DMG 和摘要。应用核对 Homebrew 安装收据、当前 App 路径和身份后，显示 **Homebrew** 渠道。下载与升级按 Zeus 当前源码的命令链执行：Cask 未匹配时由 `brew update` 同步 Homebrew 信息，再核对版本、URL 和 SHA-256；使用 `brew fetch --cask --retry` 预取，读取真实 `.incomplete` 文件显示进度，短暂网络错误有限重试。完整缓存复验通过后显示 **通过 Homebrew 升级并重启**，取消重启保留缓存。安装前再次核对 Cask 和缓存，确认后辅助进程等待当前应用退出，执行仅针对 AstraGit 的 `brew upgrade --cask --no-quit --yes --require-sha`，复核版本收据、应用身份和新版页面/API 就绪。若远端 Cask 尚未同步，明确显示发布版本与 Cask 版本并保持应用运行。Homebrew 管理安装记录，这条渠道不要求 DMG 自替换所需的 Developer ID 条件；macOS 安全检查保留。详见 [Homebrew 更新对齐 Zeus](docs/Homebrew更新对齐Zeus-2026-10-15.md)。
+Apple Silicon 与 Intel 使用各自的 DMG 和摘要。Homebrew 安装采用 Astra 当前源码的更新执行服务、原生窗口、控制器和后台调度：`brew update` 同步信息，`brew fetch --cask --retry` 预取并验证缓存。用户确认后，旧 Main 执行 `brew upgrade --cask --no-quit --yes --require-sha`，安装和复验成功后再退出，由原生辅助程序等待旧 PID 结束并打开精确应用路径。取消保留下载，安装失败保持应用运行。Homebrew 管理安装记录，系统安全检查保留。详见 [Homebrew 更新完整对齐 Astra](docs/Homebrew更新完整对齐Astra-2026-10-19.md)。
 
 卸载可用 `brew uninstall --cask skylight-f/tap/astragit`；只有主动增加 `--zap` 才清理 Cask 声明的本地配置。更新流程保留项目、模型配置与草稿。
 

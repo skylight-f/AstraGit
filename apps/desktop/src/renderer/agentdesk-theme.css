@@ -2718,6 +2718,12 @@ body:has(.macos-ai-app.zeus-shell) {
   font-weight: 600;
   color: var(--zeus-brand-text);
 }
+.macos-ai-app.zeus-shell .project-git-navigator .project-git-branch-folder > summary > svg,
+.macos-ai-app.zeus-shell .project-git-navigator .project-git-branch-directory-tree button > svg {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+}
 .macos-ai-app.zeus-shell .project-git-branch-directory-tree button:focus-visible,
 .macos-ai-app.zeus-shell .project-git-branch-folder > summary:focus-visible {
   outline: 2px solid var(--zeus-product-accent, var(--zeus-brand-primary));

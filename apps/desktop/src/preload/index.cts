@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ReleaseUpdateProgress } from '@astragit/shared';
+import type { HomebrewUpdateIndicatorState } from '@astragit/shared';
 
 const bootstrap = {
   getBootstrap: () => ipcRenderer.invoke('astragit:get-bootstrap') as Promise<{ baseUrl: string; apiToken: string; language: 'zh-CN' | 'en-US' } | null>,
@@ -11,14 +11,11 @@ contextBridge.exposeInMainWorld('astraGit', {
   getBootstrap: bootstrap.getBootstrap,
   chooseDirectory: bootstrap.chooseDirectory,
   rendererReady: () => ipcRenderer.invoke('astragit:renderer-ready'),
-  checkUpdate: () => ipcRenderer.invoke('astragit:update-check'),
-  downloadUpdate: () => ipcRenderer.invoke('astragit:update-download'),
-  installUpdate: () => ipcRenderer.invoke('astragit:update-install'),
-  openDownloadedUpdate: () => ipcRenderer.invoke('astragit:update-open'),
-  openReleasePage: () => ipcRenderer.invoke('astragit:update-release-page'),
-  onUpdateProgress: (listener: (progress: ReleaseUpdateProgress) => void) => {
-    const callback = (_event: Electron.IpcRendererEvent, progress: ReleaseUpdateProgress) => listener(progress);
-    ipcRenderer.on('astragit:update-progress', callback);
-    return () => ipcRenderer.removeListener('astragit:update-progress', callback);
+  openUpdates: (language: 'zh-CN' | 'en-US') => ipcRenderer.invoke('astragit:update-open', language),
+  getUpdateIndicator: () => ipcRenderer.invoke('astragit:update-indicator-get'),
+  onUpdateIndicator: (listener: (state: HomebrewUpdateIndicatorState) => void) => {
+    const callback = (_event: Electron.IpcRendererEvent, state: HomebrewUpdateIndicatorState) => listener(state);
+    ipcRenderer.on('astragit:update-indicator', callback);
+    return () => ipcRenderer.removeListener('astragit:update-indicator', callback);
   },
 });

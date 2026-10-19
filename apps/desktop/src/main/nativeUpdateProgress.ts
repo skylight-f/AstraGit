@@ -1,0 +1,140 @@
+import { spawn } from 'node:child_process';
+import { access } from 'node:fs/promises';
+import { createInterface } from 'node:readline';
+
+/** 打开安装包与自动重启安装使用独立动作。 */
+export type NativeUpdateProgressAction = 'download' | 'check' | 'open_download_page' | 'open_installer' | 'reconnect' | 'restart' | 'retry' | 'later' | 'closed' | 'close';
+
+export interface NativeUpdateProgressState {
+  /** downloaded 仅表示安装包已下载，ready 才能执行重启安装。 */
+  state: 'checking' | 'available' | 'manual' | 'downloaded' | 'upToDate' | 'updating' | 'downloading' | 'verifying' | 'ready' | 'installing' | 'failed';
+  title: string;
+  detail: string;
+  progressCaption?: string;
+  progressText?: string;
+  progress?: number;
+  canReconnect?: boolean;
+  /** 仅在当前失败支持安全重试时显示重试按钮。 */
+  canRetry?: boolean;
+  technicalDetail?: string;
+  present?: boolean;
+}
+
+export interface NativeUpdateProgressHost {
+  /** 用户显式要求打开窗口时调用，允许原生窗口获得一次键盘焦点。 */
+  show(): void;
+  hide(): void;
+  /** 只更新内容与可见性，不得把更新窗口重新激活到前台。 */
+  update(state: NativeUpdateProgressState): void;
+  relaunchAfterProcessExit(input: { pid: number; appPath: string; bundleId: string; version: string }): void;
+  close(): void;
+  onAction(listener: (action: NativeUpdateProgressAction) => void): () => void;
+  onExit(listener: () => void): () => void;
+}
+
+interface CreateNativeUpdateProgressHostOptions {
+  executablePath: string;
+  language: 'zh-CN' | 'en-US' | (() => 'zh-CN' | 'en-US');
+}
+
+/**
+ * AppKit 辅助程序只承载原生窗口；下载和安装责任始终留在 Main 的受控服务中。
+ */
+export async function createNativeUpdateProgressHost(options: CreateNativeUpdateProgressHostOptions): Promise<NativeUpdateProgressHost> {
+  const { nativeTheme } = await import('electron');
+  await access(options.executablePath);
+  const child = spawn(options.executablePath, [], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  await new Promise<void>((resolveSpawn, rejectSpawn) => {
+    child.once('spawn', resolveSpawn);
+    child.once('error', rejectSpawn);
+  });
+  const actionListeners = new Set<(action: NativeUpdateProgressAction) => void>();
+  const exitListeners = new Set<() => void>();
+  let closed = false;
+
+  child.on('error', (error) => {
+    console.warn('AstraGit 原生更新进度窗口运行失败。', error);
+  });
+  child.stdin.on('error', (error) => {
+    if ((error as NodeJS.ErrnoException).code !== 'EPIPE') console.warn('AstraGit 无法向原生更新进度窗口发送状态。', error);
+  });
+
+  const stdout = createInterface({ input: child.stdout });
+  stdout.on('line', (line) => {
+    const action = parseAction(line);
+    if (!action) return;
+    for (const listener of actionListeners) listener(action);
+  });
+  child.stderr.on('data', (chunk: Buffer) => {
+    const message = chunk.toString('utf8').trim();
+    if (message) console.warn('AstraGit 原生更新进度窗口输出了错误信息。', message);
+  });
+  child.once('exit', () => {
+    closed = true;
+    nativeTheme.removeListener('updated', syncAppearance);
+    stdout.close();
+    for (const listener of exitListeners) listener();
+  });
+
+  /** 独立辅助进程不继承 Electron 的外观，每条消息携带当前实际主题。 */
+  function send(message: Record<string, unknown>): void {
+    if (closed || child.stdin.destroyed) return;
+    child.stdin.write(`${JSON.stringify({ ...message, appearance: nativeTheme.shouldUseDarkColors ? 'dark' : 'light', language: typeof options.language === 'function' ? options.language() : options.language })}\n`);
+  }
+
+  /** 主题变化只更新外观，不显示窗口，也不改变下载状态或键盘焦点。 */
+  function syncAppearance(): void {
+    send({ type: 'appearance' });
+  }
+  nativeTheme.on('updated', syncAppearance);
+  syncAppearance();
+
+  return {
+    show: () => send({ type: 'show' }),
+    hide: () => send({ type: 'hide' }),
+    update: (state) => send({ type: 'state', ...state }),
+    relaunchAfterProcessExit: (input) => send({ type: 'relaunch', ...input }),
+    close: () => {
+      if (closed) return;
+      nativeTheme.removeListener('updated', syncAppearance);
+      send({ type: 'quit' });
+      child.stdin.end();
+    },
+    onAction: (listener) => {
+      actionListeners.add(listener);
+      return () => actionListeners.delete(listener);
+    },
+    onExit: (listener) => {
+      exitListeners.add(listener);
+      return () => exitListeners.delete(listener);
+    },
+  };
+}
+
+function parseAction(line: string): NativeUpdateProgressAction | null {
+  try {
+    const value = JSON.parse(line) as unknown;
+    if (!isRecord(value)) return null;
+    const action = value.action;
+    return action === 'download' ||
+      action === 'check' ||
+      action === 'open_download_page' ||
+      action === 'open_installer' ||
+      action === 'reconnect' ||
+      action === 'restart' ||
+      action === 'retry' ||
+      action === 'later' ||
+      action === 'closed' ||
+      action === 'close'
+      ? action
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}

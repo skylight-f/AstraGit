@@ -96,6 +96,7 @@ async function compile() {
   if (await runBuild(['--filter', '@astragit/git-server...', '-r', 'build'], workspace)) return false;
   if (stopping || await runBuild(['exec', 'tsc', '-p', 'tsconfig.main.json'])) return false;
   if (stopping || await runBuild(['exec', 'tsc', '-p', 'tsconfig.preload.json'])) return false;
+  if (stopping || await runBuild(['exec', 'node', 'scripts/build-native-helpers.mjs'])) return false;
   return !stopping;
 }
 
@@ -164,7 +165,7 @@ function changed(path) {
 
 function watchSources(directory) {
   const watcher = watch(directory, { recursive: true }, (_event, file) => {
-    if (file && /\.(?:[cm]?tsx?|[cm]?js|json)$/u.test(file)) changed(join(directory, file));
+    if (file && /\.(?:[cm]?tsx?|[cm]?js|json|swift)$/u.test(file)) changed(join(directory, file));
   });
   watcher.on('error', error => { console.error('[dev] 源码监听失败', error); void stop(1); });
   watchers.push(watcher);
@@ -205,6 +206,8 @@ async function start() {
       await rm(sessionPath, { force: true });
       watchSources(join(desktop, 'src/main'));
       watchSources(join(desktop, 'src/preload'));
+      watchSources(join(desktop, 'native'));
+      watchConfigs(join(desktop, 'scripts'), ['build-native-helpers.mjs']);
       watchConfigs(join(desktop, 'build'), ['icon.png', 'icon.icns']);
       watchConfigs(desktop, ['tsconfig.main.json', 'tsconfig.preload.json', 'package.json']);
       watchConfigs(workspace, ['tsconfig.base.json', 'pnpm-workspace.yaml', 'pnpm-lock.yaml', 'package.json']);

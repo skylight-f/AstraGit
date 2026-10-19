@@ -41,7 +41,7 @@ test('desktop client commits with restored hook tools and switches valid branche
   const action = value => client.executeProjectGitAction(project.id, repo.id, value);
   const initialHead = await git('rev-parse', 'HEAD');
   process.env.PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
-  await assert.rejects(() => action({ type: 'commit', message: 'test: hook tools' }), /pnpm/u);
+  await assert.rejects(() => action({ type: 'commit', message: 'test: hook tools' }), error => error.error === 'ASTRAGIT_GIT_HOOK_REJECTED' && /pnpm/u.test(error.details));
   assert.equal(await git('rev-parse', 'HEAD'), initialHead);
   process.env.SHELL = shell; process.env.ASTRAGIT_TEST_TOOL_PATH = tools;
   process.env.PATH = await resolveCliSearchPath();

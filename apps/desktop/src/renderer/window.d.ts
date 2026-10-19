@@ -1,5 +1,5 @@
 import type { RendererBootstrap } from './bootstrapTypes.js';
-import type { ReleaseUpdateProgress, ReleaseUpdateStatus } from '@astragit/shared';
+import type { HomebrewUpdateIndicatorState } from '@astragit/shared';
 
 declare global {
   interface Window {
@@ -7,12 +7,9 @@ declare global {
       getBootstrap?: () => Promise<RendererBootstrap | null>;
       chooseDirectory?: () => Promise<string | null>;
       rendererReady?: () => Promise<void>;
-      checkUpdate?: () => Promise<ReleaseUpdateStatus>;
-      downloadUpdate?: () => Promise<ReleaseUpdateStatus>;
-      installUpdate?: () => Promise<{ accepted: boolean }>;
-      openDownloadedUpdate?: () => Promise<void>;
-      openReleasePage?: () => Promise<void>;
-      onUpdateProgress?: (listener: (progress: ReleaseUpdateProgress) => void) => () => void;
+      openUpdates?: (language: 'zh-CN' | 'en-US') => Promise<void>;
+      getUpdateIndicator?: () => Promise<HomebrewUpdateIndicatorState | null>;
+      onUpdateIndicator?: (listener: (state: HomebrewUpdateIndicatorState) => void) => () => void;
     };
   }
 }

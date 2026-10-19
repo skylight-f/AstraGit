@@ -27,14 +27,22 @@ export class AstraGitApiError extends Error {
   readonly status: number;
   readonly error: string | null;
   readonly recoveryRequired: boolean;
+  readonly details?: string;
+  readonly operationStage?: string;
+  readonly operationStatus?: string;
+  readonly blockedBy?: 'tracked' | 'untracked' | 'both';
   override readonly cause?: unknown;
 
-  constructor(input: { status: number; error?: string | null; message: string; recoveryRequired?: boolean; cause?: unknown; retryAfterMs?: number }) {
+  constructor(input: { status: number; error?: string | null; message: string; recoveryRequired?: boolean; cause?: unknown; retryAfterMs?: number; details?: string; operationStage?: string; operationStatus?: string; blockedBy?: 'tracked' | 'untracked' | 'both' }) {
     super(input.message);
     this.name = 'AstraGitApiError';
     this.status = input.status;
     this.error = input.error ?? null;
     this.recoveryRequired = input.recoveryRequired ?? false;
+    if (input.details !== undefined) this.details = input.details;
+    if (input.operationStage !== undefined) this.operationStage = input.operationStage;
+    if (input.operationStatus !== undefined) this.operationStatus = input.operationStatus;
+    if (input.blockedBy !== undefined) this.blockedBy = input.blockedBy;
     if (input.cause !== undefined) this.cause = input.cause;
     if (input.retryAfterMs !== undefined) this.retryAfterMs = input.retryAfterMs;
   }
@@ -155,7 +163,8 @@ async function runWithReadTimeout<T>(init: RequestInit, path: string, timeoutMs:
     return await run({ ...init, signal });
   } catch (error) {
     if (controller.signal.aborted && !(init.signal && init.signal.aborted)) {
-      throw new AstraGitApiError({ status: 0, message: `本机 API 读取超时：${path}`, error: 'ASTRAGIT_LOCAL_API_READ_TIMEOUT' });
+      const reading = ['GET', 'HEAD'].includes((init.method ?? 'GET').toUpperCase());
+      throw new AstraGitApiError({ status: 0, message: reading ? `本机 API 读取超时：${path}` : `本机 API 操作请求超时，尚无法确认执行结果：${path}`, error: reading ? 'ASTRAGIT_LOCAL_API_READ_TIMEOUT' : 'ASTRAGIT_LOCAL_API_MUTATION_OUTCOME_UNKNOWN' });
     }
     throw error;
   } finally {
@@ -164,18 +173,24 @@ async function runWithReadTimeout<T>(init: RequestInit, path: string, timeoutMs:
 }
 
 async function responseError(response: Response, path: string): Promise<AstraGitApiError> {
-  let payload: { error?: string; message?: string; recoveryRequired?: boolean } | null = null;
+  let payload: Record<string, unknown> | null = null;
   try {
-    payload = (await response.json()) as { error?: string; message?: string; recoveryRequired?: boolean } | null;
+    const value: unknown = await response.json();
+    payload = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
   } catch {
     payload = null;
   }
   const retryAfter = response.headers.get('retry-after');
   return new AstraGitApiError({
     status: response.status,
-    error: payload?.error ?? null,
-    message: payload?.message ?? `本机 API 请求失败：${path}`,
-    recoveryRequired: payload?.recoveryRequired ?? false,
+    error: typeof payload?.error === 'string' ? payload.error : null,
+    message: typeof payload?.message === 'string' ? payload.message : `本机 API 请求失败：${path}`,
+    recoveryRequired: payload?.recoveryRequired === true,
+    ...(typeof payload?.details === 'string' ? { details: payload.details } : {}),
+    ...(typeof payload?.operationStage === 'string' ? { operationStage: payload.operationStage } : {}),
+    ...(typeof payload?.operationStatus === 'string' ? { operationStatus: payload.operationStatus } : {}),
+    ...(['tracked', 'untracked', 'both'].includes(String(payload?.blockedBy)) ? { blockedBy: payload!.blockedBy as 'tracked' | 'untracked' | 'both' } : {}),
+    ...(payload?.cause && typeof payload.cause === 'object' ? { cause: payload.cause } : {}),
     ...(retryAfter ? { retryAfterMs: Number(retryAfter) * 1000 } : {}),
   });
 }

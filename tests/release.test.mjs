@@ -1,15 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { parseReleaseManifest } from '../packages/shared/dist/index.js';
-import { createReleaseUpdateService, downloadVerifiedArtifact } from '../apps/desktop/src/main/releaseUpdateService.ts';
+import { downloadVerifiedArtifact } from '../apps/desktop/src/main/releaseUpdateService.ts';
 import { selectAutomaticVersion } from '../scripts/prepare-automatic-release.mjs';
 import { renderHomebrewCask } from '../scripts/homebrew-cask.mjs';
 import { verifyHomebrewRelease } from '../scripts/sync-homebrew-tap.mjs';
-import { assertHomebrewRelease, parseHomebrewCask } from '../apps/desktop/src/main/homebrewUpdateService.ts';
 
 test('release versions reserve existing tags and update manifests reject foreign apps, origins and invalid hashes', () => {
   assert.equal(selectAutomaticVersion('0.1.0', []), '0.1.0'); assert.equal(selectAutomaticVersion('0.1.0', ['v0.1.0', 'v0.1.2']), '0.1.3'); assert.equal(selectAutomaticVersion('0.2.0', ['v0.1.2']), '0.2.0');
@@ -19,65 +18,6 @@ test('release versions reserve existing tags and update manifests reject foreign
   assert.throws(() => parseReleaseManifest({ ...manifest, appId: 'dev.hypha.zeus' }));
   assert.throws(() => parseReleaseManifest({ ...manifest, artifacts: [{ ...artifact, downloadUrl: 'https://example.com/app.dmg' }] }));
   assert.throws(() => parseReleaseManifest({ ...manifest, artifacts: [{ ...artifact, sha256: 'bad' }] }));
-});
-
-test('Homebrew receipts reject foreign taps and drift between cask, release and selected architecture', () => {
-  const raw = { token: 'astragit', tap: 'skylight-f/tap', version: '0.2.0', installed: '0.1.0', url: 'https://github.com/skylight-f/AstraGit/releases/download/v0.2.0/AstraGit-0.2.0-arm64.dmg', sha256: 'a'.repeat(64), artifacts: [{ app: ['AstraGit.app'], target: '/Applications/AstraGit.app' }] };
-  const cask = parseHomebrewCask({ casks: [raw] });
-  const update = { currentVersion: '0.1.0', latestVersion: '0.2.0', status: 'available', installMethod: 'homebrew', artifact: { arch: 'arm64', kind: 'dmg', fileName: 'AstraGit-0.2.0-arm64.dmg', downloadUrl: raw.url, sha256: raw.sha256, sizeBytes: 200_000 } };
-  assertHomebrewRelease(cask, update);
-  assert.throws(() => parseHomebrewCask({ casks: [{ ...raw, tap: 'foreign/tap' }] }));
-  assert.throws(() => parseHomebrewCask({ casks: [{ ...raw, artifacts: [{ app: ['Zeus.app'], target: '/Applications/Zeus.app' }] }] }));
-  assert.throws(() => parseHomebrewCask({ casks: [raw, raw] }));
-  assert.throws(() => assertHomebrewRelease({ ...cask, version: '0.1.9' }, update), /Homebrew 尚未同步.*发布版本为 0\.2\.0.*当前 Cask 为 0\.1\.9/u);
-  assert.throws(() => assertHomebrewRelease({ ...cask, version: '0.2.1' }, update), /请重新检查并下载/u);
-  assert.throws(() => assertHomebrewRelease({ ...cask, sha256: 'b'.repeat(64) }, update), /SHA-256.*已停止安装/u);
-  assert.throws(() => assertHomebrewRelease(cask, { ...update, artifact: { ...update.artifact, arch: 'x64' } }));
-});
-test('Homebrew owns preparation and cancelled installation retains the verified cache without quitting', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'astragit-homebrew-lag-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const bytes = Buffer.alloc(120_000, 43); let syncs = 0; let confirmations = 0; let quits = 0; let offline = false;
-  const artifact = { arch: process.arch, kind: 'dmg', fileName: `AstraGit-0.2.0-${process.arch}.dmg`, sha256: createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.length, downloadUrl: `https://github.com/skylight-f/AstraGit/releases/download/v0.2.0/AstraGit-0.2.0-${process.arch}.dmg` };
-  const manifest = { schemaVersion: 1, appId: 'com.astragit.desktop', repository: 'skylight-f/AstraGit', version: '0.2.0', sourceCommit: 'b'.repeat(40), signed: false, notarized: false, minimumSystemVersion: '13.0', artifacts: [artifact] };
-  let cask = { version: '0.1.0', installedVersion: '0.1.0', tap: 'skylight-f/tap', url: artifact.downloadUrl, sha256: artifact.sha256, appTarget: '/Applications/AstraGit.app' };
-  const service = createReleaseUpdateService({
-    appPath: cask.appTarget, version: '0.1.0', dataDirectory: root, executablePath: '/unused', packaged: true,
-    fetch: async url => {
-      if (String(url).endsWith('/astragit-release-manifest.json')) {
-        if (offline) throw new Error('simulated offline');
-        return Response.json(manifest);
-      }
-      assert.fail('Homebrew downloads must use brew fetch, not Electron artifact fetch.');
-    },
-    onProgress: () => {}, confirmRestart: async () => { confirmations++; return false; }, quit: () => { quits++; },
-  }, { systemVersion: async () => '15.0', homebrew: {
-    isManaged: async () => true,
-    prepare: async update => {
-      syncs++; assertHomebrewRelease(cask, update);
-      const path = join(root, 'brew-cache.dmg'); await writeFile(path, bytes);
-      return { update, brewPath: '/unused', cachePath: path };
-    },
-    validatePrepared: async prepared => { assertHomebrewRelease(cask, prepared.update); assert.deepEqual(await readFile(prepared.cachePath), bytes); },
-    install: async () => { assert.fail('The installer must not run without confirmation.'); },
-  } });
-  await assert.rejects(service.prepare(), /Homebrew 尚未同步/u);
-  assert.equal(confirmations, 0); assert.equal(quits, 0);
-  cask = { ...cask, version: '0.2.0' };
-  assert.equal((await service.prepare()).installMethod, 'homebrew');
-  assert.equal(syncs, 2);
-  offline = true;
-  await assert.rejects(service.install(), /无法完成更新检查.*simulated offline/u);
-  assert.equal(confirmations, 0); assert.equal(quits, 0);
-  offline = false;
-  assert.deepEqual(await readFile(await service.downloaded()), bytes);
-  cask = { ...cask, version: '0.2.0', sha256: 'f'.repeat(64) };
-  await assert.rejects(service.install(), /SHA-256/u);
-  assert.equal(confirmations, 0); assert.equal(quits, 0);
-  cask = { ...cask, sha256: artifact.sha256 };
-  assert.deepEqual(await service.install(), { accepted: false });
-  assert.equal(confirmations, 1); assert.equal(quits, 0); assert.equal(syncs, 2);
-  assert.deepEqual(await service.install(), { accepted: false });
-  assert.equal(confirmations, 2); assert.equal(syncs, 2, 'Cancel retains the prepared Homebrew download.');
 });
 
 test('Homebrew publication binds both architecture hashes to the public release and rejects forged cask content', () => {

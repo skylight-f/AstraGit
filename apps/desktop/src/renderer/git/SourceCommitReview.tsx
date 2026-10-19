@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { SourceReviewRow } from './sourceGitBatch.js';
+import { VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
 
 export function SourceCommitReview(props: { rows: SourceReviewRow[]; push: boolean; zh: boolean; busy: boolean; error: string; onChange: (rows: SourceReviewRow[]) => void; onClose: () => void; onConfirm: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -15,7 +16,7 @@ export function SourceCommitReview(props: { rows: SourceReviewRow[]; push: boole
       <label>{label('提交说明', 'Commit message')}<textarea value={row.message} disabled={props.busy} onChange={event => change(row.repositoryId, { message: event.target.value })} /></label>
       {props.push ? <div className="source-git-push-target"><label>{label('远程仓库', 'Remote')}<select disabled={props.busy || row.detached} value={row.remote} onChange={event => change(row.repositoryId, { remote: event.target.value })}><option value="">{label('选择远程…', 'Select remote…')}</option>{row.remotes.map(remote => <option key={remote}>{remote}</option>)}</select></label><label>{label('目标分支', 'Target branch')}<input disabled={props.busy || row.detached} value={row.targetBranch} onChange={event => change(row.repositoryId, { targetBranch: event.target.value })} /></label>{row.detached ? <p role="alert">{label('游离 HEAD 无法直接推送，请先创建分支。', 'Create a branch before pushing a detached HEAD.')}</p> : null}</div> : null}
     </section>)}</div>
-    {props.error ? <p className="source-git-error" role="alert">{props.error}</p> : null}
+    {props.error ? <p className="source-git-error" role="alert"><VisibleApplicationError error={props.error} language={props.zh ? 'zh-CN' : 'en'} /></p> : null}
     <footer><button type="button" disabled={props.busy} onClick={props.onClose}>{label('返回修改', 'Back')}</button><button type="button" className="source-git-primary" disabled={props.busy || props.rows.some(row => !row.message.trim() || (props.push && (!row.remote || !row.targetBranch || row.detached)))} onClick={props.onConfirm}>{props.busy ? label('正在核对…', 'Checking…') : props.push ? label('确认提交并推送', 'Commit and push') : label('确认提交', 'Commit')}</button></footer>
   </dialog>;
 }

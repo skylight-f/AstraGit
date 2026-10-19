@@ -10,6 +10,10 @@ export interface UserFacingErrorCause {
   message: string;
   /** 补充诊断原文只出现在展开详情中。 */
   details?: string;
+  /** Git 明确报告会被覆盖的文件种类，不能由任意错误正文推断。 */
+  blockedBy?: 'tracked' | 'untracked' | 'both';
+  /** 后端核实的执行状态；刷新失败不能被解释成 Git 动作失败。 */
+  operationStatus?: 'completed' | 'conflict' | 'unknown_after_write';
   /** 包装错误保留的底层原因。 */
   cause?: UserFacingErrorCause;
 }
@@ -242,8 +246,38 @@ const explanations: ReadonlyArray<readonly [codes: readonly string[], explanatio
   ],
   [['ASTRAGIT_GIT_COMMIT_REQUIRED'], ['请先选择要查看的提交。', 'Select a commit to view.']],
   // Git 已知状态分别说明处理方式；超时和通用失败均先核对结果，不建议直接重做。
-  [['ASTRAGIT_GIT_AUTH_REQUIRED'], ['当前账号无法访问这个代码仓库。请检查仓库账号是否已登录，以及是否有访问权限。', 'The current account cannot access this repository. Check that the repository account is signed in and has access.']],
+  [['ASTRAGIT_GIT_AUTH_REQUIRED'], ['Git 未通过远端身份验证，或当前凭据没有仓库访问权限。请检查远端地址，以及系统 Git 使用的 SSH 密钥或 HTTPS 凭据。', 'Git could not authenticate with the remote, or its credentials do not have repository access. Check the remote URL and the SSH key or HTTPS credentials used by Git.']],
   [['ASTRAGIT_GIT_BUSY'], ['这个代码仓库正在处理另一项操作，请等待完成后再继续。', 'Another action is running in this repository. Wait for it to finish before continuing.']],
+  [['ASTRAGIT_LOCAL_API_MUTATION_OUTCOME_UNKNOWN'], ['操作请求已超时，执行结果尚未确认。请先刷新并核对当前状态，再决定是否重试，避免重复操作。', 'The action request timed out and its result is unconfirmed. Refresh and check the current state before deciding whether to retry, to avoid repeating an action.', 'check']],
+  [['ASTRAGIT_GIT_ACTION_REFRESH_FAILED'], ['Git 操作已执行，但刷新最新仓库状态失败。请先刷新并核对当前状态，不要重复执行刚才的 Git 操作。', 'The Git action ran, but refreshing the latest repository state failed. Refresh and check the current state without repeating the Git action.', 'check']],
+  [['ASTRAGIT_GIT_ACTION_STATE_READ_FAILED'], ['Git 命令已结束，但未能读取执行后的仓库状态，结果尚未确认。请先刷新仓库和操作历史并核对结果，不要重复执行刚才的 Git 操作。', 'The Git command ended, but its resulting repository state could not be read, so the result is unconfirmed. Refresh the repository and operation history to check the result without repeating the Git action.', 'check']],
+  [['ASTRAGIT_GIT_EXECUTABLE_MISSING'], ['找不到 Git 程序。请安装 Git，并确认 AstraGit 可以访问该程序后重新操作。', 'The Git executable could not be found. Install Git and make sure AstraGit can access it before trying again.']],
+  [['ASTRAGIT_GIT_IDENTITY_REQUIRED'], ['Git 尚未配置提交者姓名或邮箱，本次提交未完成。请在仓库或全局 Git 配置中设置 user.name 和 user.email 后重新提交。', 'Git has no committer name or email configured, so the commit did not complete. Set user.name and user.email in the repository or global Git configuration, then commit again.']],
+  [['ASTRAGIT_GIT_NOTHING_TO_COMMIT'], ['当前没有可提交的更改。请检查已暂存文件或所选提交范围。', 'There are no changes to commit in the current scope. Check the staged files or selected commit scope.']],
+  [['ASTRAGIT_GIT_INDEX_LOCKED'], ['Git 无法取得仓库锁。可能有其他 Git 操作正在运行，也可能留下了旧锁文件。请先确认其他 Git 操作已结束，再按详情核查锁文件。', 'Git could not acquire a repository lock. Another Git operation may be running, or a stale lock may remain. Confirm that other Git operations have ended before inspecting the lock file shown in the details.']],
+  [['ASTRAGIT_GIT_HOOK_SELECTION_CHANGED'], ['提交钩子暂存了未勾选的文件，本次提交已被阻止。请调整钩子，或刷新文件状态后重新确认提交范围。', 'A commit hook staged files outside your selection, so the commit was blocked. Adjust the hook, or refresh the file state and review the commit scope again.']],
+  [['ASTRAGIT_GIT_HOOK_REJECTED'], ['Git 钩子检查未通过，操作未完成。请查看详情修正检查错误，并刷新文件状态后再重新操作。', 'A Git hook check failed, so the action did not complete. Fix the check reported in the details and refresh the file state before trying again.']],
+  [['ASTRAGIT_GIT_SIGNING_FAILED'], ['Git 签名失败，操作未完成。请检查 Git 签名配置、签名密钥及所需的解锁授权；具体错误可查看详情。', 'Git signing failed, so the action did not complete. Check the signing configuration, signing key, and any required unlock approval. See the details for the signing error.']],
+  [['ASTRAGIT_GIT_PUSH_NON_FAST_FORWARD', 'ASTRAGIT_TASK_REMOTE_DIVERGED'], ['远端分支包含本地尚未合入的提交，推送被拒绝。请先抓取并核对分支差异，合并或变基后再推送。', 'The remote branch contains commits that are not integrated locally, so the push was rejected. Fetch and review the branch differences, then merge or rebase before pushing again.']],
+  [['ASTRAGIT_GIT_REMOTE_REJECTED'], ['远端服务器拒绝了推送。请查看详情，检查分支保护、仓库权限及远端检查要求，再核对哪些引用已更新。', 'The remote server rejected the push. Check the details for branch protection, repository permissions, or remote checks, and verify which refs were updated.']],
+  [['ASTRAGIT_GIT_NETWORK_FAILED'], ['Git 无法连接远端，或连接在完整响应前中断。请检查网络、代理及服务器状态；如果刚才在推送，请先核对远端分支是否已更新。', 'Git could not reach the remote, or the connection ended before a complete response was received. Check the network, proxy, and server. If this happened during a push, verify the remote branch before trying again.', 'check']],
+  [['ASTRAGIT_GIT_UNMERGED_FILES', 'ASTRAGIT_GIT_CONFLICTS_REMAIN'], ['仓库仍有未解决的冲突，操作未能继续。请处理冲突文件，并在确认内容后暂存；如有正在进行的合并或变基，再继续或中止该流程。', 'The repository still has unresolved conflicts, so the action could not continue. Resolve the files and stage them after reviewing their contents. If a merge or rebase is in progress, continue or abort that operation.']],
+  [['ASTRAGIT_GIT_LOCAL_CHANGES_BLOCKED'], ['本地修改或未跟踪文件会被此次操作覆盖，Git 已停止执行。请先提交、贮藏（未跟踪文件需勾选包含），或备份并移开相关文件，再重新操作。', 'Local changes or untracked files would be overwritten, so Git stopped the action. Commit or stash them (include untracked files when needed), or back up and move the affected files before trying again.']],
+  [['ASTRAGIT_GIT_SMART_OPERATION_FAILED_RESTORED'], ['更新未完成，自动贮藏的本地修改已恢复。请刷新并核对仓库状态，再查看详情处理更新失败的原因。', 'The update did not complete, and the automatically stashed local changes were restored. Refresh and check the repository state, then review the details to resolve the update failure.', 'check']],
+  [['ASTRAGIT_GIT_SMART_OPERATION_FAILED_STASH_PRESERVED'], ['更新未完成，自动贮藏的本地修改仍保留在贮藏中。请先核对当前分支和冲突状态，并查看详情中的贮藏记录；不要重复更新或删除该贮藏。', 'The update did not complete, and the automatically stashed local changes remain in the stash. Check the current branch and conflicts, then inspect the stash identified in the details. Do not repeat the update or delete that stash yet.', 'check']],
+  [['ASTRAGIT_GIT_SMART_OPERATION_FAILED'], ['更新未完成。请刷新并核对当前分支、冲突及贮藏状态，再查看详情确认本地修改的保存与恢复情况。', 'The update did not complete. Refresh and check the current branch, conflicts, and stash, then inspect the details to confirm how local changes were saved or restored.', 'check']],
+  [['ASTRAGIT_GIT_SMART_RESTORE_FAILED'], ['更新命令已完成，但本地修改尚未完整恢复，自动贮藏仍保留。请刷新并检查当前分支、文件及冲突状态，再按详情核查贮藏；不要重复更新或删除该贮藏。', 'The update command completed, but local changes were not fully restored. The automatic stash was preserved. Refresh and check the branch, files, and conflicts, then inspect the stash in the details. Do not repeat the update or delete that stash yet.', 'check']],
+  [['ASTRAGIT_GIT_INTEGRATION_ACTIVE'], ['仓库正在进行合并、变基或其他提交整合，不能开始此次操作。请先查看文件状态，处理冲突后继续，或中止当前整合。', 'A merge, rebase, or another commit integration is in progress, so this action cannot start. Check the file state, resolve conflicts and continue, or abort the current integration.']],
+  [['ASTRAGIT_GIT_INTEGRATION_CHANGED'], ['合并或变基状态已变化，本次操作未继续。请刷新仓库状态后再选择对应操作。', 'The merge or rebase state changed, so this action did not continue. Refresh the repository state and select the appropriate action again.']],
+  [['ASTRAGIT_GIT_SELECTION_CHANGED'], ['所选文件、分支或提交已变化，本次操作未继续。请刷新文件和仓库状态，重新核对操作范围。', 'The selected files, branch, or commit changed, so this action did not continue. Refresh the file and repository state, then review the action scope again.', 'check']],
+  [['ASTRAGIT_GIT_DIRTY'], ['工作区还有未提交修改，暂时不能执行此次操作。请先提交或贮藏修改，再重新操作。', 'The working tree has uncommitted changes, so this action cannot proceed. Commit or stash the changes before trying again.']],
+  [['ASTRAGIT_GIT_PATH_REQUIRED'], ['请先选择要操作的文件。', 'Select the files to act on first.']],
+  [['ASTRAGIT_GIT_PATH_INVALID'], ['所选文件路径无效或不属于这个仓库，操作未执行。请刷新并在对应仓库中重新选择文件。', 'The selected file path is invalid or outside this repository, so the action was not performed. Refresh and select files in the correct repository.']],
+  [['ASTRAGIT_GIT_DISCARD_INVALID'], ['只能放弃已跟踪文件的未暂存修改。请重新检查所选文件；未跟踪文件和冲突文件不会通过此操作删除。', 'Only unstaged changes to tracked files can be discarded here. Review the selected files; this action does not delete untracked or conflicted files.']],
+  [['ASTRAGIT_GIT_PATCH_INVALID', 'ASTRAGIT_GIT_PATCH_TARGET_INVALID'], ['所选差异区块无效、过大或已变化，操作未执行。请刷新差异后重新选择区块。', 'The selected diff hunk is invalid, too large, or has changed, so the action was not performed. Refresh the diff and select the hunk again.']],
+  [['ASTRAGIT_GIT_SUBTREE_INVALID'], ['子树目录无效或没有对应的 Git 子树记录。请核对仓库内的子树路径，具体原因可查看详情。', 'The subtree folder is invalid or has no matching Git subtree record. Check its path inside the repository and see the details for the cause.']],
+  [['ASTRAGIT_GIT_SUBMODULE_INVALID'], ['所选路径不是当前仓库登记的子模块。请刷新子模块列表后重新选择。', 'The selected path is not a registered submodule of this repository. Refresh the submodule list and select again.']],
+  [['ASTRAGIT_GIT_STASH_REF_INVALID'], ['所选贮藏记录无效。请刷新贮藏列表后重新选择。', 'The selected stash reference is invalid. Refresh the stash list and select again.']],
   [
     ['ASTRAGIT_GIT_TIMEOUT'],
     [
@@ -300,17 +334,18 @@ const explanations: ReadonlyArray<readonly [codes: readonly string[], explanatio
   ],
   // 中止后的写入不会自动撤销，具体暂存位置等恢复信息保留在详情中。
   [
-    ['ASTRAGIT_GIT_CANCELLED'],
+    ['ASTRAGIT_GIT_CANCELLED', 'ASTRAGIT_CANCELLED'],
     [
-      'Git 操作已中止。请查看详情中的恢复信息，并核对仓库和远端状态；已完成的改动不会自动撤销。',
-      'The Git operation was cancelled. Check the recovery details and verify the repository and remote state; completed changes are not automatically undone.',
+      'Git 操作已中止，已完成的改动不会自动撤销。请刷新并核对仓库状态；涉及推送时，也请检查远端结果。',
+      'The Git operation was cancelled. Completed changes are not automatically undone. Refresh and check the repository state; if a push was involved, also check the remote result.',
+      'check',
     ],
   ],
   [
     ['ASTRAGIT_GIT_REF_REQUIRED', 'ASTRAGIT_GIT_BRANCH_REQUIRED'],
     ['请先选择分支。', 'Select a branch first.'],
   ],
-  [['ASTRAGIT_GIT_REPOSITORY_REQUIRED'], ['请先选择项目中的代码仓库。', 'Select a repository in this project first.']],
+  [['ASTRAGIT_GIT_REPOSITORY_REQUIRED'], ['尚未选择可用的 Git 仓库，或所选目录已不是 Git 仓库。请刷新项目仓库列表后重新选择。', 'No usable Git repository is selected, or the selected folder is no longer a Git repository. Refresh the project repository list and select again.']],
   [
     ['ASTRAGIT_GIT_REPOSITORY_NOT_FOUND', 'ASTRAGIT_PROJECT_REPOSITORY_NOT_FOUND'],
     ['所选代码仓库已不在当前项目中。请刷新仓库列表后重新选择。', 'The selected repository is no longer in this project. Refresh the repository list and select again.'],
@@ -342,13 +377,13 @@ const explanations: ReadonlyArray<readonly [codes: readonly string[], explanatio
   [
     ['ASTRAGIT_GIT_CHECKOUT_BLOCKED'],
     [
-      '当前工作区的本地修改会被目标内容覆盖，无法切换分支。本次切换未执行；请先提交、贮藏，或检查后放弃/移开相关文件。',
-      'Local changes in the working tree would be overwritten by the target, so the branch was not switched. Commit, stash, or review and discard/move the affected files first.',
+      '本地修改或未跟踪文件会被目标内容覆盖，本次切换未执行。请先提交、贮藏（未跟踪文件需勾选包含），或备份并移开相关文件。',
+      'Local changes or untracked files would be overwritten by the target, so the checkout was not performed. Commit or stash them (include untracked files when needed), or back up and move the affected files first.',
     ],
   ],
   [
     ['ASTRAGIT_GIT_CHECKOUT_CONFLICTED'],
-    ['当前仓库存在未解决的冲突，无法切换分支。本次切换未执行；请先处理并确认所有冲突文件。', 'The repository has unresolved conflicts, so the branch was not switched. Resolve and confirm all conflicted files first.'],
+    ['仓库在切换前已有未解决的冲突，本次切换未执行。请先处理冲突文件并暂存；如有正在进行的合并或变基，再继续或中止该流程。', 'The repository already had unresolved conflicts, so the checkout was not performed. Resolve and stage the conflicted files first. If a merge or rebase is in progress, continue or abort that operation.'],
   ],
   [
     ['ASTRAGIT_GIT_CHECKOUT_BRANCH_IN_USE'],
@@ -359,7 +394,7 @@ const explanations: ReadonlyArray<readonly [codes: readonly string[], explanatio
   ],
   [
     ['ASTRAGIT_GIT_SWITCH_FAILED'],
-    ['切换分支未完成，当前工作区可能未改变。请刷新仓库状态并查看错误详情后再继续。', 'The branch switch did not complete; the working tree may be unchanged. Refresh the repository status and check the error details before continuing.'],
+    ['Git 未能确认切换结果。请先刷新并核对当前分支和文件状态，再查看详情处理失败原因。', 'Git could not confirm the checkout result. Refresh and check the current branch and file state, then inspect the details to resolve the failure.', 'check'],
   ],
   [
     ['ASTRAGIT_TASK_GIT_REMOTE_UNAVAILABLE', 'ASTRAGIT_GIT_REMOTE_REQUIRED'],
@@ -398,11 +433,10 @@ const explanations: ReadonlyArray<readonly [codes: readonly string[], explanatio
     ['共享目录和嵌套仓库中的文件不能随上层仓库提交。请到所属仓库中提交。', 'Files in shared folders or nested repositories cannot be committed with the parent repository. Commit them in their own repository.'],
   ],
   [['ASTRAGIT_TASK_MERGE_COMMIT_INCOMPLETE'], ['合并提交必须包含本次合并的全部修改，请选择所有相关文件。', 'A merge commit must include all changes from the merge. Select all relevant files.']],
-  [['ASTRAGIT_TASK_COMMIT_SELECTION_CHANGED'], ['所选文件状态已变化，本次未提交。请刷新代码交付页后重新选择文件。', 'The selected files have changed. Nothing was committed. Refresh code delivery and select the files again.', 'check']],
-  [['ASTRAGIT_TASK_REMOTE_DIVERGED'], ['远端分支包含本地尚未取得的提交，推送已停止。请先拉取并处理分支差异。', 'The remote branch has commits missing locally, so the push stopped. Pull and reconcile the branches first.']],
+  [['ASTRAGIT_TASK_COMMIT_SELECTION_CHANGED'], ['所选文件状态已变化，本次未提交。请刷新文件状态后重新选择提交范围。', 'The selected files have changed. Nothing was committed. Refresh the file state and select the commit scope again.', 'check']],
   [
     ['ASTRAGIT_TASK_REMOTE_VERIFICATION_FAILED'],
-    ['推送后远端分支与预期内容不一致，暂时不能确认推送成功。请检查远端分支。', 'The remote branch does not match the expected content after pushing. The push cannot be confirmed as successful. Check the remote branch.'],
+    ['推送后远端分支与预期内容不一致，暂时不能确认推送成功。请检查远端分支后再决定后续操作。', 'The remote branch does not match the expected content after pushing. The push cannot be confirmed as successful. Check the remote branch before deciding what to do next.', 'check'],
   ],
   [['ASTRAGIT_TASK_WORKTREE_NOT_REGISTERED'], ['Git 中找不到这个任务的独立工作目录记录，请检查任务分支和目录状态。', 'Git has no record of this task’s separate working folder. Check the task branch and folder state.']],
   [
@@ -435,7 +469,7 @@ const explanations: ReadonlyArray<readonly [codes: readonly string[], explanatio
     ['ASTRAGIT_TASK_PRECOMMIT_FORMAT_FAILED'],
     ['提交前的代码格式化失败，因此没有继续提交。请查看详情并修正格式化错误。', 'Code formatting failed before the commit, so the commit did not continue. Check the details and fix the formatting error.'],
   ],
-  [['ASTRAGIT_GIT_UPSTREAM_REQUIRED'], ['当前分支尚未关联远端分支。请先设置它要跟踪的远端分支。', 'This branch is not linked to a remote branch. Set its upstream branch first.']],
+  [['ASTRAGIT_GIT_UPSTREAM_REQUIRED'], ['当前分支尚未设置跟踪分支。请先关联远端分支；首次推送时可在推送窗口选择远端目标并勾选“跟踪”。', 'The current branch has no upstream. Link it to a remote branch first. For the first push, choose the remote target and enable Track in the push dialog.']],
   [
     ['ASTRAGIT_GIT_CONFIRMATION_EXPIRED', 'ASTRAGIT_GIT_CONFIRMATION_NOT_FOUND', 'ASTRAGIT_GIT_CONFIRMATION_ALREADY_RESOLVED', 'ASTRAGIT_GIT_CONFIRMATION_ALREADY_CONSUMED'],
     ['这次 Git 操作的确认已失效或已使用。请重新打开操作预览，核对内容后确认。', 'The confirmation for this Git action expired or was already used. Reopen the action preview and review it before confirming.'],
@@ -1115,9 +1149,15 @@ function isLikelyErrorCode(value: string): boolean {
   return /^[A-Z][A-Z0-9_.:-]{1,127}$/u.test(candidate) || explanations.some(([codes]) => codes.includes(candidate));
 }
 
-/** 只拆除 AstraGit 跨进程调用的固定前缀，不根据任意错误正文猜测原因。 */
+/** 只拆除自身跨进程调用和 Error 类型的固定前缀，不根据任意错误正文猜测原因。 */
 function unwrapAstraGitErrorMessage(message: string): string {
-  return message.replace(/^Error invoking remote method 'astragit:[^'\r\n]+': (?:[A-Za-z_$][\w$]*Error: |Error: )?/u, '');
+  let unwrapped = message;
+  for (let depth = 0; depth < 3; depth += 1) {
+    const next = unwrapped.replace(/^Error invoking remote method 'astragit:[^'\r\n]+': (?:[A-Za-z_$][\w$]*Error: |Error: )?/u, '');
+    if (next === unwrapped) break;
+    unwrapped = next;
+  }
+  return unwrapped.replace(/^(?:[A-Za-z_$][\w$]*Error|Error):\s*/u, '');
 }
 
 /** 只返回允许跨界面传递的诊断字段；限制深度避免循环对象和无界错误链。 */
@@ -1151,6 +1191,8 @@ export function userFacingErrorCause(error: unknown, depth = 0): UserFacingError
       : [];
   return {
     ...(code && /^[A-Za-z0-9_.:-]{1,128}$/u.test(code) ? { code } : {}),
+    ...(value.blockedBy === 'tracked' || value.blockedBy === 'untracked' || value.blockedBy === 'both' ? { blockedBy: value.blockedBy } : {}),
+    ...(value.operationStatus === 'completed' || value.operationStatus === 'conflict' || value.operationStatus === 'unknown_after_write' ? { operationStatus: value.operationStatus } : {}),
     message: redactUserFacingErrorDetails(message),
     ...(typeof value.details === 'string'
       ? { details: redactUserFacingErrorDetails(value.details) }
@@ -1171,12 +1213,13 @@ export function redactUserFacingErrorDetails(value: string): string {
     .replace(/(^|\n)\s*(authorization|proxy-authorization|cookie|set-cookie)\s*:\s*[^\r\n]*/giu, '$1$2: [REDACTED]')
     .replace(/\b([A-Za-z0-9_.-]*(?:api[ _-]?key|(?:access|refresh|session)[ _-]?token|token|password|passphrase|secret|authorization|cookie))["']?\s*[=:]\s*(["'])(?:\\.|(?!\2)[^\r\n])*?\2/giu, '$1=[REDACTED]')
     .replace(/(https?:\/\/[^\s?#]+)\?[^\s#]*/giu, '$1?[REDACTED]')
-    .replace(/\bBearer\s+[^\s,;]+/giu, 'Bearer [REDACTED]')
+    .replace(/\b(Bearer|Basic)\s+[^\s,;"']+/giu, '$1 [REDACTED]')
+    .replace(/\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,})\b/gu, '[REDACTED]')
     .replace(/\b\d{5,20}:[A-Za-z0-9_-]{20,128}\b/gu, '[REDACTED]')
     .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/gu, '[REDACTED]')
     .replace(/\bsk-[A-Za-z0-9_-]{6,}/gu, '[REDACTED]')
     .replace(/\b([A-Za-z0-9_.-]*(?:api[ _-]?key|(?:access|refresh|session)[ _-]?token|token|password|passphrase|secret|authorization|cookie))["']?\s*[=:]\s*["']?[^\s,;"'&]+/giu, '$1=[REDACTED]')
-    .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/giu, '$1[REDACTED]@')
+    .replace(/((?:https?|ssh):\/\/)[^\s/@]+@/giu, '$1[REDACTED]@')
     .replace(/(?:file:\/\/)?\/(?:Users|home)\/[^\s,;"'<>]+/gu, '[LOCAL PATH]')
     .replace(/[A-Za-z]:\\[^\s,;"'<>]+/gu, '[LOCAL PATH]')
     .split(/\r?\n/u)
@@ -1195,7 +1238,7 @@ function isGenericErrorMessage(value: string): boolean {
 
 /** 去掉 Electron IPC 的固定包装，只保留适合直接显示的一行具体原因。 */
 function visibleFallbackMessage(item: UserFacingErrorCause): string {
-  const withoutTransportPrefix = item.message.replace(/^Error invoking remote method 'astragit:[^'\r\n]+': (?:[A-Za-z_$][\w$]*Error: |Error: )?/u, '').replace(/^(?:[A-Za-z_$][\w$]*Error|Error):\s*/u, '');
+  const withoutTransportPrefix = unwrapAstraGitErrorMessage(item.message);
   const withoutCodePrefix = item.code && withoutTransportPrefix.startsWith(`${item.code}:`) ? withoutTransportPrefix.slice(item.code.length + 1) : withoutTransportPrefix;
   const message = withoutCodePrefix.replace(/\s+/gu, ' ').trim();
   if (message && !isGenericErrorMessage(message)) return message.slice(0, 600);
@@ -1215,29 +1258,78 @@ function describeUncataloguedError(chain: readonly UserFacingErrorCause[], langu
   return language === 'zh-CN' ? '发生了未知错误。' : 'An unknown error occurred.';
 }
 
+const checkoutBlockExplanations: Readonly<Record<'tracked' | 'untracked', ErrorExplanation>> = {
+  tracked: [
+    '已跟踪文件的本地修改会被目标内容覆盖，本次切换未执行。请先提交或贮藏这些修改，再重新切换。',
+    'Local changes to tracked files would be overwritten by the target, so the checkout was not performed. Commit or stash these changes before checking out again.',
+  ],
+  untracked: [
+    '本地未跟踪文件会被目标内容覆盖，本次切换未执行。请先备份并移开这些文件，或在贮藏时勾选“包含未跟踪文件”，再重新切换。',
+    'Local untracked files would be overwritten by the target, so the checkout was not performed. Back up and move these files, or stash them with Include untracked files enabled, before checking out again.',
+  ],
+};
+
+const gitRefreshOutcomeExplanations: Readonly<Record<'completed' | 'conflict', ErrorExplanation>> = {
+  completed: [
+    'Git 操作已完成，但刷新最新仓库状态失败。请先刷新并核对当前状态，不要重复执行刚才的 Git 操作。',
+    'The Git action completed, but refreshing the latest repository state failed. Refresh and check the current state without repeating the Git action.',
+    'check',
+  ],
+  conflict: [
+    'Git 操作已执行并留下冲突，但刷新最新仓库状态失败。请先刷新并核对冲突文件，再处理冲突；不要重复执行刚才的 Git 操作。',
+    'The Git action ran and left conflicts, but refreshing the latest repository state failed. Refresh and check the conflicted files before resolving them; do not repeat the Git action.',
+    'check',
+  ],
+};
+
+function gitRefreshOutcomeExplanation(item: UserFacingErrorCause): ErrorExplanation | null {
+  return item.code === 'ASTRAGIT_GIT_ACTION_REFRESH_FAILED' && (item.operationStatus === 'completed' || item.operationStatus === 'conflict') ? gitRefreshOutcomeExplanations[item.operationStatus] : null;
+}
+
+/** 只根据 Git 边界提供的明确分类细化建议；普通贮藏默认不包含未跟踪文件。 */
+function gitCheckoutBlockExplanation(item: UserFacingErrorCause): ErrorExplanation | null {
+  return item.code === 'ASTRAGIT_GIT_CHECKOUT_BLOCKED' && (item.blockedBy === 'tracked' || item.blockedBy === 'untracked') ? checkoutBlockExplanations[item.blockedBy] : null;
+}
+
 /** 优先解释已知原因；页面可提供未知错误简述，避免把原始诊断当作首屏摘要。 */
 export function describeUserFacingError(error: unknown, language: UserFacingErrorLanguage = 'zh-CN', fallbackMessage?: string): UserFacingErrorDescription {
   const root = userFacingErrorCause(error);
   const chain: UserFacingErrorCause[] = [];
   for (let item: UserFacingErrorCause | undefined = root; item; item = item.cause) chain.push(item);
   // 已解释过的字符串仍可切换语言，避免再次格式化时丢失原因。
-  const translated = explanations.find(([, copy]) => copy[0] === root.message || copy[1] === root.message)?.[1];
+  const normalizedMessage = unwrapAstraGitErrorMessage(root.message);
+  const translated = [...explanations.map(([, copy]) => copy), ...Object.values(checkoutBlockExplanations), ...Object.values(gitRefreshOutcomeExplanations)].find((copy) => copy[0] === normalizedMessage || copy[1] === normalizedMessage);
   // 发送后核对可能包住读取失败，仍优先解释刷新状态，底层原因继续完整保留在详情中。
   const readFailure = chain.find((item) => item.code === 'ASTRAGIT_CONVERSATION_READ_FAILED' || item.code === 'ASTRAGIT_CONVERSATION_ARCHIVE_STATE_UNCONFIRMED');
+  // 写入请求超时不能根据已收到的局部原因推断最终结果。
+  const mutationOutcome = chain.find((item) => item.code === 'ASTRAGIT_LOCAL_API_MUTATION_OUTCOME_UNKNOWN');
+  // 动作后的读取失败必须保留已确认的执行事实，不能由底层读取异常改写成动作未执行。
+  const postActionRead = chain.find((item) => item.code === 'ASTRAGIT_GIT_ACTION_REFRESH_FAILED' || item.code === 'ASTRAGIT_GIT_ACTION_STATE_READ_FAILED');
+  // 恢复结果由外层流程核实；底层命令失败只说明原因，不能覆盖本地修改已恢复/仍在贮藏中的事实。
+  const recoveryOutcome = chain.find((item) => item.code === 'ASTRAGIT_GIT_SMART_OPERATION_FAILED_RESTORED' || item.code === 'ASTRAGIT_GIT_SMART_OPERATION_FAILED_STASH_PRESERVED' || item.code === 'ASTRAGIT_GIT_SMART_RESTORE_FAILED');
+  // 通用命令包装只说明失败，不能盖过其他层已经明确的业务原因。
+  const genericGitCodes = new Set(['ASTRAGIT_GIT_COMMAND_FAILED', 'ASTRAGIT_GIT_ACTION_FAILED', 'ASTRAGIT_COMMAND_FAILED', 'ASTRAGIT_ACTION_FAILED']);
+  const deepestFirst = [...chain].reverse();
+  const specificFirst = [...deepestFirst.filter((item) => !genericGitCodes.has(item.code ?? '')), ...deepestFirst.filter((item) => genericGitCodes.has(item.code ?? ''))];
   // 只改变解释优先级，不改变下方对发送结果未知的保护。
-  const explanationChain = readFailure ? [readFailure] : [...chain].reverse();
+  const explanationChain = mutationOutcome ? [mutationOutcome] : postActionRead ? [postActionRead] : readFailure ? [readFailure] : recoveryOutcome ? [recoveryOutcome] : specificFirst;
   const match =
     explanationChain.flatMap((item) => {
       /** 完整业务文案去除传输前缀后精确匹配，原始消息仍留在详情中。 */
       const message = unwrapAstraGitErrorMessage(item.message);
-      return explanations.filter(([codes]) => codes.includes(message) || (item.code && codes.includes(item.code)));
+      const stateExplanation = gitRefreshOutcomeExplanation(item) ?? gitCheckoutBlockExplanation(item);
+      return stateExplanation ? [[[], stateExplanation] as const] : explanations.filter(([codes]) => codes.includes(message) || (item.code && codes.includes(item.code)));
     })[0]?.[1] ?? translated;
   const details = chain
     .map((item) => [[item.code, item.message].filter(Boolean).join(': '), item.details].filter(Boolean).join('\n'))
     .filter(Boolean)
     .join('\n');
   const zh = language === 'zh-CN';
-  const unknownOutcome = chain.some((item) => /OUTCOME_UNKNOWN|DELIVERY_UNCONFIRMED|REPLAY_BLOCKED|ACCEPTANCE_HYDRATION_PENDING|^ASTRAGIT_CODEX_RPC_PROTOCOL_ERROR$|^ASTRAGIT_GIT_TIMEOUT$/u.test(item.code ?? ''));
+  const unknownOutcome = Boolean(
+    mutationOutcome ||
+      postActionRead?.code === 'ASTRAGIT_GIT_ACTION_STATE_READ_FAILED' ||
+      (postActionRead?.code !== 'ASTRAGIT_GIT_ACTION_REFRESH_FAILED' && chain.some((item) => /OUTCOME_UNKNOWN|DELIVERY_UNCONFIRMED|REPLAY_BLOCKED|ACCEPTANCE_HYDRATION_PENDING|^ASTRAGIT_CODEX_RPC_PROTOCOL_ERROR$|^ASTRAGIT_GIT_(?:TIMEOUT|SWITCH_FAILED)$|^ASTRAGIT_TASK_REMOTE_VERIFICATION_FAILED$/u.test(item.code ?? ''))),
+  );
   return {
     message: match?.[zh ? 0 : 1] ?? fallbackMessage ?? describeUncataloguedError(chain, language),
     details: translated && !root.code && !root.cause && !root.details ? '' : details,

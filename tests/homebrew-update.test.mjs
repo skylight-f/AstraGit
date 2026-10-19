@@ -4,116 +4,91 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
-import { createHomebrewUpdateService } from '../apps/desktop/src/main/homebrewUpdateService.ts';
-import { fetchHomebrewArtifact } from '../apps/desktop/src/main/homebrewDownload.ts';
-import { verifyDownloadedArtifact } from '../apps/desktop/src/main/releaseArtifact.ts';
+import { createHomebrewUpdateService, isTransientHomebrewDownloadError } from '../apps/desktop/src/main/homebrewUpdateService.ts';
 
-async function fixture(t) {
-  const root = await mkdtemp(join(tmpdir(), 'astragit-brew-flow-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const appPath = join(root, 'Applications/AstraGit.app'); const cacheRoot = join(root, 'cache');
-  await mkdir(appPath, { recursive: true }); await mkdir(cacheRoot);
-  const cachePath = join(cacheRoot, 'release.dmg'); const bytes = Buffer.alloc(120_000, 43);
+export async function homebrewFixture(t) {
+  const root = await mkdtemp(join(tmpdir(), 'astragit-astra-brew-'));
+  const previous = process.env.ASTRAGIT_HOMEBREW_BIN;
+  t.after(async () => { if (previous === undefined) delete process.env.ASTRAGIT_HOMEBREW_BIN; else process.env.ASTRAGIT_HOMEBREW_BIN = previous; await rm(root, { recursive: true, force: true }); });
+  const appPath = join(root, 'Applications/AstraGit.app');
+  const cachePath = join(root, 'cache/release.dmg');
+  await mkdir(join(appPath, 'Contents'), { recursive: true });
+  await mkdir(join(root, 'cache'));
+  const bytes = Buffer.alloc(120_000, 43);
   const artifact = { arch: process.arch, kind: 'dmg', fileName: `AstraGit-0.2.0-${process.arch}.dmg`, sha256: createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.length, downloadUrl: `https://github.com/skylight-f/AstraGit/releases/download/v0.2.0/AstraGit-0.2.0-${process.arch}.dmg` };
-  const update = { status: 'available', currentVersion: '0.1.0', latestVersion: '0.2.0', installMethod: 'homebrew', artifact };
-  const state = { caskVersion: '0.1.0', installed: '0.1.0', updateFailures: 0, updateCalls: 0, fetches: 0, keepStale: false, badHash: false, tap: 'skylight-f/tap' };
-  const commands = [];
-  const service = createHomebrewUpdateService({ appPath, version: update.currentVersion }, {
-    platform: 'darwin', binary: async () => '/fixture/brew',
-    inspectApp: async (path, versions) => { assert.equal(path, appPath); assert.ok(versions.includes(state.installed)); return { appPath, version: state.installed }; },
-    run: async (file, args, options) => {
-      assert.equal(file, '/fixture/brew'); commands.push([...args]);
-      const result = stdout => ({ stdout, stderr: '' });
-      assert.equal(options.env.HOMEBREW_NO_INSTALL_CLEANUP, '1');
-      assert.equal(options.env.HOMEBREW_NO_UPGRADE_QUIT_CASKS, '1');
-      if (args[0] !== 'update') assert.equal(options.env.HOMEBREW_NO_AUTO_UPDATE, '1');
-      if (args[0] === 'list') return result(`astragit ${state.installed}`);
-      if (args[0] === 'info') return result(JSON.stringify({ casks: [{ token: 'astragit', tap: state.tap, version: state.caskVersion, installed: state.installed, url: artifact.downloadUrl, sha256: state.badHash ? 'f'.repeat(64) : artifact.sha256, artifacts: [{ app: ['AstraGit.app'], target: appPath }] }] }));
-      if (args[0] === 'update') {
-        assert.equal(options.env.HOMEBREW_NO_AUTO_UPDATE, undefined);
-        assert.equal(options.timeout, 5 * 60_000); state.updateCalls++;
-        if (state.updateFailures-- > 0) throw Object.assign(new Error('network failed'), { stderr: 'Connection reset' });
-        if (!state.keepStale) state.caskVersion = update.latestVersion;
-        return result('');
-      }
-      if (args[0] === '--cache') return result(args.length === 1 ? cacheRoot : cachePath);
-      if (args[0] === 'upgrade') {
-        assert.ok(args.includes('--no-quit')); assert.ok(args.includes('--require-sha'));
-        assert.ok(args.includes('--yes')); assert.equal(args.at(-1), 'skylight-f/tap/astragit');
-        assert.deepEqual(await readFile(cachePath), bytes);
-        state.installed = update.latestVersion; return result('');
-      }
-      assert.fail(`Unexpected command ${args.join(' ')}`);
-    },
-    fetchArtifact: async options => {
-      assert.equal(options.brewPath, '/fixture/brew'); assert.equal(options.cask, 'skylight-f/tap/astragit');
-      assert.equal(options.environment.HOMEBREW_NO_AUTO_UPDATE, '1');
-      state.fetches++; await writeFile(options.cachePath, bytes);
-    },
-  });
-  return { service, state, commands, root, appPath, cachePath, bytes, artifact, update };
+  const update = { status: 'available', currentVersion: '0.1.0', latestVersion: '0.2.0', installMethod: 'direct', artifact, releasePageUrl: 'https://github.com/skylight-f/AstraGit/releases/tag/v0.2.0', automaticInstallEnabled: false, reason: '' };
+  const statePath = join(root, 'state.json'); const logPath = join(root, 'commands.jsonl');
+  const plist = version => JSON.stringify({ CFBundleIdentifier: 'com.astragit.desktop', CFBundleShortVersionString: version, CFBundleVersion: version });
+  await writeFile(join(appPath, 'Contents/Info.plist'), plist('0.1.0'));
+  const initial = { version: '0.1.0', installed: '0.1.0', keepStale: false, badHash: false, failInstall: false, fetchFailures: 0, fetches: 0, tap: 'skylight-f/tap', target: appPath, ownerPid: process.pid };
+  await writeFile(statePath, JSON.stringify(initial));
+  const brew = join(root, 'brew');
+  await writeFile(brew, `#!${process.execPath}
+import assert from 'node:assert/strict';
+import {readFile,writeFile,appendFile,rename} from 'node:fs/promises';
+const statePath=${JSON.stringify(statePath)}, logPath=${JSON.stringify(logPath)}, cache=${JSON.stringify(cachePath)}, app=${JSON.stringify(appPath)}, artifact=${JSON.stringify(artifact)};
+const state=JSON.parse(await readFile(statePath,'utf8')); const args=process.argv.slice(2);
+await appendFile(logPath,JSON.stringify({args,ownerAlive:(()=>{try{process.kill(state.ownerPid,0);return true;}catch{return false;}})()})+'\\n');
+const save=()=>writeFile(statePath,JSON.stringify(state));
+assert.equal(process.env.HOMEBREW_NO_UPGRADE_QUIT_CASKS,'1');
+if(args[0]!=='update')assert.equal(process.env.HOMEBREW_NO_AUTO_UPDATE,'1');
+if(args[0]==='list')console.log('astragit '+state.installed);
+else if(args[0]==='info')console.log(JSON.stringify({casks:[{token:'astragit',tap:state.tap,version:state.version,installed:state.installed,url:artifact.downloadUrl,sha256:state.badHash?'f'.repeat(64):artifact.sha256,artifacts:[{app:['AstraGit.app'],target:state.target}]}]}));
+else if(args[0]==='update'){if(!state.keepStale)state.version='0.2.0';await save();}
+else if(args[0]==='--cache'){assert.deepEqual(args,['--cache','--cask','skylight-f/tap/astragit']);console.log(cache);}
+else if(args[0]==='fetch'){
+ assert.deepEqual(args,['fetch','--cask','--retry','skylight-f/tap/astragit']);state.fetches++;await save();
+ if(state.fetchFailures-->0){await save();await writeFile(cache+'.incomplete',Buffer.alloc(60_000,43));console.error('curl: (28) Operation timed out');process.exit(1);}
+ if(state.fetches>1)assert.equal((await readFile(cache+'.incomplete')).length,60_000);
+ await writeFile(cache+'.incomplete',Buffer.alloc(60_000,43));await new Promise(resolve=>setTimeout(resolve,750));
+ await writeFile(cache+'.incomplete',Buffer.alloc(120_000,43));await rename(cache+'.incomplete',cache);
+}else if(args[0]==='upgrade'){
+ assert.deepEqual(args,['upgrade','--cask','--no-quit','--yes','--require-sha','skylight-f/tap/astragit']);
+ assert.deepEqual(await readFile(cache),Buffer.alloc(120_000,43));
+ if(state.failInstall){console.error('fixture installation failed');process.exit(1);}
+ state.installed='0.2.0';await save();
+ await writeFile(app+'/Contents/Info.plist',JSON.stringify({CFBundleIdentifier:'com.astragit.desktop',CFBundleShortVersionString:'0.2.0',CFBundleVersion:'0.2.0'}));
+}else {console.error('Unexpected command '+args.join(' '));process.exit(1);}
+`, { mode: 0o755 });
+  process.env.ASTRAGIT_HOMEBREW_BIN = brew;
+  const state = async patch => { const value = JSON.parse(await readFile(statePath, 'utf8')); if (patch) { Object.assign(value, patch); await writeFile(statePath, JSON.stringify(value)); } return value; };
+  return { root, appPath, cachePath, bytes, update, state, log: async () => (await readFile(logPath, 'utf8')).trim().split('\n').map(JSON.parse), service: createHomebrewUpdateService({ currentAppPath: appPath, currentAppVersion: '0.1.0', bundleId: 'com.astragit.desktop', testMode: true }) };
 }
 
-test('Homebrew refresh retries stale metadata, owns prefetch and verifies cache again before upgrade', async t => {
-  const f = await fixture(t); const progress = [];
+test('Astra command chain refreshes and fetches through brew, then upgrades while the old Main is still alive', { skip: process.platform !== 'darwin' }, async t => {
+  const f = await homebrewFixture(t); await f.state({ fetchFailures: 1 });
   assert.equal(await f.service.isManaged(), true);
-  f.state.updateFailures = 1;
-  const prepared = await f.service.prepare(f.update, value => progress.push(value.phase));
-  assert.equal(f.state.updateCalls, 2); assert.equal(f.state.fetches, 1);
-  assert.ok(progress.includes('updating')); assert.equal(progress.at(-1), 'ready');
-  assert.ok(!f.commands.some(args => args[0] === 'upgrade'));
-  await f.service.validatePrepared(prepared);
-  await writeFile(f.cachePath, Buffer.alloc(f.bytes.length, 1));
-  await assert.rejects(f.service.validatePrepared(prepared), /SHA-256/u);
-  await assert.rejects(f.service.install(prepared, () => {}), /SHA-256/u);
-  assert.ok(!f.commands.some(args => args[0] === 'upgrade'));
-  await writeFile(f.cachePath, f.bytes);
-  assert.equal((await f.service.install(prepared, () => {})).version, '0.2.0');
-  assert.equal(f.commands.filter(args => args[0] === 'upgrade').length, 1);
-  await f.service.prepare(f.update, () => {});
-  assert.equal(f.state.fetches, 1, 'An intact brew cache is reused.');
-});
-
-test('Homebrew lag, wrong hash and foreign tap never download or upgrade an unrelated package', async t => {
-  const f = await fixture(t); f.state.keepStale = true;
-  await assert.rejects(f.service.prepare(f.update, () => {}), /发布版本为 0\.2\.0.*当前 Cask 为 0\.1\.0/u);
-  f.state.keepStale = false; f.state.badHash = true;
-  await assert.rejects(f.service.prepare(f.update, () => {}), /SHA-256.*已停止安装/u);
-  f.state.badHash = false; f.state.tap = 'foreign/tap';
-  await assert.rejects(f.service.prepare(f.update, () => {}), /唯一有效/u);
-  assert.equal(f.state.fetches, 0);
-  assert.ok(!f.commands.some(args => args[0] === 'upgrade'));
-});
-
-test('real brew-fetch subprocess retries a connection failure, preserves partial content and reports byte progress', async t => {
-  const f = await fixture(t); const executable = join(f.root, 'brew-fixture'); const attempts = join(f.root, 'attempts.json');
-  await writeFile(executable, `#!${process.execPath}
-import assert from 'node:assert/strict';
-import {readFile,writeFile,rename} from 'node:fs/promises';
-assert.deepEqual(process.argv.slice(2), ['fetch','--cask','--retry','skylight-f/tap/astragit']);
-const path=${JSON.stringify(f.cachePath)}; const counter=${JSON.stringify(attempts)};
-const previous=await readFile(counter,'utf8').then(JSON.parse).catch(()=>0);
-await writeFile(counter,JSON.stringify(previous+1));
-if(!previous){await writeFile(path+'.incomplete',Buffer.alloc(60_000,43));process.stderr.write('curl: (28) Operation timed out');process.exit(1);}
-assert.equal((await readFile(path+'.incomplete')).length,60_000);
-await new Promise(resolve=>setTimeout(resolve,750));
-await writeFile(path+'.incomplete',Buffer.alloc(120_000,43)); await rename(path+'.incomplete',path);
-`, { mode: 0o755 });
   const progress = [];
-  await fetchHomebrewArtifact({ brewPath: executable, cask: 'skylight-f/tap/astragit', cachePath: f.cachePath, artifact: f.artifact, environment: process.env, progress: value => progress.push(value) });
-  assert.equal(JSON.parse(await readFile(attempts)), 2);
+  const prepared = await f.service.prepare(f.update, value => progress.push(value));
+  assert.ok(prepared.verifiedArtifact);
   assert.ok(progress.some(value => value.phase === 'reconnecting'));
-  assert.ok(progress.some(value => value.phase === 'downloading' && value.receivedBytes === 60_000));
-  await verifyDownloadedArtifact(f.cachePath, f.artifact);
+  assert.ok(progress.some(value => value.downloadedBytes === 60_000));
+  assert.equal((await f.state()).fetches, 2);
+  assert.ok(!(await f.log()).some(value => value.args[0] === 'upgrade'));
+  const installed = await f.service.install(prepared, () => {});
+  assert.deepEqual(installed, { appPath: f.appPath, bundleId: 'com.astragit.desktop', version: '0.2.0' });
+  assert.equal((await f.log()).find(value => value.args[0] === 'upgrade').ownerAlive, true);
+  assert.equal((await f.log()).filter(value => value.args[0] === '--cache').length, 1, 'No extra global-cache query is added.');
 });
 
-test('structural brew-fetch errors do not enter automatic download retry', async t => {
-  const f = await fixture(t); const executable = join(f.root, 'brew-bad-hash'); const attempts = join(f.root, 'attempts');
-  await writeFile(executable, `#!${process.execPath}
-import {appendFile} from 'node:fs/promises';
-await appendFile(${JSON.stringify(attempts)},'attempt'+String.fromCharCode(10));
-process.stderr.write('SHA256 mismatch');process.exit(1);
-`, { mode: 0o755 });
-  await assert.rejects(fetchHomebrewArtifact({ brewPath: executable, cask: 'skylight-f/tap/astragit', cachePath: f.cachePath, artifact: f.artifact, environment: process.env, progress: () => {} }), error => error.transient === false && /SHA256/u.test(error.message));
-  assert.equal(await readFile(attempts, 'utf8'), 'attempt\n');
+test('Astra validation blocks stale metadata, foreign receipts and changed cache before upgrade', { skip: process.platform !== 'darwin' }, async t => {
+  const f = await homebrewFixture(t);
+  await f.state({ keepStale: true }); await assert.rejects(f.service.prepare(f.update, () => {}), /发布清单不一致/u);
+  await f.state({ keepStale: false, tap: 'foreign/tap' }); await assert.rejects(f.service.isManaged(), /Tap/u);
+  await f.state({ tap: 'skylight-f/tap', target: join(f.root, 'other/AstraGit.app') }); await assert.rejects(f.service.isManaged(), /不是当前/u);
+  await f.state({ target: f.appPath });
+  const prepared = await f.service.prepare(f.update, () => {});
+  await writeFile(f.cachePath, Buffer.alloc(f.bytes.length, 1));
+  await assert.rejects(f.service.install(prepared, () => {}), /已变化或不完整/u);
+  assert.ok(!(await f.log()).some(value => value.args[0] === 'upgrade'));
+});
+
+test('Homebrew installation failures are not retried and test binaries are unavailable to production', { skip: process.platform !== 'darwin' }, async t => {
+  const f = await homebrewFixture(t);
+  await assert.rejects(createHomebrewUpdateService({ currentAppPath: f.appPath, currentAppVersion: '0.1.0', bundleId: 'com.astragit.desktop', testMode: false }).isManaged(), /只允许隔离测试/u);
+  const prepared = await f.service.prepare(f.update, () => {});
+  await f.state({ failInstall: true });
+  await assert.rejects(f.service.install(prepared, () => {}), error => !isTransientHomebrewDownloadError(error) && /fixture installation failed/u.test(error.message));
+  assert.equal((await f.log()).filter(value => value.args[0] === 'upgrade').length, 1);
+  assert.equal((await f.state()).installed, '0.1.0');
 });

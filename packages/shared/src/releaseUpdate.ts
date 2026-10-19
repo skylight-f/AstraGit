@@ -13,6 +13,18 @@ export interface ReleaseUpdateStatus {
   status: 'up_to_date' | 'available' | 'unavailable'; currentVersion: string; latestVersion: string;
   releasePageUrl: string; artifact: ReleaseArtifact | null; automaticInstallEnabled: boolean; reason: string;
   installMethod: 'homebrew' | 'direct';
+  checkedAt?: string;
+  error?: unknown;
+}
+export interface HomebrewUpdateIndicatorState {
+  phase: 'idle' | 'available' | 'manual' | 'downloaded' | 'preparing' | 'retrying' | 'ready' | 'failed';
+  currentVersion: string;
+  latestVersion: string | null;
+  detail: string;
+  updatedAt: string;
+  progress?: number;
+  retryAt?: string;
+  failure?: { step: 'check' | 'prepare' | 'download' | 'install'; title: string; technicalDetail?: string; canRetry: boolean };
 }
 export interface ReleaseUpdateProgress { phase: 'updating' | 'downloading' | 'reconnecting' | 'verifying' | 'installing' | 'ready'; receivedBytes: number; totalBytes: number }
 export function compareReleaseVersions(left: string, right: string): number {

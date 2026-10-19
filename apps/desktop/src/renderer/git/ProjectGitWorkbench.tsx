@@ -51,6 +51,8 @@ import { Button } from '../ui/Button.js';
 import { ModalPortal } from '../ui/ModalPortal.js';
 import { reportApplicationError, VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
 import { ProjectGitDiffWindow, SideBySideDiff } from './ProjectGitDiffViewer.js';
+import { describeUserFacingError } from '@astragit/shared';
+import { gitConflictMessage, gitFailureCode, gitFailureTitle } from './gitOperationFeedback.js';
 
 type GitTab = 'changes' | 'stash' | 'log' | 'console';
 type ChangeStage = 'staged' | 'unstaged';
@@ -80,6 +82,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const [snapshot, setSnapshot] = useState<ProjectGitWorkbenchSnapshot | null>(() => readCachedProjectGitWorkbench(props.client, props.project.id));
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(() => (snapshot ? 'ready' : 'loading'));
   const [error, setError] = useState<string | null>(null);
+  const [conflictAction, setConflictAction] = useState<{ repositoryId: string; action: ProjectGitAction; result: import('../apiClient.js').ProjectGitActionResponse['result'] } | null>(null);
   // errorMessage() reports the original failure once; this state is its inline summary.
   const [tab, setTab] = useState<GitTab>(() => (props.conversationScope ? 'changes' : readRememberedTab(props.project.id)));
   const [subtree, setSubtree] = useState<{ repositoryId: string; path: string } | null>(null);
@@ -186,6 +189,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   // 角标与文件列表使用同一个仓库，不能把其他子模块的改动算进来。
   const changedCount = selectedRepository?.snapshot.fileStatuses.length ?? 0;
   const conflictCount = repositories.reduce((total, repository) => total + repository.snapshot.conflictFiles.length, 0);
+  const conflictRepository = selectedRepository?.snapshot.conflictFiles.length ? selectedRepository : repositories.find((repository) => repository.snapshot.conflictFiles.length > 0);
   const allCommits = useMemo(
     () =>
       repositories
@@ -350,26 +354,31 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       );
       if (action.type === 'submodule_update' || action.type === 'subtree') await loadWorkbench();
       notifyProjectGitChanged(props.project.id);
-      if (response.result.outcome === 'conflict') setTab('changes');
+      if (response.result.outcome === 'conflict') {
+        setConflictAction({ repositoryId: repository.id, action, result: response.result });
+        setSelectedRepositoryId(repository.id);
+        setTab('changes');
+        setSelectedFilePath(response.snapshot.conflictFiles[0] ?? '');
+        setSelectedFileStage('unstaged');
+      }
       return response.result.outcome;
     } catch (reason) {
-      const switchingBranch = action.type === 'checkout' || action.type === 'checkout_revision' || action.type === 'create_branch';
-      const message = errorMessage(switchingBranch ? gitSwitchFailureCause(reason) : reason, zh, {
-        title: gitOperationErrorTitle(action, label, zh),
-        // Git 的 stderr 才是用户处理合并、变基和远端拒绝的依据；失败时直接展开，避免把原因藏在二级入口中。
-        showDetails: true,
+      const explanation = describeUserFacingError(reason, zh ? 'zh-CN' : 'en');
+      const code = gitFailureCode(reason);
+      const reviewFiles = () => { setSelectedRepositoryId(repository.id); setTab('changes'); };
+      const recovery = explanation.outcomeUnconfirmed || code === 'ASTRAGIT_GIT_ACTION_REFRESH_FAILED'
+        ? { label: zh ? '刷新仓库状态' : 'Refresh repository', onClick: () => loadWorkbench() }
+        : code === 'ASTRAGIT_GIT_CHECKOUT_BLOCKED'
+          ? { label: zh ? '打开贮藏入口' : 'Open stash action', onClick: () => { setSelectedRepositoryId(repository.id); setStashRepositoryId(repository.id); } }
+          : code === 'ASTRAGIT_GIT_CHECKOUT_CONFLICTED' || code === 'ASTRAGIT_GIT_UNMERGED_FILES' || code === 'ASTRAGIT_GIT_CONFLICTS_REMAIN'
+            ? { label: zh ? '查看冲突文件' : 'Review conflicted files', onClick: reviewFiles }
+            : undefined;
+      const message = errorMessage(reason, zh, {
+        title: gitFailureTitle(action, label, repository.name, zh),
+        // 首屏说明原因与下一步；真实 Git 诊断保留在可展开的详情中。
+        showDetails: false,
         detailTitle: zh ? 'Git 日志' : 'Git log',
-        ...(switchingBranch && errorHasCode(reason, 'ASTRAGIT_GIT_CHECKOUT_BLOCKED')
-          ? {
-              action: {
-                label: zh ? '打开贮藏入口' : 'Open stash action',
-                onClick: () => {
-                  setSelectedRepositoryId(repository.id);
-                  setStashRepositoryId(repository.id);
-                },
-              },
-            }
-          : {}),
+        ...(recovery ? { action: recovery } : {}),
       });
       operationErrorsByRepositoryRef.current = { ...operationErrorsByRepositoryRef.current, [repository.id]: message };
       await loadWorkbench();
@@ -767,10 +776,12 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         <section className="project-git-conflict-banner" role="alert">
           <WarningCircle aria-hidden="true" />
           <span>
-            <strong>{zh ? `存在 ${conflictCount} 个冲突文件` : `${conflictCount} conflicted files`}</strong>
-            <small>{zh ? '请在变更页逐个检查冲突，解决后暂存文件，再继续合并或变基。' : 'Review each file in Local Changes, stage resolved files, then continue the merge or rebase.'}</small>
+              <strong>{zh ? `项目共有 ${conflictCount} 个冲突文件 · ${conflictRepository?.name}` : `${conflictCount} conflicted files in this project · ${conflictRepository?.name}`}</strong>
+              <small>{conflictAction && conflictRepository && conflictAction.repositoryId === conflictRepository.id
+                ? gitConflictMessage(conflictAction.action, conflictAction.result, conflictRepository.snapshot, zh)
+                : zh ? '打开对应仓库的文件状态，逐个解决冲突并暂存。已有合并或变基可继续或终止；贮藏产生的冲突请勿重复应用。' : 'Open File Status for the affected repository, then resolve and stage the files. Continue or abort an active merge/rebase; do not reapply a stash that already produced conflicts.'}</small>
           </span>
-          <Button variant="secondary" size="compact" onClick={() => setTab('changes')}>
+          <Button variant="secondary" size="compact" onClick={() => { if (conflictRepository) { setSelectedRepositoryId(conflictRepository.id); setSelectedFilePath(conflictRepository.snapshot.conflictFiles[0] ?? ''); setSelectedFileStage('unstaged'); } setTab('changes'); }}>
             {zh ? '处理冲突' : 'Resolve conflicts'}
           </Button>
         </section>
@@ -1251,8 +1262,8 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
                 results.push({
                   repositoryId: repository.id,
                   repositoryName: `${repository.name} · ${selection.sourceBranch}`,
-                  tone: ok ? 'success' : 'error',
-                  message: ok
+                  tone: ok === 'completed' ? 'success' : 'error',
+                  message: ok === 'completed'
                     ? zh
                       ? `已推送到 ${selection.remote}/${selection.targetBranch}`
                       : `Pushed to ${selection.remote}/${selection.targetBranch}`
@@ -2632,65 +2643,6 @@ function displayStashSubject(subject: string, zh: boolean): string {
 
 function errorMessage(error: unknown, zh: boolean, options: { title?: string; showDetails?: boolean; detailTitle?: string; action?: { label: string; onClick: () => void | Promise<void> } } = {}): string {
   return reportApplicationError(error, { language: zh ? 'zh-CN' : 'en', ...options });
-}
-
-/** Git 写操作失败时标题说明动作本身，合并失败与普通应用错误区分开。 */
-function gitOperationErrorTitle(action: ProjectGitAction, fallback: string, zh: boolean): string {
-  const operationLabels: Partial<Record<ProjectGitAction['type'], string>> = zh
-    ? {
-        merge: '合并',
-        rebase: '变基',
-        pull: '拉取',
-        push: '推送',
-        commit: '提交',
-        stash: '贮藏',
-        apply_stash: '应用贮藏',
-        fetch: '获取远端',
-        checkout: '切换分支',
-        checkout_revision: '切换到提交',
-        create_branch: '新建分支',
-        update: '更新项目',
-      }
-    : {
-        merge: 'Merge',
-        rebase: 'Rebase',
-        pull: 'Pull',
-        push: 'Push',
-        commit: 'Commit',
-        stash: 'Stash',
-        apply_stash: 'Apply stash',
-        fetch: 'Fetch',
-        checkout: 'Checkout',
-        checkout_revision: 'Checkout revision',
-        create_branch: 'Create branch',
-        update: 'Update project',
-      };
-  const operation = operationLabels[action.type];
-  return operation ? (zh ? `${operation}时发生错误` : `${operation} failed`) : fallback;
-}
-
-function errorHasCode(error: unknown, expected: string): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 4 && current; depth += 1) {
-    if (typeof current === 'string') return current.startsWith(`${expected}:`) || current === expected;
-    if (typeof current !== 'object' || Array.isArray(current)) return false;
-    const candidate = current as { code?: unknown; error?: unknown; cause?: unknown };
-    if (candidate.code === expected || candidate.error === expected) return true;
-    current = candidate.cause;
-  }
-  return false;
-}
-
-/** 分支切换弹窗以 Git 原因作为正文，避免命令账本包装信息把实际 Git 输出挤到滚动区末尾。 */
-function gitSwitchFailureCause(error: unknown): unknown {
-  let current: unknown = error;
-  for (let depth = 0; depth < 4 && current; depth += 1) {
-    if (typeof current !== 'object' || Array.isArray(current)) return error;
-    const candidate = current as { code?: unknown; cause?: unknown };
-    if (typeof candidate.code === 'string' && /^(?:ASTRAGIT_GIT|ASTRAGIT)_(?:CHECKOUT|SWITCH)_/u.test(candidate.code)) return current;
-    current = candidate.cause;
-  }
-  return error;
 }
 
 function formatRelativeTime(value: string, zh: boolean): string {

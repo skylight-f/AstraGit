@@ -64,12 +64,15 @@ test('stale selection and a failing hook do not commit or change the real staged
   const hook = join(root, '.git/hooks/pre-commit');
   await writeFile(hook, '#!/bin/sh\nexit 1\n');
   await chmod(hook, 0o755);
-  await assert.rejects(executeProjectGitAction(root, { type: 'commit', message: 'test: hook failure', paths: ['selected.txt'] }));
+  await assert.rejects(executeProjectGitAction(root, { type: 'commit', message: 'test: hook failure', paths: ['selected.txt'] }), error => error.code === 'ASTRAGIT_GIT_HOOK_REJECTED' && error.operationStatus === 'unknown_after_write');
   assert.equal(await git('rev-parse', 'HEAD'), head);
   assert.equal(await git('diff', '--cached'), cached);
   assert.equal(await git('diff', '--cached', '--name-only'), 'other.txt');
   await writeFile(hook, '#!/bin/sh\ngit add other.txt\n');
-  await assert.rejects(executeProjectGitAction(root, { type: 'commit', message: 'test: hook expands selection', paths: ['selected.txt'] }), /未勾选的文件/u);
+  await assert.rejects(executeProjectGitAction(root, { type: 'commit', message: 'test: hook expands selection', paths: ['selected.txt'] }), error => {
+    assert.equal(error.code, 'ASTRAGIT_GIT_HOOK_SELECTION_CHANGED'); assert.equal(error.operationStatus, 'unknown_after_write');
+    assert.match(error.message, /未勾选的文件/u); assert.match(error.details, /ASTRAGIT_GIT_HOOK_SELECTION_CHANGED/u); return true;
+  });
   assert.equal(await git('rev-parse', 'HEAD'), head);
   assert.equal(await git('diff', '--cached'), cached);
 });

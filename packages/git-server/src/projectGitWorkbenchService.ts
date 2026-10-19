@@ -118,11 +118,11 @@ export class ProjectGitWorkbenchService {
       }).catch((error: unknown) => {
         const message = redactGitOutput(error instanceof Error ? error.message : String(error));
         const code = isRecord(error) && typeof error.code === 'string' ? error.code : '';
-        const _details = isRecord(error) && typeof error.details === 'string' ? error.details : undefined;
-        if (actionSignal.aborted) throw projectError('ASTRAGIT_CANCELLED', `Git 操作已中止，请刷新核对仓库状态。\n${message}`);
+        const diagnostics = gitFailureDiagnostics(error);
+        if (actionSignal.aborted) throw Object.assign(projectError('ASTRAGIT_CANCELLED', 'Git 操作已中止，请刷新核对仓库状态。'), diagnostics, { operationStatus: commands.length ? 'unknown_after_write' : 'failed_before_write' });
         // git-core 仍使用 ASTRAGIT_GIT_* 错误码；应用自有错误使用 ASTRAGIT_*。
-        if ((code.startsWith('ASTRAGIT_GIT_') && code !== 'ASTRAGIT_GIT_COMMAND_FAILED') || (code.startsWith('ASTRAGIT_') && code !== 'ASTRAGIT_COMMAND_FAILED')) throw projectError(code, message);
-        throw projectError('ASTRAGIT_ACTION_FAILED', message);
+        if (/^[A-Z][A-Z0-9_]{1,127}$/u.test(code)) throw Object.assign(projectError(code, message), diagnostics);
+        throw Object.assign(projectError('ASTRAGIT_ACTION_FAILED', message), diagnostics);
       });
       const output = redactGitOutput([result.stdout, result.stderr].filter(Boolean).join('\n'));
       this.operations.update(operation.id, {
@@ -132,20 +132,30 @@ export class ProjectGitWorkbenchService {
         commands,
         limitations: output.length > 65_536 ? ['output_truncated'] : [],
       });
+      let snapshot: ProjectGitRepositorySnapshot;
+      try { snapshot = await getProjectGitRepositorySnapshot(resolved.repository.localPath); }
+      catch (error) {
+        const detail = redactGitOutput(error instanceof Error ? error.message : String(error));
+        throw Object.assign(projectError('ASTRAGIT_GIT_ACTION_REFRESH_FAILED', 'Git 操作已有结果，但刷新仓库状态失败。请刷新核对结果，避免重复执行。'), {
+          details: [`action=${action.type}`, `confirmedOutcome=${result.outcome}`, `branch=${result.branch}`, `head=${result.headSha}`, detail].join('\n'),
+          operationStage: 'refresh', operationStatus: result.outcome,
+        });
+      }
       return {
         projectId: resolved.project.id,
         repositoryId: resolved.id,
         repositoryName: resolved.repository.name,
         result,
-        snapshot: await getProjectGitRepositorySnapshot(resolved.repository.localPath),
+        snapshot,
       };
     } catch (error) {
       if (operation.status === 'running') {
-        const output = redactGitOutput(error instanceof Error ? error.message : String(error));
+        const details = isRecord(error) && typeof error.details === 'string' ? error.details : '';
+        const output = redactGitOutput([error instanceof Error ? error.message : String(error), details].filter(Boolean).join('\n'));
         const code = isRecord(error) && typeof error.code === 'string' ? error.code : '';
         const rejectedBeforeChange = new Set(['ASTRAGIT_GIT_BRANCH_INVALID', 'ASTRAGIT_GIT_BRANCH_REQUIRED', 'ASTRAGIT_GIT_BRANCH_NOT_FOUND', 'ASTRAGIT_GIT_CHECKOUT_BLOCKED', 'ASTRAGIT_GIT_CHECKOUT_BRANCH_IN_USE', 'ASTRAGIT_GIT_CHECKOUT_CONFLICTED']).has(code);
         this.operations.update(operation.id, {
-          status: commands.length && !rejectedBeforeChange ? 'unknown_after_write' : 'failed_before_write',
+          status: isRecord(error) && (error.operationStatus === 'failed_before_write' || error.operationStatus === 'unknown_after_write') ? error.operationStatus : commands.length && !rejectedBeforeChange ? 'unknown_after_write' : 'failed_before_write',
           durationMs: Date.now() - Date.parse(operation.startedAt),
           output: output.slice(0, 65_536),
           commands,
@@ -323,6 +333,18 @@ function parseProjectGitAction(value: unknown): ProjectGitAction {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 错误身份和脱敏命令诊断穿过服务边界；不能只留下概括消息。 */
+export function gitFailureDiagnostics(error: unknown): Record<string, string | number | boolean> {
+  if (!isRecord(error)) return {};
+  const result: Record<string, string | number | boolean> = {};
+  for (const key of ['details', 'command', 'stdout', 'stderr', 'operationStage', 'operationStatus', 'savedStash', 'blockedBy'] as const) {
+    if (typeof error[key] === 'string') result[key] = redactGitOutput(error[key]).slice(0, 65_536);
+  }
+  if (typeof error.exitCode === 'number') result.exitCode = error.exitCode;
+  if (error.interrupted === true) result.interrupted = true;
+  return result;
 }
 
 async function mapWithConcurrency<T, R>(items: readonly T[], mapper: (item: T, index: number) => Promise<R>, concurrency = 6): Promise<R[]> {

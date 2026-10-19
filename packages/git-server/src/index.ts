@@ -16,7 +16,7 @@ import { registerGitCommandRoutes } from './gitCommandRoutes.js';
 import { createManualModel, createModelConnectionService } from './modelConnectionService.js';
 import { createApplicationSecretStore, type SecretStore } from './securityCore.js';
 import { ProjectStore, type GitAppProject } from './projectStore.js';
-import { ProjectGitWorkbenchService, stableRepositoryId, type ProjectGitActionResponse, type ProjectGitWorkbenchSnapshot } from './projectGitWorkbenchService.js';
+import { ProjectGitWorkbenchService, gitFailureDiagnostics, stableRepositoryId, type ProjectGitActionResponse, type ProjectGitWorkbenchSnapshot } from './projectGitWorkbenchService.js';
 import { generateGitCommitMessage, type GitCommitMessageInput } from './gitCommitMessageGeneration.js';
 import { createCommitCodexPool } from './gitCommitCodexGeneration.js';
 import { readGitCommitContext, readCommitFingerprint } from './gitCommitContext.js';
@@ -572,7 +572,7 @@ function sendError(reply: FastifyReply, error: unknown): unknown {
   const status = typeof error === 'object' && error !== null && 'statusCode' in error && typeof (error as { statusCode?: unknown }).statusCode === 'number' ? (error as { statusCode: number }).statusCode : 500;
   const code = typeof error === 'object' && error !== null && 'code' in error && typeof (error as { code?: unknown }).code === 'string' ? (error as { code: string }).code : 'ASTRAGIT_SERVER_ERROR';
   const message = error instanceof Error ? error.message : '请求失败。';
-  return reply.code(status).send({ error: code, message });
+  return reply.code(status).send({ error: code, message, ...gitFailureDiagnostics(error) });
 }
 
 export type { GitAppProject, ProjectGitWorkbenchSnapshot, ProjectGitActionResponse };

@@ -13,6 +13,7 @@ export function SourceRepositoryControls(props: {
   projectId: string; client: DashboardClient; zh: boolean;
   repositories: ProjectGitRepositoryWorkbenchItem[]; repository: ProjectGitRepositoryWorkbenchItem | null;
   busy: BusyState; locked: boolean;
+  errorsByRepository?: Record<string, string>;
   onSelectRepository(id: string): void; onCommit(): void;
   onExecute(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string): Promise<ExecutionOutcome>;
 }) {
@@ -20,13 +21,10 @@ export function SourceRepositoryControls(props: {
   const [dialog, setDialog] = useState<'branch' | 'revision' | 'update' | 'push' | 'stash' | null>(null);
   const [baseRef, setBaseRef] = useState('');
   const [results, setResults] = useState<Array<{ repositoryId: string; repositoryName: string; tone: OperationTone; message: string }>>([]);
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<{ repositoryId: string; filePath: string; comparisonRef?: string; comparisonMode?: 'current' | 'working-tree' } | null>(null);
   const busy = props.busy ?? (props.locked && repository ? { repositoryId: repository.id, action: 'commit' as const } : null);
   const execute: typeof props.onExecute = async (target, action, label) => {
-    const outcome = await props.onExecute(target, action, label);
-    setErrors(current => ({ ...current, [target.id]: outcome === 'completed' ? '' : zh ? '操作未完成，请查看项目提交中的错误详情。' : 'Operation incomplete. See the error in Project commits.' }));
-    return outcome;
+    return props.onExecute(target, action, label);
   };
   if (!repository) return null;
   return <>
@@ -42,7 +40,7 @@ export function SourceRepositoryControls(props: {
     <MotionPresence>
       {dialog === 'branch' ? <NewBranchDialog open zh={zh} repositories={repositories} selectedRepository={repository} baseRef={baseRef} busy={busy} onClose={() => setDialog(null)} onExecute={execute} /> : null}
       {dialog === 'revision' ? <CheckoutRevisionDialog open zh={zh} repositories={repositories} selectedRepository={repository} busy={busy} onClose={() => setDialog(null)} onExecute={execute} /> : null}
-      {dialog === 'update' ? <UpdateProjectDialog open projectId={props.projectId} zh={zh} repositories={repositories} busy={busy} errorsByRepository={errors} onClose={() => setDialog(null)} onExecute={execute} /> : null}
+      {dialog === 'update' ? <UpdateProjectDialog open projectId={props.projectId} zh={zh} repositories={repositories} busy={busy} errorsByRepository={props.errorsByRepository ?? {}} onClose={() => setDialog(null)} onExecute={execute} /> : null}
       {dialog === 'stash' ? <StashDialog repository={repository} zh={zh} busy={busy} onClose={() => setDialog(null)} onExecute={execute} /> : null}
       {dialog === 'push' ? <PushDialog open zh={zh} repositories={repositories} selectedRepository={repository} busy={busy} results={results} onClose={() => setDialog(null)} onPush={async (selections, forceWithLease, pushTags) => {
         const next: typeof results = [];
@@ -50,7 +48,7 @@ export function SourceRepositoryControls(props: {
           const target = repositories.find(item => item.id === selection.repositoryId);
           if (!target) continue;
           const outcome = await execute(target, { type: 'push', remote: selection.remote, sourceBranch: selection.sourceBranch, targetBranch: selection.targetBranch, setUpstream: selection.setUpstream, forceWithLease, pushAllTags: pushTags }, zh ? '推送' : 'Push');
-          next.push({ repositoryId: target.id, repositoryName: target.name, tone: outcome === 'completed' ? 'success' : 'error', message: outcome === 'completed' ? (zh ? '推送完成' : 'Push completed') : (zh ? '推送未完成，请查看错误详情。' : 'Push incomplete. See error details.') });
+          next.push({ repositoryId: target.id, repositoryName: target.name, tone: outcome === 'completed' ? 'success' : 'error', message: outcome === 'completed' ? (zh ? '推送完成' : 'Push completed') : (props.errorsByRepository?.[target.id] ?? (zh ? '推送未完成，请查看错误详情。' : 'Push incomplete. See error details.')) });
           setResults([...next]);
           if (outcome !== 'completed') break;
         }

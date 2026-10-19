@@ -2125,6 +2125,10 @@ export interface CreateGitOperationConfirmationOptions {
 export interface GitRunnerResult {
   stdout: string;
   stderr: string;
+  /** 冲突发生在 Git 集成过程，或集成后恢复本地修改的过程。 */
+  operationStage?: 'integration' | 'restore';
+  /** 只有已确认保留的临时贮藏才填入此字段。 */
+  savedStash?: string;
 }
 
 export type GitCommandRunner = (cwd: string, args: string[]) => Promise<GitRunnerResult>;
@@ -2329,7 +2333,7 @@ async function defaultGitCommandRunner(cwd: string, args: string[], input?: stri
       cwd,
       detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...execution?.env },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...execution?.env, LANG: 'C', LC_ALL: 'C' },
     });
     let stdout = '';
     let stderr = '';
@@ -2374,12 +2378,12 @@ async function defaultGitCommandRunner(cwd: string, args: string[], input?: stri
     child.stderr.on('data', (text: string) => append(text, true));
     child.once('error', (error) => {
       cleanup();
-      reject(error);
+      reject(classifyGitCommandFailure(args, error));
     });
     child.once('close', (code) => {
       cleanup();
       if (stopped || code !== 0)
-        reject(Object.assign(gitCoreError('ASTRAGIT_GIT_COMMAND_FAILED', stopped ?? (stderr || `Git 命令退出码：${code}`)), { interrupted: Boolean(stopped), stdout: redactGitOutput(stdout), stderr: redactGitOutput(stderr) }));
+        reject(classifyGitCommandFailure(args, Object.assign(new Error(stopped ?? (stderr || `Git 命令退出码：${code}`)), { interrupted: Boolean(stopped), stdout, stderr, exitCode: code })));
       else resolveResult({ stdout, stderr });
     });
   });
@@ -2396,13 +2400,44 @@ function formatGitCommand(args: string[], hasInput: boolean): string {
   return `git ${words.join(' ')}${hasInput ? ' # 通过标准输入传入内容' : ''}`;
 }
 
+/** 只在 Git 命令边界解释 Git 自身的固定诊断，不从任意界面文案推测失败原因。 */
+function classifyGitCommandFailure(args: string[], error: unknown): Error & { code: string; details?: string } {
+  const candidate = (error && typeof error === 'object' ? error : {}) as { code?: unknown; message?: unknown; stdout?: unknown; stderr?: unknown; interrupted?: unknown; exitCode?: unknown };
+  const stdout = typeof candidate.stdout === 'string' ? redactGitOutput(candidate.stdout) : '';
+  const stderr = typeof candidate.stderr === 'string' ? redactGitOutput(candidate.stderr) : '';
+  const message = typeof candidate.message === 'string' ? redactGitOutput(candidate.message) : 'Git 命令执行失败。';
+  const output = [stderr, stdout, message].filter(Boolean).join('\n');
+  let code = 'ASTRAGIT_GIT_COMMAND_FAILED';
+  let summary = 'Git 命令未完成，请查看详情并刷新仓库状态。';
+  // 仅这些 Git 明确保护性拒绝的场景能声明本条命令在写入前被阻止。
+  let operationStatus: 'failed_before_write' | 'unknown_after_write' = 'unknown_after_write';
+  if (/^ASTRAGIT_GIT_HOOK_SELECTION_CHANGED:/mu.test(stderr)) { code = 'ASTRAGIT_GIT_HOOK_SELECTION_CHANGED'; summary = '提交 Hook 暂存了未勾选的文件，本次提交已被阻止。请调整 Hook 或重新确认提交范围。'; }
+  else if (/^ASTRAGIT_GIT_HOOK_REJECTED:/mu.test(stderr)) { code = 'ASTRAGIT_GIT_HOOK_REJECTED'; summary = 'Git Hook 检查未通过，本次提交已被阻止。请查看详情并修复检查结果。'; }
+  else if (candidate.code === 'ENOENT') { code = 'ASTRAGIT_GIT_EXECUTABLE_MISSING'; summary = '找不到 Git 程序，请检查安装和程序路径。'; operationStatus = 'failed_before_write'; }
+  else if (candidate.code === 'EACCES' || candidate.code === 'EPERM') { code = candidate.code; summary = '系统拒绝执行 Git，请检查 Git 程序和仓库访问权限。'; operationStatus = 'failed_before_write'; }
+  else if (/ETIMEDOUT:/u.test(message)) { code = 'ASTRAGIT_GIT_TIMEOUT'; summary = 'Git 操作超时，尚未确认执行结果，请刷新状态后检查。'; }
+  else if (/Unable to create [^\n]*\.lock[^\n]*File exists|Another git process seems to be running/iu.test(output)) { code = 'ASTRAGIT_GIT_INDEX_LOCKED'; summary = '仓库存在 Git 锁，请确认其他 Git 操作已结束后再重试。'; operationStatus = 'failed_before_write'; }
+  else if (/Author identity unknown|Committer identity unknown|unable to auto-detect email address|empty ident name/iu.test(output)) { code = 'ASTRAGIT_GIT_IDENTITY_REQUIRED'; summary = 'Git 提交身份未配置，请设置用户名和邮箱后重试。'; operationStatus = 'failed_before_write'; }
+  else if (/nothing to commit|no changes added to commit|nothing added to commit/iu.test(output)) { code = 'ASTRAGIT_GIT_NOTHING_TO_COMMIT'; summary = '没有可提交的暂存内容，请先选择并暂存需要提交的更改。'; operationStatus = 'failed_before_write'; }
+  else if (/unmerged files|you need to resolve your current index first|needs merge|Committing is not possible because you have unmerged files/iu.test(output)) { code = 'ASTRAGIT_GIT_UNMERGED_FILES'; summary = '仓库还有未解决的冲突，请处理冲突并暂存解决结果后再继续。'; operationStatus = 'failed_before_write'; }
+  else if (/You have not concluded your merge|rebase-merge directory|rebase-apply directory|cannot (?:merge|pull).*MERGE_HEAD/iu.test(output)) { code = 'ASTRAGIT_GIT_INTEGRATION_ACTIVE'; summary = '上一次合并或变基尚未结束，请先继续或中止该操作。'; operationStatus = 'failed_before_write'; }
+  else if (/local changes[\s\S]*would be overwritten|untracked working tree files would be overwritten|cannot (?:pull|rebase)[^\n]*unstaged changes|index contains uncommitted changes|Please commit or stash them/iu.test(output)) { code = 'ASTRAGIT_GIT_LOCAL_CHANGES_BLOCKED'; summary = '本地更改阻止了操作，请先提交或贮藏相关更改，再重试。'; operationStatus = 'failed_before_write'; }
+  else if (/Authentication failed|Permission denied \(publickey|could not read (?:Username|Password)|terminal prompts disabled|HTTP Basic: Access denied/iu.test(output)) { code = 'ASTRAGIT_GIT_AUTH_REQUIRED'; summary = '远程仓库未接受当前凭据，请检查账号、SSH 密钥或访问权限。'; }
+  else if (/Could not resolve host|Could not resolve hostname|Failed to connect to|Connection (?:timed out|refused|reset)|network is unreachable/iu.test(output)) { code = 'ASTRAGIT_GIT_NETWORK_FAILED'; summary = '无法连接远程仓库，请检查远程地址和网络后重试。'; }
+  else if (args.includes('push') && /\[rejected\][^\n]*\((?:non-fast-forward|fetch first|stale info)\)/iu.test(output)) { code = 'ASTRAGIT_GIT_PUSH_NON_FAST_FORWARD'; summary = '远程分支已有不同的提交，推送被拒绝。请先抓取并核对差异。'; }
+  else if (args.includes('push') && /\[remote rejected\]/iu.test(output)) { code = 'ASTRAGIT_GIT_REMOTE_REJECTED'; summary = '远程仓库拒绝了推送，请查看服务器返回的原因。'; }
+  else if (/gpg failed to sign|Couldn't load public key|signing failed/iu.test(output)) { code = 'ASTRAGIT_GIT_SIGNING_FAILED'; summary = '提交签名失败，请检查 Git 签名工具和密钥配置。'; }
+  else if (/(?:hooks\/[^\n]+|husky[^\n]*|(?:pre-commit|commit-msg) hook)[^\n]*(?:failed|not found|exit(?:ed)?[^\n]*[1-9]|declined)/iu.test(output)) { code = 'ASTRAGIT_GIT_HOOK_REJECTED'; summary = 'Git Hook 检查未通过，请查看详情并修复检查结果。'; }
+  const command = formatGitCommand(args, false);
+  return Object.assign(gitCoreError(code, summary, [`$ ${command}`, output].join('\n')), {
+    command, stdout, stderr, operationStage: 'command', operationStatus,
+    ...(candidate.interrupted ? { interrupted: true } : {}),
+    ...(typeof candidate.exitCode === 'number' ? { exitCode: candidate.exitCode } : {}),
+  });
+}
+
 async function runGit(cwd: string, args: string[], input?: string): Promise<GitRunnerResult> {
-  try {
-    return await defaultGitCommandRunner(cwd, args, input);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Git command failed.';
-    throw gitCoreError('ASTRAGIT_GIT_COMMAND_FAILED', message);
-  }
+  return defaultGitCommandRunner(cwd, args, input);
 }
 
 async function gitCommitIsAncestor(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
@@ -2418,19 +2453,21 @@ async function gitCommitIsAncestor(cwd: string, ancestor: string, descendant: st
 
 /** 合并类命令遇到真实冲突时保留现场并返回输出；其他失败仍按错误处理。 */
 async function runGitPreservingConflict(cwd: string, args: string[]): Promise<GitRunnerResult> {
+  const before = await getGitStatus(cwd);
+  if (before.conflictFiles.length) throw Object.assign(gitCoreError('ASTRAGIT_GIT_UNMERGED_FILES', '仓库还有未解决的冲突，请先处理并暂存冲突文件后再继续。', before.conflictFiles.join('\n')), { operationStage: 'preflight', operationStatus: 'failed_before_write' });
   try {
     return await defaultGitCommandRunner(cwd, args);
   } catch (error) {
     if (projectGitExecution.getStore()?.signal?.aborted || (error as { interrupted?: boolean }).interrupted) throw error;
     const status = await getGitStatus(cwd).catch(() => emptyGitStatus());
     if (status.conflictFiles.length === 0) {
-      const message = error instanceof Error ? error.message : 'Git command failed.';
-      throw gitCoreError('ASTRAGIT_GIT_COMMAND_FAILED', message);
+      throw error;
     }
     const candidate = error as { stdout?: unknown; stderr?: unknown; message?: unknown };
     return {
       stdout: typeof candidate.stdout === 'string' ? candidate.stdout : '',
       stderr: typeof candidate.stderr === 'string' ? candidate.stderr : typeof candidate.message === 'string' ? candidate.message : 'Git operation stopped on conflicts.',
+      operationStage: 'integration',
     };
   }
 }
@@ -3124,7 +3161,7 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
       '$ git status --porcelain --untracked-files=all',
       ...switchingStatus.fileStatuses.filter((file) => file.category === 'conflict').map((file) => `${file.indexStatus}${file.workingTreeStatus} ${file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}`),
     ].join('\n');
-    throw gitCoreError('ASTRAGIT_GIT_CHECKOUT_CONFLICTED', `当前仓库存在未解决的冲突，无法切换到${projectGitSwitchTarget(switchingAction)}。请先处理并确认冲突文件；本次切换未执行。`, conflictLog);
+    throw Object.assign(gitCoreError('ASTRAGIT_GIT_CHECKOUT_CONFLICTED', `当前仓库存在未解决的冲突，无法切换到${projectGitSwitchTarget(switchingAction)}。请先处理并确认冲突文件；本次切换未执行。`, conflictLog), { operationStage: 'preflight', operationStatus: 'failed_before_write' });
   }
   // 切换始终使用 Git 的保护性检查，不自动贮藏、恢复或强制覆盖用户修改。
   try {
@@ -3146,11 +3183,15 @@ function projectGitSwitchTarget(action: ProjectGitSwitchAction): string {
 
 /** 把 Git 的保护性拒绝转换为可执行的用户提示；原始输出只进入详情，不作为摘要。 */
 function classifyGitSwitchFailure(action: ProjectGitSwitchAction, args: string[], error: unknown): Error & { code: string; details?: string } {
+  const existing = error as { code?: unknown } | null;
+  if (typeof existing?.code === 'string' && existing.code !== 'ASTRAGIT_GIT_COMMAND_FAILED' && existing.code !== 'ASTRAGIT_GIT_LOCAL_CHANGES_BLOCKED') return error as Error & { code: string; details?: string };
   const output = gitErrorOutput(error);
-  const details = [`$ ${formatGitCommand(args, false)}`, output].join('\n');
+  const command = formatGitCommand(args, false);
+  const details = [`$ ${command}`, output].join('\n');
+  const rejected = (code: string, message: string, blockedBy?: string) => Object.assign(gitCoreError(code, message, details), { command, operationStage: 'command', operationStatus: 'failed_before_write', ...(blockedBy ? { blockedBy } : {}) });
   const target = projectGitSwitchTarget(action);
   if (/(?:already (?:used by|checked out(?: in| at)?|in use).*worktree|is already used by worktree|is already checked out)/iu.test(output)) {
-    return gitCoreError('ASTRAGIT_GIT_CHECKOUT_BRANCH_IN_USE', `无法切换到${target}：该分支已在其他工作区中使用。请先在其他工作区切换到别的分支，或在对应工作区继续操作；本次切换未执行。`, details);
+    return rejected('ASTRAGIT_GIT_CHECKOUT_BRANCH_IN_USE', `无法切换到${target}：该分支已在其他工作区中使用。请先在其他工作区切换到别的分支，或在对应工作区继续操作；本次切换未执行。`);
   }
   const trackedChanges =
     /(?:local changes to the following files would be overwritten by (?:checkout|switch)|your local changes[\s\S]*would be overwritten by (?:checkout|switch)|please commit your changes or stash them before you switch branches)/iu.test(
@@ -3159,9 +3200,10 @@ function classifyGitSwitchFailure(action: ProjectGitSwitchAction, args: string[]
   const untrackedFiles = /(?:following )?untracked working tree files would be overwritten by (?:checkout|switch)/iu.test(output);
   if (trackedChanges || untrackedFiles) {
     const kind = trackedChanges && untrackedFiles ? '未提交修改和未跟踪文件' : trackedChanges ? '未提交修改' : '未跟踪文件';
-    return gitCoreError('ASTRAGIT_GIT_CHECKOUT_BLOCKED', `无法切换到${target}：当前工作区的${kind}会被目标内容覆盖。切换未执行；请先提交、贮藏，或检查后放弃/移开相关文件。`, details);
+    return rejected('ASTRAGIT_GIT_CHECKOUT_BLOCKED', `无法切换到${target}：当前工作区的${kind}会被目标内容覆盖。切换未执行；请先提交、贮藏（包含相关未跟踪文件），或检查后放弃/移开相关文件。`, trackedChanges && untrackedFiles ? 'both' : trackedChanges ? 'tracked' : 'untracked');
   }
-  return gitCoreError('ASTRAGIT_GIT_SWITCH_FAILED', `切换到${target}未完成，Git 未确认是否修改了工作区。请刷新仓库状态并查看错误详情后再继续。`, details);
+  if (/invalid reference|invalid branch name|pathspec [^\n]*did not match|not a valid object name/iu.test(output)) return rejected('ASTRAGIT_GIT_BRANCH_NOT_FOUND', `找不到${target}，请刷新分支列表后重试。`);
+  return Object.assign(gitCoreError('ASTRAGIT_GIT_SWITCH_FAILED', `切换到${target}未完成，Git 未确认是否修改了工作区。请刷新仓库状态并查看错误详情后再继续。`, details), { command, operationStage: 'command', operationStatus: 'unknown_after_write' });
 }
 
 function gitErrorOutput(error: unknown): string {
@@ -3176,8 +3218,15 @@ function gitErrorOutput(error: unknown): string {
 }
 
 async function finishProjectGitAction(repositoryPath: string, action: ProjectGitAction['type'], output: GitRunnerResult): Promise<ProjectGitActionResult> {
-  const nextContext = await getGitRepositoryContext(repositoryPath);
-  const nextStatus = await getGitStatus(repositoryPath);
+  let nextContext: GitRepositoryContext;
+  let nextStatus: GitStatusSummary;
+  try {
+    nextContext = await getGitRepositoryContext(repositoryPath);
+    if (!nextContext.isRepository) throw new Error('Git repository is no longer available.');
+    nextStatus = await getGitStatus(repositoryPath);
+  } catch (error) {
+    throw Object.assign(gitCoreError('ASTRAGIT_GIT_ACTION_STATE_READ_FAILED', 'Git 命令已结束，但读取操作后状态失败。请刷新核对结果，避免重复执行。', [gitErrorOutput(error), output.stdout, output.stderr].filter(Boolean).join('\n')), { operationStage: 'refresh', operationStatus: 'unknown_after_write' });
+  }
   return {
     action,
     outcome: nextStatus.conflictFiles.length > 0 ? 'conflict' : 'completed',
@@ -3186,6 +3235,8 @@ async function finishProjectGitAction(repositoryPath: string, action: ProjectGit
     conflictFiles: nextStatus.conflictFiles,
     stdout: redactGitOutput(output.stdout),
     stderr: redactGitOutput(output.stderr),
+    ...(output.operationStage ? { operationStage: output.operationStage } : {}),
+    ...(output.savedStash ? { savedStash: output.savedStash } : {}),
   };
 }
 
@@ -3197,13 +3248,19 @@ async function executeProjectGitUpdate(repositoryPath: string, strategy: 'merge'
   await resolveCommit(repositoryPath, upstream);
   const operation = async (): Promise<GitRunnerResult> => {
     const fetched = await runGit(repositoryPath, ['fetch', '--all', '--prune']);
-    const integrated =
-      strategy === 'reset'
-        ? await runGit(repositoryPath, ['reset', '--hard', upstream])
-        : strategy === 'rebase'
-          ? await runGitPreservingConflict(repositoryPath, ['rebase', upstream])
-          : await runGitPreservingConflict(repositoryPath, ['merge', '--no-edit', upstream]);
-    return combineGitRunnerResults(fetched, integrated);
+    try {
+      const integrated =
+        strategy === 'reset'
+          ? await runGit(repositoryPath, ['reset', '--hard', upstream])
+          : strategy === 'rebase'
+            ? await runGitPreservingConflict(repositoryPath, ['rebase', upstream])
+            : await runGitPreservingConflict(repositoryPath, ['merge', '--no-edit', upstream]);
+      return combineGitRunnerResults(fetched, integrated);
+    } catch (error) {
+      // 抓取已经完成；即使后续集成被保护性拒绝，也不能把整次更新说成未写入。
+      if (error instanceof Error) Object.assign(error, { operationStatus: 'unknown_after_write' });
+      throw error;
+    }
   };
   return smart ? runWithSmartStash(repositoryPath, 'Smart Update', operation) : operation();
 }
@@ -3224,28 +3281,34 @@ async function runWithSmartStash(repositoryPath: string, label: string, operatio
     if (operatedStatus.conflictFiles.length === 0) {
       try {
         const restoration = await restoreSmartStash(repositoryPath, stashHash);
-        if (restoration.conflict) return combineGitRunnerResults(saved, restoration.output, { stdout: '', stderr: `${reason} Restoring local changes caused conflicts; stash ${stashHash.slice(0, 8)} was preserved.` });
-        throw gitCoreError('ASTRAGIT_GIT_SMART_OPERATION_FAILED', `${reason} Local changes were restored.`);
+        if (restoration.conflict) return combineGitRunnerResults(saved, restoration.output, { stdout: '', stderr: `${reason} Restoring local changes caused conflicts; stash ${stashHash.slice(0, 8)} was preserved.`, operationStage: 'restore', savedStash: stashHash });
+        throw Object.assign(gitCoreError('ASTRAGIT_GIT_SMART_OPERATION_FAILED_RESTORED', '更新未完成，已恢复先前贮藏的本地修改。请刷新并核对更新结果。', gitErrorOutput(error)), { cause: error, operationStage: 'restore', operationStatus: 'unknown_after_write' });
       } catch (restoreError) {
-        if (restoreError instanceof Error && 'code' in restoreError && restoreError.code === 'ASTRAGIT_GIT_SMART_OPERATION_FAILED') throw restoreError;
+        if (restoreError instanceof Error && 'code' in restoreError && restoreError.code === 'ASTRAGIT_GIT_SMART_OPERATION_FAILED_RESTORED') throw restoreError;
         const restoreReason = restoreError instanceof Error ? restoreError.message : 'Local changes could not be restored.';
-        throw gitCoreError('ASTRAGIT_GIT_SMART_OPERATION_FAILED', `${reason} ${restoreReason} Local changes remain saved in stash ${stashHash.slice(0, 8)}.`);
+        throw Object.assign(gitCoreError('ASTRAGIT_GIT_SMART_OPERATION_FAILED_STASH_PRESERVED', `更新及恢复本地修改未完成；先前修改仍保存在贮藏 ${stashHash.slice(0, 8)}，请刷新状态后检查。`, `${gitErrorOutput(error)}\n${restoreReason}`), { cause: error, operationStage: 'restore', operationStatus: 'unknown_after_write', savedStash: stashHash });
       }
     }
-    throw gitCoreError('ASTRAGIT_GIT_SMART_OPERATION_FAILED', `${reason} Local changes remain saved in stash ${stashHash.slice(0, 8)}.`);
+    throw Object.assign(gitCoreError('ASTRAGIT_GIT_SMART_OPERATION_FAILED_STASH_PRESERVED', `更新未完成；先前修改仍保存在贮藏 ${stashHash.slice(0, 8)}，请先处理当前冲突。`, gitErrorOutput(error)), { cause: error, operationStage: 'integration', operationStatus: 'unknown_after_write', savedStash: stashHash });
   }
   const operatedStatus = await getGitStatus(repositoryPath);
   if (operatedStatus.conflictFiles.length > 0) {
     return combineGitRunnerResults(saved, operated, {
       stdout: '',
       stderr: `Local changes remain saved in stash ${stashHash.slice(0, 8)} until the update conflict is resolved.`,
+      operationStage: 'integration', savedStash: stashHash,
     });
   }
-  const restoration = await restoreSmartStash(repositoryPath, stashHash);
+  let restoration: Awaited<ReturnType<typeof restoreSmartStash>>;
+  try { restoration = await restoreSmartStash(repositoryPath, stashHash); }
+  catch (error) {
+    throw Object.assign(gitCoreError('ASTRAGIT_GIT_SMART_RESTORE_FAILED', `更新命令已完成，但恢复本地修改未完成；先前修改仍保存在贮藏 ${stashHash.slice(0, 8)}。请刷新并核对仓库状态。`, gitErrorOutput(error)), { cause: error, operationStage: 'restore', operationStatus: 'unknown_after_write', savedStash: stashHash });
+  }
   if (restoration.conflict) {
     return combineGitRunnerResults(saved, operated, restoration.output, {
       stdout: '',
       stderr: `Restoring local changes caused conflicts. Stash ${stashHash.slice(0, 8)} was preserved.`,
+      operationStage: 'restore', savedStash: stashHash,
     });
   }
   return combineGitRunnerResults(saved, operated, restoration.output);
@@ -3271,6 +3334,8 @@ async function restoreSmartStash(repositoryPath: string, stashHash: string): Pro
 }
 
 function combineGitRunnerResults(...results: GitRunnerResult[]): GitRunnerResult {
+  const lastStage = [...results].reverse().find((result) => result.operationStage)?.operationStage;
+  const lastStash = [...results].reverse().find((result) => result.savedStash)?.savedStash;
   return {
     stdout: results
       .map((result) => result.stdout.trim())
@@ -3280,6 +3345,8 @@ function combineGitRunnerResults(...results: GitRunnerResult[]): GitRunnerResult
       .map((result) => result.stderr.trim())
       .filter(Boolean)
       .join('\n'),
+    ...(lastStage ? { operationStage: lastStage } : {}),
+    ...(lastStash ? { savedStash: lastStash } : {}),
   };
 }
 

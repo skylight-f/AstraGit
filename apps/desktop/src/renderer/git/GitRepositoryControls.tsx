@@ -1,7 +1,6 @@
 import './gitWorkspace.css';
 import { gitBranchNameIssue } from '@astragit/shared';
 import { repositoryColor } from './repositoryColor.js';
-import { VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { MenuSurface, type MenuSubmenuAnchor } from '../ui/MenuSurface.js';
@@ -561,6 +560,7 @@ export function UpdateProjectDialog(props: {
   const [strategy, setStrategy] = useState<ProjectGitUpdateStrategy>('merge');
   const [resetConfirmed, setResetConfirmed] = useState(false);
   const [results, setResults] = useState<Array<{ id: string; outcome: ExecutionOutcome }>>([]);
+  const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
     if (!props.open) return;
     setStrategy(readUpdateStrategy(props.projectId));
@@ -568,10 +568,12 @@ export function UpdateProjectDialog(props: {
     setResults([]);
   }, [props.open, props.projectId]);
   if (!props.open) return null;
+  const locked = submitting || props.busy !== null;
+  const hasConflicts = results.some((item) => item.outcome === 'conflict');
   const localCommitCount = props.repositories.reduce((total, repository) => total + repository.snapshot.outgoingCommits.length, 0);
   const resetNeedsConfirmation = strategy === 'reset' && localCommitCount > 0;
   return (
-    <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" onDismiss={props.onClose} dismissDisabled={props.busy !== null} role="dialog" aria-label={props.zh ? '更新项目' : 'Update project'}>
+    <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '更新项目' : 'Update project'}>
       <section className="project-git-update-dialog" data-modal-surface="dialog">
         <header>
           <strong>{props.zh ? '更新项目' : 'Update Project'}</strong>
@@ -582,7 +584,7 @@ export function UpdateProjectDialog(props: {
           </small>
         </header>
         <main>
-          <fieldset className="project-git-update-strategies">
+          <fieldset className="project-git-update-strategies" disabled={locked}>
             <legend>{props.zh ? '更新方式' : 'Update method'}</legend>
             {(
               [
@@ -613,7 +615,7 @@ export function UpdateProjectDialog(props: {
                   {result ? <i className={`is-${result}`}>{result === 'completed' ? (props.zh ? '已完成' : 'Completed') : props.zh ? '存在冲突' : 'Conflicts'}</i> : null}
                   {result === null && results.some((item) => item.id === repository.id) ? (
                     <i className="is-error">
-                      <VisibleApplicationError error={props.errorsByRepository[repository.id]} language={props.zh ? 'zh-CN' : 'en'} />
+                      {props.errorsByRepository[repository.id] ?? (props.zh ? '更新未完成，请查看错误提示。' : 'Update did not complete. Review the error message.')}
                     </i>
                   ) : null}
                 </span>
@@ -622,7 +624,7 @@ export function UpdateProjectDialog(props: {
           </section>
           {resetNeedsConfirmation ? (
             <label className="project-git-update-reset-confirm">
-              <input type="checkbox" checked={resetConfirmed} onChange={(event) => setResetConfirmed(event.currentTarget.checked)} />
+              <input type="checkbox" checked={resetConfirmed} disabled={locked} onChange={(event) => setResetConfirmed(event.currentTarget.checked)} />
               <span>
                 {props.zh
                   ? `我确认丢弃全部仓库中共 ${localCommitCount} 个尚未进入跟踪远端的本地提交。未提交文件会通过 Smart Stash 恢复。`
@@ -632,20 +634,27 @@ export function UpdateProjectDialog(props: {
           ) : null}
         </main>
         <footer>
-          <Button variant="secondary" onClick={props.onClose} disabled={props.busy !== null}>
-            {props.zh ? '关闭' : 'Close'}
+          <Button variant="secondary" onClick={props.onClose} disabled={locked}>
+            {hasConflicts ? (props.zh ? '处理冲突' : 'Resolve conflicts') : props.zh ? '关闭' : 'Close'}
           </Button>
           <Button
             variant={strategy === 'reset' ? 'danger' : 'primary'}
-            busy={props.busy?.action === 'update'}
-            disabled={props.busy !== null || (resetNeedsConfirmation && !resetConfirmed)}
+            busy={submitting || props.busy?.action === 'update'}
+            disabled={locked || hasConflicts || (resetNeedsConfirmation && !resetConfirmed)}
             onClick={async () => {
+              if (locked) return;
               window.localStorage.setItem(`astragit.project-git-update-strategy:${props.projectId}`, strategy);
               const nextResults: Array<{ id: string; outcome: ExecutionOutcome }> = [];
-              for (const repository of props.repositories) {
-                const outcome = await props.onExecute(repository, { type: 'update', strategy, smart: true }, props.zh ? '更新项目' : 'Update project');
-                nextResults.push({ id: repository.id, outcome });
-                setResults([...nextResults]);
+              setSubmitting(true);
+              setResults([]);
+              try {
+                for (const repository of props.repositories) {
+                  const outcome = await props.onExecute(repository, { type: 'update', strategy, smart: true }, props.zh ? '更新项目' : 'Update project');
+                  nextResults.push({ id: repository.id, outcome });
+                  setResults([...nextResults]);
+                }
+              } finally {
+                setSubmitting(false);
               }
             }}
           >
@@ -669,16 +678,19 @@ export function NewBranchDialog(props: {
 }) {
   const [repositoryId, setRepositoryId] = useState('');
   const [branchName, setBranchName] = useState('');
+  const wasOpenRef = useRef(false);
   const issue = gitBranchNameIssue(branchName);
   const issueId = useId();
   const issueMessage = issue === 'required' ? props.zh ? '请输入分支名称。' : 'Enter a branch name.' : issue === 'whitespace'
     ? props.zh ? '分支名称不能包含空格、制表符或换行。可使用连字符或下划线连接词语。' : 'Branch names cannot contain spaces, tabs or line breaks. Use hyphens or underscores between words.'
     : props.zh ? '分支名称不能包含 ..、@{、~、^、:、?、*、[、\\，或无效的路径段。' : 'Use a valid Git branch name without .., @{, ~, ^, :, ?, *, [, \\ or invalid path segments.';
   useEffect(() => {
-    if (!props.open) return;
+    const wasOpen = wasOpenRef.current;
+    wasOpenRef.current = props.open;
+    if (!props.open || wasOpen) return;
     setRepositoryId(props.selectedRepository?.id ?? props.repositories[0]?.id ?? '');
     setBranchName('');
-  }, [props.open, props.selectedRepository?.id]);
+  }, [props.open, props.selectedRepository?.id, props.repositories]);
   if (!props.open) return null;
   const repository = props.repositories.find((candidate) => candidate.id === repositoryId) ?? null;
   const baseRef = props.baseRef || repository?.snapshot.headSha || '';
@@ -693,7 +705,7 @@ export function NewBranchDialog(props: {
           {props.repositories.length > 1 && !props.baseRef ? (
             <label>
               <span>{props.zh ? '仓库' : 'Repository'}</span>
-              <select value={repositoryId} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
+              <select value={repositoryId} disabled={props.busy !== null} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
                 {props.repositories.map((candidate) => (
                   <option key={candidate.id} value={candidate.id}>{`${candidate.name} · ${currentRepositoryRefLabel(candidate, props.zh)}`}</option>
                 ))}
@@ -702,7 +714,7 @@ export function NewBranchDialog(props: {
           ) : null}
           <label>
             <span>{props.zh ? '分支名称' : 'Branch name'}</span>
-            <input value={branchName} onChange={(event) => setBranchName(event.currentTarget.value)} autoFocus placeholder="feature/example" aria-invalid={Boolean(branchName && issue)} aria-describedby={branchName && issue ? issueId : undefined} />
+            <input value={branchName} disabled={props.busy !== null} onChange={(event) => setBranchName(event.currentTarget.value)} autoFocus placeholder="feature/example" aria-invalid={Boolean(branchName && issue)} aria-describedby={branchName && issue ? issueId : undefined} />
             {branchName && issue ? <small id={issueId} role="alert">{issueMessage}</small> : null}
           </label>
         </main>
@@ -717,7 +729,7 @@ export function NewBranchDialog(props: {
             onClick={async () => {
               if (!repository) return;
               const outcome = await props.onExecute(repository, { type: 'create_branch', branchName: branchName.trim(), baseRef }, props.zh ? '新建并签出分支' : 'Create and checkout branch');
-              if (outcome) props.onClose();
+              if (outcome === 'completed') props.onClose();
             }}
           >
             {props.zh ? '创建并签出' : 'Create and Checkout'}
@@ -825,7 +837,8 @@ export function RemoteBranchCheckoutDialog(props: {
                 mode === 'existing'
                   ? await props.onExecute(props.repository, { type: 'checkout', branchName: existingBranch }, props.zh ? '检出现有分支' : 'Checkout existing branch')
                   : await props.onExecute(props.repository, { type: 'create_branch', branchName: normalizedBranchName, baseRef: remoteRef, trackRemote }, props.zh ? '检出远程分支' : 'Checkout remote branch');
-              if (outcome === 'completed') (props.onComplete ?? props.onClose)();
+              // A checkout followed by rebase may stop at conflicts. Reveal the conflict workbench in that case.
+              if (outcome === 'completed' || outcome === 'conflict') (props.onComplete ?? props.onClose)();
             }}
           >
             {props.zh ? '检出' : 'Checkout'}
@@ -856,11 +869,14 @@ export function CheckoutRevisionDialog(props: {
 }) {
   const [repositoryId, setRepositoryId] = useState('');
   const [revision, setRevision] = useState('');
+  const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (!props.open) return;
+    const wasOpen = wasOpenRef.current;
+    wasOpenRef.current = props.open;
+    if (!props.open || wasOpen) return;
     setRepositoryId(props.selectedRepository?.id ?? props.repositories[0]?.id ?? '');
     setRevision('');
-  }, [props.open, props.selectedRepository?.id]);
+  }, [props.open, props.selectedRepository?.id, props.repositories]);
   if (!props.open) return null;
   const repository = props.repositories.find((candidate) => candidate.id === repositoryId) ?? null;
   return (
@@ -883,7 +899,7 @@ export function CheckoutRevisionDialog(props: {
           {props.repositories.length > 1 ? (
             <label>
               <span>{props.zh ? '仓库' : 'Repository'}</span>
-              <select value={repositoryId} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
+              <select value={repositoryId} disabled={props.busy !== null} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
                 {props.repositories.map((candidate) => (
                   <option key={candidate.id} value={candidate.id}>
                     {candidate.name}
@@ -894,7 +910,7 @@ export function CheckoutRevisionDialog(props: {
           ) : null}
           <label>
             <span>{props.zh ? '标签、分支或提交号' : 'Tag, branch, or commit'}</span>
-            <input value={revision} onChange={(event) => setRevision(event.currentTarget.value)} autoFocus placeholder="v0.3.2 / a1b2c3d4" />
+            <input value={revision} disabled={props.busy !== null} onChange={(event) => setRevision(event.currentTarget.value)} autoFocus placeholder="v0.3.2 / a1b2c3d4" />
           </label>
         </main>
         <footer>
@@ -908,7 +924,7 @@ export function CheckoutRevisionDialog(props: {
             onClick={async () => {
               if (!repository) return;
               const outcome = await props.onExecute(repository, { type: 'checkout_revision', revision: revision.trim() }, props.zh ? '切换到所选提交' : 'Switch to the selected commit');
-              if (outcome) props.onClose();
+              if (outcome === 'completed') props.onClose();
             }}
           >
             {props.zh ? '签出' : 'Checkout'}
@@ -984,7 +1000,8 @@ export function BranchTreeEntry(props: Parameters<typeof BranchDirectoryTree>[0]
       data-checked-out={props.node.branch === props.current || undefined}
       aria-current={props.selected === props.node.branch ? 'true' : undefined}
       aria-label={props.node.branch === props.current ? `${props.node.branch}, ${props.zh ? '当前检出分支' : 'Checked out branch'}${divergenceLabel ? `, ${divergenceLabel}` : ''}` : undefined}
-      style={{ paddingLeft: `${props.depth * 20 + 25}px` }}
+      // 分支图标与目录箭头共用前导位置；隐藏图标时才用 padding 补足该位置。
+      style={{ paddingLeft: `${props.depth * 20 + (props.hideBranchIcons ? 25 : 5)}px` }}
       onClick={() => props.onSelect?.(props.node.branch)}
       onDoubleClick={() => props.onCheckout?.(props.node.branch)}
       onContextMenu={(event) => props.onContextMenu(event, props.node.branch)}
@@ -1399,7 +1416,8 @@ export function PullDialog(props: {
               setSubmitting(true);
               try {
                 const outcome = await props.onExecute(props.repository, { type: 'pull', remote, targetBranch: selectedBranch, strategy: rebase ? 'rebase' : 'merge', commitMerge, includeMergeLog, noFastForward }, props.zh ? '拉取' : 'Pull');
-                if (outcome) props.onClose();
+                // The workbench owns conflict resolution; a rejected pull keeps this form and its inputs.
+                if (outcome === 'completed' || outcome === 'conflict') props.onClose();
               } finally {
                 setSubmitting(false);
               }
@@ -1453,6 +1471,7 @@ export function PushDialog(props: {
     setSelections((current) => current.map((item) => (item.repositoryId === repositoryId && item.sourceBranch === sourceBranch ? { ...item, ...update } : item)));
   };
   const resultMode = props.results.length > 0;
+  const completed = resultMode && !locked && props.results.every((result) => result.tone === 'success');
   const allSelected = branches.length > 0 && branches.every(selected);
   const duplicateTarget = selections.some((item, index) =>
     selections.some((other, otherIndex) => index !== otherIndex && item.repositoryId === other.repositoryId && item.remote === other.remote && item.targetBranch.trim() === other.targetBranch.trim()),
@@ -1470,11 +1489,12 @@ export function PushDialog(props: {
               {props.results.map((result, index) => (
                 <section key={index}>
                   <strong>{result.repositoryName}</strong>
-                  <p>{result.tone === 'error' ? <VisibleApplicationError error={result.message} language={props.zh ? 'zh-CN' : 'en'} /> : result.message}</p>
+                  <p>{result.message}</p>
                 </section>
               ))}
             </div>
-          ) : (
+          ) : null}
+          {!completed ? (
             <>
               <fieldset disabled={locked} className="project-git-sync-fields">
                 {props.repositories.length > 1 ? (
@@ -1607,13 +1627,13 @@ export function PushDialog(props: {
               </small>
               {duplicateTarget ? <p role="alert">{props.zh ? '同一仓库的多个本地分支不能推送到同一远程目标，请调整目标分支。' : 'Multiple local branches cannot target the same remote branch. Choose distinct targets.'}</p> : null}
             </>
-          )}
+          ) : null}
         </main>
         <footer>
           <Button variant="secondary" disabled={locked} onClick={props.onClose}>
             {resultMode ? (props.zh ? '关闭' : 'Close') : props.zh ? '取消' : 'Cancel'}
           </Button>
-          {!resultMode ? (
+          {!completed ? (
             <Button
               variant="primary"
               busy={submitting}
@@ -1632,7 +1652,7 @@ export function PushDialog(props: {
                 }
               }}
             >
-              {props.zh ? '推送' : 'Push'}
+              {resultMode ? (props.zh ? '重试推送' : 'Retry push') : props.zh ? '推送' : 'Push'}
             </Button>
           ) : null}
         </footer>
@@ -1693,7 +1713,8 @@ export function MergeBranchDialog(props: {
             busy={props.busy?.action === 'merge'}
             onClick={async () => {
               const result = await props.onExecute(props.repository, { type: 'merge', branchName: branch }, props.zh ? '合并分支' : 'Merge branch');
-              if (result) props.onClose();
+              // Conflicts need the underlying file-status view; ordinary failures keep the selected source.
+              if (result === 'completed' || result === 'conflict') props.onClose();
             }}
           >
             {props.zh ? '合并' : 'Merge'}

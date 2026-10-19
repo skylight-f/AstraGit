@@ -85,6 +85,7 @@ try {
       files: ['dist/**', 'package.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', '!**/*.map', '!**/*.d.ts'],
       extraResources: [{ from: join(desktop, 'build/icon.png'), to: 'branding/icon.png' }],
       asar: true,
+      asarUnpack: ['dist/native/**'],
       npmRebuild: false,
       artifactName: 'AstraGit-${version}-${arch}.${ext}',
       mac: {
@@ -107,13 +108,14 @@ try {
   const packagedIcns = await readFile(join(appPath, 'Contents/Resources/icon.icns'));
   if (!packagedIcns.equals(await readFile(join(desktop, 'build/icon.icns')))) throw new Error('Packaged application icon does not match the AstraGit icon source.');
   const archiveFiles = new Set(asar.listPackage(archive));
-  const requiredFiles = ['dist/main/main.js', 'dist/main/releaseInstaller.js', 'dist/main/releaseUpdateService.js', 'dist/main/releaseArtifact.js', 'dist/main/homebrewUpdateService.js', 'dist/main/homebrewInstaller.js', 'dist/preload/index.cjs', 'dist/renderer/index.html', 'LICENSE', 'THIRD_PARTY_NOTICES.md'];
+  const requiredFiles = ['dist/main/main.js', 'dist/main/releaseInstaller.js', 'dist/main/releaseUpdateService.js', 'dist/main/releaseArtifact.js', 'dist/main/homebrewUpdateService.js', 'dist/main/homebrewUpdateController.js', 'dist/main/nativeUpdateProgress.js', 'dist/main/automaticUpdateScheduler.js', 'dist/native/AstraGitUpdateProgress', 'dist/preload/index.cjs', 'dist/renderer/index.html', 'LICENSE', 'THIRD_PARTY_NOTICES.md'];
   for (const name of ['git-server', 'git-core', 'ai-runtime', 'shared', 'storage']) {
     requiredFiles.push(`node_modules/@astragit/${name}/dist/index.js`);
   }
   for (const file of requiredFiles) {
     if (!archiveFiles.has(`/${file}`)) throw new Error(`Application archive is missing ${file}`);
   }
+  await run('/usr/bin/lipo', ['-verify_arch', process.arch === 'x64' ? 'x86_64' : 'arm64', join(appPath, 'Contents/Resources/app.asar.unpacked/dist/native/AstraGitUpdateProgress')]);
   for (const file of archiveFiles) {
     if (asar.statFile(archive, file.slice(1)).link) throw new Error(`Application archive contains an unresolved link: ${file}`);
   }

@@ -1,12 +1,13 @@
 import type { DashboardClient, GitCommitSelectionPreview } from '../apiClient.js';
 import type { SourceBatchResult, SourceCommitUnit } from './sourceGitState.js';
+import { gitFailureText } from './gitOperationFeedback.js';
 
 export interface SourceReviewRow extends SourceBatchResult {
   relativePath: string; ordinaryPaths: string[]; gitlinks: SourceCommitUnit['gitlinks'];
   fingerprint?: string; remotes: string[]; detached: boolean;
 }
 type BatchClient = Pick<DashboardClient, 'previewGitCommitSelection' | 'loadProjectGitWorkbench' | 'executeProjectGitAction' | 'validateGitPushTargets'>;
-const message = (reason: unknown) => reason instanceof Error ? reason.message : String(reason);
+const message = gitFailureText;
 
 export async function validateSourceReview(client: BatchClient, projectId: string, rows: SourceReviewRow[], push: boolean) {
   if (!rows.length || rows.length > 20 || rows.reduce((sum, row) => sum + row.paths.length, 0) > 2000) throw new Error('请选择 1–20 个仓库、最多 2000 个文件。');
@@ -61,7 +62,7 @@ export async function runSourceBatch(input: {
       } catch (error) {
         let status: SourceBatchResult['status'] = 'unknown';
         try { const current = await client.loadProjectGitWorkbench(projectId); if (current.repositories.find(repo => repo.id === row.repositoryId)?.snapshot.headSha === row.expectedHead) status = 'commit_failed'; } catch { /* 无法核对写入结果时禁止自动重复提交。 */ }
-        update(row.repositoryId, { status, error: message(error) + (status === 'unknown' ? ' 请到工作台核对提交和操作记录。' : '') });
+        update(row.repositoryId, { status, error: message(error) + (status === 'unknown' ? ' 请到仓库管理核对提交和操作记录。' : '') });
       }
     }
     if (input.push) {
