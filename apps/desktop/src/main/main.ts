@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, Notification, powerMonitor, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, powerMonitor, shell } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
@@ -20,6 +20,8 @@ let bootstrapToken = '';
 let shuttingDown = false;
 let homebrewUpdates: HomebrewUpdateController | null = null;
 let automaticUpdates: AutomaticUpdateScheduler | null = null;
+let completeUpdateInitialization: () => void = () => {};
+const updateInitialization = new Promise<void>((resolveReady) => { completeUpdateInitialization = resolveReady; });
 let updateLanguage: 'zh-CN' | 'en-US' = 'zh-CN';
 let upgradeHandoff = false;
 let pendingUpgrade: { activate: () => void | Promise<void>; resolve: (accepted: boolean) => void; reject: (error: unknown) => void; result: Promise<boolean> } | null = null;
@@ -111,17 +113,14 @@ async function initializeUpdates(): Promise<void> {
       statePath: join(dataDirectory, 'updates/automatic-update-state.json'),
       intervalMs: 60 * 60_000, initialDelayMs: 15_000, controller: homebrewUpdates,
       onIndicatorChange: (state) => mainWindow?.webContents.send('astragit:update-indicator', state),
-      notifyReady: (version, showProgress) => {
-        if (!Notification.isSupported()) return false;
-        const notification = new Notification({ title: 'AstraGit', body: updateLanguage === 'zh-CN' ? `AstraGit ${version} 已下载，等待重启。` : `AstraGit ${version} is ready to restart.` });
-        notification.on('click', showProgress); notification.show(); return true;
-      },
+      notifyReady: () => false,
     });
     await automaticUpdates.start();
     powerMonitor.on('resume', () => automaticUpdates?.checkIfDue());
   } else {
     homebrewUpdates.onIndicatorState((state) => mainWindow?.webContents.send('astragit:update-indicator', state));
   }
+  mainWindow?.webContents.send('astragit:update-indicator', homebrewUpdates.getIndicatorState());
 }
 
 function applicationIconPath(): string {
@@ -199,11 +198,20 @@ async function loadMainWindow(): Promise<void> {
     ipcMain.removeHandler(name);
     ipcMain.handle(name, event => { if (event.sender !== mainWindow?.webContents) throw new Error('更新请求来源无效。'); return action(); });
   };
-  handle('astragit:update-indicator-get', () => homebrewUpdates?.getIndicatorState() ?? null);
+  handle('astragit:update-indicator-get', async () => { await updateInitialization; return homebrewUpdates?.getIndicatorState() ?? null; });
+  ipcMain.removeHandler('astragit:update-action');
+  ipcMain.handle('astragit:update-action', async (event, action: unknown, language: unknown) => {
+    if (event.sender !== mainWindow?.webContents) throw new Error('更新请求来源无效。');
+    if (action !== 'check' && action !== 'prepare' && action !== 'restart') throw new Error('更新动作无效。');
+    if (language === 'zh-CN' || language === 'en-US') updateLanguage = language;
+    await updateInitialization;
+    return homebrewUpdates?.performAction(action) ?? null;
+  });
   ipcMain.removeHandler('astragit:update-open');
   ipcMain.handle('astragit:update-open', async (event, language: unknown) => {
     if (event.sender !== mainWindow?.webContents) throw new Error('更新请求来源无效。');
     if (language === 'zh-CN' || language === 'en-US') updateLanguage = language;
+    await updateInitialization;
     if (!homebrewUpdates) throw new Error('更新服务尚未就绪。');
     await homebrewUpdates.showOrCheck();
   });
@@ -233,7 +241,7 @@ app.whenReady().then(async () => {
   process.env.PATH = await resolveCliSearchPath();
   if (!existsSync(userDataPath())) mkdirSync(userDataPath(), { recursive: true });
   await createWindow();
-  try { await initializeUpdates(); } catch (error) { console.error('[AstraGit] 更新服务初始化失败', error); }
+  try { await initializeUpdates(); } catch (error) { console.error('[AstraGit] 更新服务初始化失败', error); } finally { completeUpdateInitialization(); }
   app.on('activate', () => {
     if (!shuttingDown && BrowserWindow.getAllWindows().length === 0) void createWindow();
   });

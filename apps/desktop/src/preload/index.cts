@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('astraGit', {
   chooseDirectory: bootstrap.chooseDirectory,
   rendererReady: () => ipcRenderer.invoke('astragit:renderer-ready'),
   openUpdates: (language: 'zh-CN' | 'en-US') => ipcRenderer.invoke('astragit:update-open', language),
+  performUpdateAction: (action: 'check' | 'prepare' | 'restart', language: 'zh-CN' | 'en-US') => ipcRenderer.invoke('astragit:update-action', action, language),
   getUpdateIndicator: () => ipcRenderer.invoke('astragit:update-indicator-get'),
   onUpdateIndicator: (listener: (state: HomebrewUpdateIndicatorState) => void) => {
     const callback = (_event: Electron.IpcRendererEvent, state: HomebrewUpdateIndicatorState) => listener(state);

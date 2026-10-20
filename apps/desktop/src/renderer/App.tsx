@@ -1,4 +1,3 @@
-import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { FolderOpen } from '@phosphor-icons/react/dist/csr/FolderOpen';
 import { Plus } from '@phosphor-icons/react/dist/csr/Plus';
 import { X } from '@phosphor-icons/react/dist/csr/X';
@@ -6,7 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardClient, GitAppProject, ProjectRecord } from './apiClient.js';
 import { ProjectGitWorkbench } from './git/ProjectGitWorkbench.js';
 import { ProjectSourceChanges } from './git/ProjectSourceChanges.js';
-import { Settings } from './Settings.js';
+import { Settings, type SettingsSection } from './Settings.js';
+import { useApplicationUpdates } from './useApplicationUpdates.js';
 import { readLanguagePreference, resolveApplicationLanguage, saveLanguagePreference, type LanguagePreference } from './applicationPreferences.js';
 import { ReleaseUpdateButton } from './ReleaseUpdateButton.js';
 import { ZeusSelect } from './ZeusSelect.js';
@@ -50,13 +50,23 @@ export function App(props: AppProps) {
   const [draftName, setDraftName] = useState('');
   const [pickBusy, setPickBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
+  const openSettings = (section: SettingsSection = 'general') => { setSettingsSection(section); setSettingsOpen(true); };
   const [modelSettingsRevision, setModelSettingsRevision] = useState(0);
   const [projectViews, setProjectViews] = useState<Record<string, 'workbench' | 'source'>>(() => {
     try { const value: unknown = JSON.parse(localStorage.getItem('astragit.project-views.v1') ?? '{}'); return value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([, view]) => view === 'source' || view === 'workbench')) : {}; } catch { return {}; }
   });
   const [sourceVisited, setSourceVisited] = useState<Record<string, boolean>>({});
   const [sourceBatchBusy, setSourceBatchBusy] = useState(false);
+  const applicationUpdates = useApplicationUpdates(language, sourceBatchBusy);
+  const tabDrag = useRef<{ id: string; pointerId: number; button: HTMLButtonElement; x: number; y: number; started: boolean; target: { id: string; side: 'before' | 'after' } | null } | null>(null);
+  const dragEndedAt = useRef(-Infinity);
+  const [draggingSlotId, setDraggingSlotId] = useState<string | null>(null);
+  const [tabDropTarget, setTabDropTarget] = useState<{ id: string; side: 'before' | 'after' } | null>(null);
+  const [tabAnnouncement, setTabAnnouncement] = useState('');
   const workspaceInitialized = useRef(false);
+  const projectOpenVersion = useRef(0);
+  const pendingProjectId = useRef<string | null>(null);
   const activeView = activeProject ? projectViews[activeProject.id] ?? 'workbench' : 'workbench';
   const switchProjectView = (view: 'workbench' | 'source') => {
     if (!activeProject || sourceBatchBusy) return;
@@ -90,18 +100,23 @@ export function App(props: AppProps) {
   }, [props.client]);
 
   const applyWorkbench = useCallback(
-    async (project: GitAppProject, openInSlots: ReadonlyArray<ProjectSlot> = slots) => {
-      const touched = await props.client.touchProject(project.id);
+    async (project: GitAppProject, openInSlots: ReadonlyArray<ProjectSlot> = []) => {
+      const version = ++projectOpenVersion.current;
+      pendingProjectId.current = project.id;
+      let touched: ProjectRecord;
+      try { touched = await props.client.touchProject(project.id); }
+      catch (reason) { if (version !== projectOpenVersion.current) return; throw reason; }
+      finally { if (version === projectOpenVersion.current) pendingProjectId.current = null; }
+      if (version !== projectOpenVersion.current) return;
       setActiveProject(touched);
       setShowList(false);
-      const base = slots.length ? slots : [...openInSlots];
-      const nextSlots = base.some((slot) => slot.projectId === touched.id)
-        ? base
-        : [...base, { id: `project-slot-${base.length}-${touched.id}`, projectId: touched.id }];
-      setSlots(nextSlots);
-      writeProjectWorkspaceTabs({ projectIds: nextSlots.map((slot) => slot.projectId), activeProjectId: touched.id });
+      // touchProject 等待期间可能发生拖拽或关闭；合并到最新页签顺序。
+      setSlots(current => {
+        const base = current.length ? current : [...openInSlots];
+        return base.some(slot => slot.projectId === touched.id) ? base : [...base, { id: `project-slot-${touched.id}`, projectId: touched.id }];
+      });
     },
-    [projects, props.client, slots],
+    [props.client],
   );
 
   // 启动：恢复上次打开的项目页签
@@ -141,9 +156,6 @@ export function App(props: AppProps) {
     const known = new Set(projects.map((project) => project.id));
     setSlots((current) => {
       const next = current.filter((slot) => known.has(slot.projectId));
-      if (activeProject && known.has(activeProject.id) && !next.some((slot) => slot.projectId === activeProject.id)) {
-        next.push({ id: `project-slot-${next.length}-${activeProject.id}`, projectId: activeProject.id });
-      }
       return next.length === current.length && next.every((slot, index) => slot.id === current[index]?.id && slot.projectId === current[index]?.projectId) ? current : next;
     });
     if (activeProject && known.has(activeProject.id)) {
@@ -165,6 +177,27 @@ export function App(props: AppProps) {
     [applyWorkbench],
   );
 
+  const endTabDrag = () => {
+    const drag = tabDrag.current;
+    tabDrag.current = null;
+    if (drag?.started) dragEndedAt.current = performance.now();
+    if (drag?.button.hasPointerCapture(drag.pointerId)) drag.button.releasePointerCapture(drag.pointerId);
+    setDraggingSlotId(null);
+    setTabDropTarget(null);
+  };
+
+  const moveSlot = (sourceId: string, targetId: string, side: 'before' | 'after') => {
+    if (sourceBatchBusy || sourceId === targetId) return;
+    setSlots(current => {
+      const source = current.find(slot => slot.id === sourceId);
+      if (!source || !current.some(slot => slot.id === targetId)) return current;
+      const next = current.filter(slot => slot.id !== sourceId);
+      const index = next.findIndex(slot => slot.id === targetId) + (side === 'after' ? 1 : 0);
+      next.splice(index, 0, source);
+      return next.every((slot, position) => slot === current[position]) ? current : next;
+    });
+  };
+
 
   const closeSlot = (slotId: string) => {
     const current = slots;
@@ -172,6 +205,7 @@ export function App(props: AppProps) {
     const index = current.findIndex((slot) => slot.id === slotId);
     if (index < 0) return;
     const closing = current[index]!;
+    if (pendingProjectId.current === closing.projectId) { projectOpenVersion.current += 1; pendingProjectId.current = null; }
     const next = current.filter((slot) => slot.id !== slotId);
     setSlots(next);
     const known = new Set((projects ?? []).map((project) => project.id));
@@ -179,6 +213,7 @@ export function App(props: AppProps) {
       const replacement = next[Math.min(index, next.length - 1)];
       const replacementProject = replacement ? projects?.find((item) => item.id === replacement.projectId) : undefined;
       if (replacementProject) {
+        setActiveProject(replacementProject);
         void openProject(replacementProject);
         return;
       }
@@ -274,24 +309,69 @@ export function App(props: AppProps) {
               {slotProjects.map(({ slot, project }) => {
                 const active = project.id === activeProject.id;
                 return (
-                  <span key={slot.id} className={`gitapp-tab${active ? ' is-active' : ''}`} data-project-slot-id={slot.id}>
-                    <button
-                      type="button"
-                      className="gitapp-tab-switch"
-                      aria-label={zh ? `切换项目 ${project.name}` : `Switch project ${project.name}`}
-                      title={zh ? '打开项目列表以切换' : 'Open project list to switch'}
-                      disabled={sourceBatchBusy}
-                      onClick={() => setShowList(true)}
-                    >
-                      <CaretDown size={11} weight="bold" aria-hidden="true" />
-                    </button>
+                  <span key={slot.id} className={`gitapp-tab${active ? ' is-active' : ''}${draggingSlotId === slot.id ? ' is-dragging' : ''}`} data-project-slot-id={slot.id} data-drop-position={tabDropTarget?.id === slot.id ? tabDropTarget.side : undefined}>
                     <button
                       type="button"
                       className="gitapp-tab-body"
                       aria-pressed={active}
+                      aria-description={zh ? '拖拽排序，或按 Alt + Shift + 左右方向键调整顺序' : 'Drag to reorder, or press Alt + Shift + Left or Right'}
                       disabled={sourceBatchBusy && !active}
+                      data-reorderable={!sourceBatchBusy && slots.length > 1}
+                      draggable={false}
                       title={project.localPath}
+                      onPointerDown={event => {
+                        if (event.button !== 0 || sourceBatchBusy || slots.length <= 1) return;
+                        tabDrag.current = { id: slot.id, pointerId: event.pointerId, button: event.currentTarget, x: event.clientX, y: event.clientY, started: false, target: null };
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                      }}
+                      onPointerMove={event => {
+                        const drag = tabDrag.current;
+                        if (!drag || drag.pointerId !== event.pointerId || sourceBatchBusy) return;
+                        if (!drag.started && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
+                        event.preventDefault();
+                        drag.started = true;
+                        setDraggingSlotId(drag.id);
+                        const nav = event.currentTarget.closest('nav')!;
+                        const bounds = nav.getBoundingClientRect();
+                        let target: typeof drag.target = null;
+                        if (event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom) {
+                          if (event.clientX < bounds.left + 28) nav.scrollBy({ left: -18 });
+                          else if (event.clientX > bounds.right - 28) nav.scrollBy({ left: 18 });
+                          for (const tab of nav.querySelectorAll<HTMLElement>('[data-project-slot-id]')) {
+                            const rect = tab.getBoundingClientRect();
+                            target = { id: tab.dataset.projectSlotId!, side: event.clientX < rect.left + rect.width / 2 ? 'before' : 'after' };
+                            if (event.clientX <= rect.right) break;
+                          }
+                          if (target?.id === drag.id) target = null;
+                        }
+                        drag.target = target;
+                        setTabDropTarget(current => current?.id === target?.id && current?.side === target?.side ? current : target);
+                      }}
+                      onPointerUp={event => {
+                        const drag = tabDrag.current;
+                        if (!drag || drag.pointerId !== event.pointerId) return;
+                        if (drag.started && drag.target && !sourceBatchBusy) {
+                          moveSlot(drag.id, drag.target.id, drag.target.side);
+                          setTabAnnouncement(zh ? '已调整项目标签顺序' : 'Project tab order changed');
+                        }
+                        endTabDrag();
+                      }}
+                      onPointerCancel={endTabDrag}
+                      onLostPointerCapture={endTabDrag}
+                      onKeyDown={event => {
+                        if (event.key === 'Escape' && tabDrag.current) { event.preventDefault(); endTabDrag(); return; }
+                        if (sourceBatchBusy || !event.altKey || !event.shiftKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+                        event.preventDefault();
+                        const index = slots.findIndex(item => item.id === slot.id);
+                        const target = slots[index + (event.key === 'ArrowLeft' ? -1 : 1)];
+                        if (!target) return;
+                        moveSlot(slot.id, target.id, event.key === 'ArrowLeft' ? 'before' : 'after');
+                        const button = event.currentTarget;
+                        requestAnimationFrame(() => { button.focus(); button.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
+                        setTabAnnouncement(zh ? `${project.name} 已向${event.key === 'ArrowLeft' ? '左' : '右'}移动` : `${project.name} moved ${event.key === 'ArrowLeft' ? 'left' : 'right'}`);
+                      }}
                       onClick={() => {
+                        if (tabDrag.current?.started || performance.now() - dragEndedAt.current < 200) return;
                         if (!active) void openProject(project);
                       }}
                     >
@@ -315,14 +395,15 @@ export function App(props: AppProps) {
                 );
               })}
             </nav>
+            <span className="gitapp-tab-announcement" role="status" aria-live="polite">{tabAnnouncement}</span>
             <button type="button" className="gitapp-tab-add" disabled={sourceBatchBusy} aria-label={zh ? '打开或添加项目' : 'Open or add project'} title={zh ? '打开或添加项目' : 'Open or add project'} onClick={() => setShowList(true)}>
               <Plus size={17} weight="regular" aria-hidden="true" />
             </button>
             <div className="gitapp-tabbar-path" title={activeProject.localPath}>
               {activeProject.localPath}
             </div>
-            <button type="button" className="gitapp-settings-trigger" onClick={() => setSettingsOpen(true)}>{zh ? '设置' : 'Settings'}</button>
-            <ReleaseUpdateButton zh={zh} disabled={sourceBatchBusy} />
+            <button type="button" className="gitapp-settings-trigger" onClick={() => openSettings()}>{zh ? '设置' : 'Settings'}</button>
+            <ReleaseUpdateButton zh={zh} update={applicationUpdates} disabled={sourceBatchBusy} onInspect={() => openSettings('updates')} />
           </header>
 
           <div className="gitapp-workbench-host" key={activeProject.id}>
@@ -350,8 +431,8 @@ export function App(props: AppProps) {
                 {zh ? '返回工作台' : 'Back to workbench'}
               </Button>
             ) : null}
-            <Button type="button" variant="secondary" className="gitapp-hero-settings" onClick={() => setSettingsOpen(true)}>{zh ? '设置' : 'Settings'}</Button>
-            <ReleaseUpdateButton zh={zh} />
+            <Button type="button" variant="secondary" className="gitapp-hero-settings" onClick={() => openSettings()}>{zh ? '设置' : 'Settings'}</Button>
+            <ReleaseUpdateButton zh={zh} update={applicationUpdates} onInspect={() => openSettings('updates')} />
           </header>
 
           <section className="gitapp-add" aria-label={zh ? '添加项目' : 'Add project'}>
@@ -408,7 +489,7 @@ export function App(props: AppProps) {
           <ApplicationErrorDialogHost language={zh ? 'zh-CN' : 'en'} />
         </div>
       )}
-      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} onClose={() => setSettingsOpen(false)} onModelsChanged={modelSettingsChanged} /> : null}
+      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} onClose={() => setSettingsOpen(false)} onModelsChanged={modelSettingsChanged} initialSection={settingsSection} update={applicationUpdates} updateDisabled={sourceBatchBusy} /> : null}
     </>
   );
 }

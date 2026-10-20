@@ -7,10 +7,13 @@ import { createNativeUpdateProgressHost, type NativeUpdateProgressHost, type Nat
 
 /** 已下载待手动安装与可直接重启安装是两个不同状态。 */
 export type HomebrewUpdateIndicatorPhase = 'idle' | 'available' | 'manual' | 'downloaded' | 'preparing' | 'retrying' | 'ready' | 'failed';
+export type HomebrewUpdateAction = 'check' | 'prepare' | 'restart';
 
 
 export interface HomebrewUpdateController {
   showOrCheck(): Promise<void>;
+  /** Renderer 用户动作仍交给唯一控制器串行处理，不创建另一条下载或安装链路。 */
+  performAction(action: HomebrewUpdateAction): Promise<HomebrewUpdateIndicatorState>;
   checkAutomatically(input?: { blockedPrepareVersion?: string | null }): Promise<boolean>;
   getIndicatorState(): HomebrewUpdateIndicatorState;
   restoreIndicatorState(state: HomebrewUpdateIndicatorState): void;
@@ -368,7 +371,27 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
     return loaded;
   }
 
+  async function performAction(action: HomebrewUpdateAction): Promise<HomebrewUpdateIndicatorState> {
+    if (closed) return { ...indicatorState };
+    // 更新按钮承载后台状态；显式详情入口才展示原生更新窗口。
+    hidden = true;
+    if (action === 'check') await checkAutomatically();
+    else if (action === 'prepare') {
+      const canPrepare = phase === 'available' || (phase === 'failed' && (lastFailureStep === 'prepare' || lastFailureStep === 'download'));
+      if (canPrepare) await runExclusive(() => prepareUpdate(true));
+      else if (operation) await operation;
+    } else if (action === 'restart' && phase === 'ready') {
+      if (prepared) await runExclusive(installPreparedUpdate);
+      else {
+        // 持久化 ready 不是本进程已校验的安装凭据；只复验预取，不能凭恢复状态安装。
+        await runExclusive(() => prepareUpdate(true));
+      }
+    }
+    return { ...indicatorState };
+  }
+
   return {
+    performAction,
     showOrCheck: () => {
       if (phase === 'preparing' || phase === 'installing' || (phase === 'available' && currentUpdate) || (phase === 'failed' && lastState?.state === 'failed')) return showCurrent();
       hidden = false;

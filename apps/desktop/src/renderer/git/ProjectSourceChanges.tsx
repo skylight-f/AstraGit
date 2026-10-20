@@ -16,6 +16,7 @@ import { SourceRepositoryTree } from './SourceFileTree.js';
 import { buildSourceCommitUnits, defaultSourcePushTarget, readSourceGitState, sourceRepositoryFiles, writeSourceGitState, type SourceGitState } from './sourceGitState.js';
 import { previewForUnit, pushSourceResult, runSourceBatch, validateSourceReview, type SourceReviewRow } from './sourceGitBatch.js';
 import { SourceCommitReview } from './SourceCommitReview.js';
+import { SourceCommitOptions } from './SourceCommitOptions.js';
 import { SourceRepositoryControls } from './SourceRepositoryControls.js';
 import type { BusyState, ExecutionOutcome } from './gitWorkbenchTypes.js';
 import { ModalPortal } from '../ui/ModalPortal.js';
@@ -279,14 +280,14 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
           </div>
           <div className="source-git-count">{label('已选择', 'Selected')} {filesCount} {label('个文件', 'files')}{units.length > 1 ? ` · ${units.length} ${label('个仓库', 'repositories')}` : ''}</div>
           <div className="source-git-actions"><button type="button" className="source-git-primary" disabled={locked || !units.length} onClick={() => void prepare(false)}>{label('提交…', 'Commit…')}</button><button type="button" disabled={locked || !units.length} onClick={() => void prepare(true)}>{label('提交并推送…', 'Commit and push…')}</button>{busy ? <button type="button" onClick={() => { stopped.current = true; if (activeRepository.current) void client.cancelProjectGitAction(project.id, activeRepository.current).catch(reason => setError(gitFailureText(reason))); }}>{label('停止批次', 'Stop batch')}</button> : null}
-            <details className="source-git-options"><summary>{label('提交选项', 'Commit options')}</summary><div className="source-git-options-panel">
+            <SourceCommitOptions active={active} zh={zh}>
               <label>{label('提交内容范围', 'Commit content mode')}<select aria-label={label('提交内容范围', 'Commit content mode')} value={state.selectionMode} disabled={locked} onChange={event => { update({ selectionMode: event.target.value === 'staged' ? 'staged' : 'worktree', fingerprints: {} }); setFeedback(''); }}><option value="worktree">{label('全部工作区更改', 'Full working tree changes')}</option><option value="staged">{label('仅已暂存内容', 'Staged content only')}</option></select></label>
               <label>{label('提交说明模式', 'Commit message mode')}<select aria-label={label('提交说明模式', 'Commit message mode')} value={state.messageMode} disabled={locked} onChange={event => update({ messageMode: event.target.value === 'individual' ? 'individual' : 'shared' })}><option value="shared">{label('共用提交说明', 'Shared message')}</option><option value="individual">{label('每个仓库单独填写', 'Message per repository')}</option></select></label>
               <label>{label('AI 模型', 'AI model')}<select aria-label={label('源码提交模型', 'Source commit model')} value={model} disabled={locked} onChange={event => { setModel(event.target.value); try { localStorage.setItem(`astragit.commit-model.${project.id}`, event.target.value); } catch { /* 使用当前模型。 */ } }}>{models.length ? models.map(value => <option key={value.id} value={value.id}>{value.label}</option>) : <option value="">{label('请在 AI 设置中配置模型', 'Configure a model in AI settings')}</option>}</select></label>
               {model && modelWarning ? <small>{modelWarning}</small> : null}
               <label className="source-git-parent-option"><input type="checkbox" checked={updateParents} disabled={locked || state.selectionMode === 'staged'} onChange={event => update({ updateParents: event.target.checked })} />{label('同时更新父仓库的子模块引用', 'Update parent submodule references')}</label>
               <small>{state.selectionMode === 'staged' ? label('只提交勾选文件的暂存版本，保留工作区后续修改。', 'Commits selected staged versions; preserves later working tree edits.') : label('勾选决定提交范围，包含所选文件未暂存内容。', 'Checkboxes set commit scope, including selected unstaged content.')}</small>
-            </div></details>
+            </SourceCommitOptions>
           </div>
           {feedback || (!model && modelWarning) ? <p className="source-git-feedback" role="status">{feedback || modelWarning}</p> : null}
         </section>
