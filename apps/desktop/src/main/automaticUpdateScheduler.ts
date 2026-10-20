@@ -236,6 +236,7 @@ function isIndicatorState(value: unknown, currentVersion: string): value is Home
   if (!isRecord(value)) return false;
   return (
     ['idle', 'available', 'manual', 'downloaded', 'preparing', 'retrying', 'ready', 'failed'].includes(String(value.phase)) &&
+    (value.method === undefined || value.method === 'homebrew' || value.method === 'direct') &&
     value.currentVersion === currentVersion &&
     (value.latestVersion === null || typeof value.latestVersion === 'string') &&
     typeof value.detail === 'string' &&

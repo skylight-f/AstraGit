@@ -116,7 +116,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const [commitRequest, setCommitRequest] = useState(0);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [fileQuery, setFileQuery] = useState('');
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; title: string; items: GitMenuItem[] } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; title: string; items: GitMenuItem[]; target: GitContextTarget } | null>(null);
   const [menuConfirmation, setMenuConfirmation] = useState<GitMenuConfirmation | null>(null);
   const [commitDrafts, setCommitDrafts] = useGitCommitDrafts(props.project.id);
   const [commitModels, setCommitModels] = useState<Array<{ id: string; label: string }>>([]);
@@ -496,7 +496,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     }
   }
 
-  function showGitContextMenu(event: ReactMouseEvent, target: GitContextTarget): void {
+  function showGitContextMenu(event: ReactMouseEvent, target: GitContextTarget, position = { x: event.clientX, y: event.clientY }): void {
     event.preventDefault();
     event.stopPropagation();
     const repository = repositories.find((item) => item.id === target.repositoryId);
@@ -694,7 +694,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       });
       items.push({ label: label('复制仓库名称', 'Copy repository name'), run: () => copy(repository.name) });
     }
-    setContextMenu({ x: event.clientX, y: event.clientY, title: target.ref || repository.name, items });
+    setContextMenu({ ...position, title: target.ref || repository.name, items, target });
   }
 
   /** 提交、分支和标签入口共用显式选择，后台刷新不再自动选中首条提交。 */
@@ -1216,6 +1216,8 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
                 setSelectedFileStage(stage);
               }}
               onOpenDiff={openDiffWindow}
+              activeFileMenu={contextMenu?.target ?? null}
+              onFileMenu={showGitContextMenu}
               onExecute={execute}
               onConflictSaved={conflictSaved}
               onConfirmAction={(repository, action, title, description, danger) =>
@@ -1880,6 +1882,8 @@ function LocalChangesSurface(props: {
   onSelectRepository: (repositoryId: string) => void;
   onSelectFile: (path: string, stage: ChangeStage) => void;
   onOpenDiff: (repository: ProjectGitRepositoryWorkbenchItem, filePath: string, options?: { stage?: 'combined' | ChangeStage; commitHash?: string; comparisonRef?: string; comparisonMode?: 'current' | 'working-tree' }) => void;
+  activeFileMenu: GitContextTarget | null;
+  onFileMenu: (event: ReactMouseEvent, target: GitContextTarget, position: { x: number; y: number }) => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
   onConflictSaved: (repositoryId: string, path: string, result: { resolved: boolean; snapshot?: ProjectGitRepositorySnapshot }) => Promise<void>;
   onConfirmAction: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, title: string, description: string, danger: boolean) => void;
@@ -2046,6 +2050,8 @@ function LocalChangesSurface(props: {
                           onSelectRepository={props.onSelectRepository}
                           onSelectFile={props.onSelectFile}
                           onOpenDiff={props.onOpenDiff}
+                          activeFileMenu={props.activeFileMenu}
+                          onFileMenu={props.onFileMenu}
                           onExecute={props.onExecute}
                         />
                       ) : (
@@ -2261,6 +2267,8 @@ function ChangeDirectoryTree(props: {
   onSelectRepository: (repositoryId: string) => void;
   onSelectFile: (path: string, stage: ChangeStage) => void;
   onOpenDiff: (repository: ProjectGitRepositoryWorkbenchItem, filePath: string, options?: { stage?: 'combined' | ChangeStage }) => void;
+  activeFileMenu: GitContextTarget | null;
+  onFileMenu: (event: ReactMouseEvent, target: GitContextTarget, position: { x: number; y: number }) => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
 }) {
   const nodes = useMemo(
@@ -2297,6 +2305,8 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
   const status = props.repository.snapshot.fileStatuses.find((file) => file.path === props.node.path);
   const category = gitFileStatusCategory(status, props.stage);
   const submodule = props.repository.snapshot.submodules?.some((item) => item.path === props.node.path) ?? false;
+  const menuOpen = Boolean(props.activeFileMenu?.kind === 'file' && props.activeFileMenu.repositoryId === props.repository.id && props.activeFileMenu.ref === props.node.path && props.activeFileMenu.stage === props.stage);
+  const menuLabel = props.zh ? `${props.node.path} · ${checked ? '已暂存' : '未暂存'}文件操作` : `${props.node.path} · ${checked ? 'Staged' : 'Unstaged'} file actions`;
   return (
     <div data-git-context={JSON.stringify({ kind: 'file', repositoryId: props.repository.id, ref: props.node.path, stage: props.stage })} className={`project-git-change-file-row${selected ? ' is-current' : ''}`}>
       <input
@@ -2324,6 +2334,20 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
       >
         {submodule ? <Folder aria-hidden="true" /> : <GitFileStatusIcon category={category} zh={props.zh} />}
         <span>{props.node.name}</span>
+      </button>
+      <button
+        type="button"
+        className="project-git-file-actions"
+        aria-label={menuLabel}
+        title={props.zh ? '文件操作' : 'File actions'}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          props.onFileMenu(event, { kind: 'file', repositoryId: props.repository.id, ref: props.node.path, stage: props.stage }, { x: rect.left, y: rect.bottom + 4 });
+        }}
+      >
+        <DotsThree aria-hidden="true" />
       </button>
     </div>
   );

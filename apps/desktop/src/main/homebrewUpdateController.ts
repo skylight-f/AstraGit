@@ -1,11 +1,11 @@
-import { describeUserFacingError, redactUserFacingErrorDetails } from '@astragit/shared';
+import { compareReleaseVersions, describeUserFacingError, redactUserFacingErrorDetails } from '@astragit/shared';
 import type { ReleaseUpdateStatus as DesktopReleaseUpdateStatus, HomebrewUpdateIndicatorState } from '@astragit/shared';
 import type { DirectReleaseUpdateService as ReleaseUpdateService } from './releaseUpdateService.js';
 export type { HomebrewUpdateIndicatorState } from '@astragit/shared';
 import { type HomebrewInstalledUpdate, type HomebrewPreparedUpdate, type HomebrewUpdateProgress, type HomebrewUpdateService, isTransientHomebrewDownloadError } from './homebrewUpdateService.js';
 import { createNativeUpdateProgressHost, type NativeUpdateProgressHost, type NativeUpdateProgressState } from './nativeUpdateProgress.js';
 
-/** 已下载待手动安装与可直接重启安装是两个不同状态。 */
+/** 下载完成与已安装待重启分别由 method 和 phase 表达。 */
 export type HomebrewUpdateIndicatorPhase = 'idle' | 'available' | 'manual' | 'downloaded' | 'preparing' | 'retrying' | 'ready' | 'failed';
 export type HomebrewUpdateAction = 'check' | 'prepare' | 'restart';
 
@@ -86,11 +86,10 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
       else if (action === 'check') void runExclusive(() => checkForUpdate(true, true).then(() => undefined));
       else if (action === 'open_download_page') void runExclusive(openDownloadPage);
       else if (action === 'open_installer') void runExclusive(openDownloadedUpdate);
-      else if (action === 'reconnect' && updateMethod === 'homebrew') options.homebrew.reconnectDownload();
       else if (action === 'restart') void runExclusive(installPreparedUpdate);
       else if (action === 'retry') {
         if (lastFailureStep === 'install' && prepared) void runExclusive(installPreparedUpdate);
-        else if (lastFailureStep === 'prepare' || lastFailureStep === 'download') void runExclusive(() => prepareUpdate(false));
+        else if (lastFailureStep === 'prepare' || lastFailureStep === 'download' || updateMethod === 'homebrew') void runExclusive(() => prepareUpdate(false));
         else void runExclusive(() => checkForUpdate(true, true).then(() => undefined));
       }
     });
@@ -113,6 +112,7 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
 
   function setIndicator(next: Omit<HomebrewUpdateIndicatorState, 'updatedAt'> & { updatedAt?: string }): void {
     indicatorState = {
+      ...(updateMethod ? { method: updateMethod } : {}),
       ...next,
       updatedAt: next.updatedAt ?? new Date().toISOString(),
     };
@@ -138,6 +138,15 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
       currentUpdate = update;
       const checkedAt = validIsoDate(update.checkedAt) ?? new Date().toISOString();
       for (const listener of checkCompletedListeners) listener(checkedAt);
+      // 已确认安装的新版本等待用户重启；清单变化不能撤销磁盘事实或再次执行升级。
+      if (prepared?.method === 'homebrew' && samePreparedUpdate(prepared, update)) {
+        currentUpdate = readyUpdate(prepared);
+        updateMethod = 'homebrew';
+        phase = 'ready';
+        if (updateIndicator) setIndicator(indicatorForReady(options.language(), currentUpdate, 'homebrew'));
+        if (present) await publish(copyFor(options.language(), 'ready', options.currentVersion, currentUpdate, 'homebrew'));
+        return currentUpdate;
+      }
       if (update.status === 'up_to_date') {
         prepared = null;
         installed = null;
@@ -146,12 +155,12 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
         if (present) await publish(copyFor(options.language(), 'upToDate', options.currentVersion, update));
         return update;
       }
-      if (update.status !== 'available' || !update.artifact) {
-        if (!update.latestVersion || update.latestVersion === update.currentVersion) throw new Error(update.reason || '暂时无法取得可用更新。', { cause: update.error });
+      if (!hasNewerVersion(update)) throw new Error(update.reason || '暂时无法取得可用更新。', { cause: update.error });
+      updateMethod = (await options.homebrew.isManaged()) ? 'homebrew' : 'direct';
+      if (updateMethod === 'direct' && (update.status !== 'available' || !update.artifact)) {
         await publishManualUpdate(update);
         return update;
       }
-      updateMethod = (await options.homebrew.isManaged()) ? 'homebrew' : 'direct';
       const manualReason = updateMethod === 'direct' ? await options.direct.manualInstallReason(update) : null;
       if (manualReason) {
         await publishManualUpdate(update);
@@ -159,42 +168,52 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
       }
       if (prepared && prepared.method === updateMethod && samePreparedUpdate(prepared, update)) {
         phase = 'ready';
-        if (updateIndicator) setIndicator(indicatorForReady(options.language(), update));
-        if (present) await publish(copyFor(options.language(), 'ready', options.currentVersion, update));
+        if (updateIndicator) setIndicator(indicatorForReady(options.language(), update, updateMethod));
+        if (present) await publish(copyFor(options.language(), 'ready', options.currentVersion, update, updateMethod));
         return update;
       }
       prepared = null;
       installed = null;
       phase = 'available';
-      if (updateIndicator) setIndicator(indicatorForAvailable(options.language(), update));
-      if (present) await publish(copyFor(options.language(), 'available', options.currentVersion, update));
+      if (updateIndicator) setIndicator(indicatorForAvailable(options.language(), update, updateMethod));
+      if (present) await publish(copyFor(options.language(), 'available', options.currentVersion, update, updateMethod));
       return update;
     } catch (error) {
+      if (prepared?.method === 'homebrew' && samePreparedUpdate(prepared, prepared.update)) {
+        currentUpdate = readyUpdate(prepared);
+        phase = 'ready';
+        setIndicator(indicatorForReady(options.language(), currentUpdate, 'homebrew'));
+        if (present) await publish(copyFor(options.language(), 'ready', options.currentVersion, currentUpdate, 'homebrew'));
+        // 检查确实失败，调度器稍后再检查；已安装更新仍可直接重启。
+        return null;
+      }
       await publishFailure(error, 'check');
       return null;
     }
   }
 
   async function prepareUpdate(automatic: boolean): Promise<void> {
-    if (!currentUpdate || !updateMethod || phase === 'failed' || currentUpdate.status !== 'available' || !currentUpdate.artifact) {
+    if (!currentUpdate || !updateMethod || phase === 'failed' || !canPrepareUpdate(currentUpdate, updateMethod)) {
       const loaded = await checkForUpdate(!automatic, true);
-      if (!loaded || loaded.status !== 'available' || !loaded.artifact) return;
+      if (!loaded || !updateMethod || !canPrepareUpdate(loaded, updateMethod)) return;
     }
+    if (prepared?.method === 'homebrew' && samePreparedUpdate(prepared, currentUpdate!)) return;
     // 手动安装版本只在用户点击后下载；缺少匹配产物时仍保留发布页入口。
     if (phase === 'manual' && (automatic || !currentUpdate?.artifact)) return;
     phase = 'preparing';
-    lastFailureStep = 'prepare';
+    lastFailureStep = updateMethod === 'homebrew' ? 'install' : 'prepare';
     const update = currentUpdate!;
-    setIndicator(indicatorForPreparing(options.language(), update));
+    setIndicator(indicatorForPreparing(options.language(), update, updateMethod!));
     for (let attempt = 0; ; attempt += 1) {
       try {
         /** 两条下载路径只用真实进度驱动同一窗口。 */
         const onProgress = (progress: HomebrewUpdateProgress): void => {
-          lastFailureStep = progress.phase === 'downloading' || progress.phase === 'reconnecting' ? 'download' : 'prepare';
-          setIndicator(indicatorFromProgress(options.language(), progress, update));
+          lastFailureStep = updateMethod === 'homebrew' ? 'install' : progress.phase === 'downloading' || progress.phase === 'reconnecting' ? 'download' : 'prepare';
+          setIndicator(indicatorFromProgress(options.language(), progress, update, updateMethod!));
           void publish(progressCopy(options.language(), progress, update, updateMethod === 'direct'));
         };
         if (updateMethod === 'homebrew') {
+          options.canInstall();
           prepared = { ...(await options.homebrew.prepare(update, onProgress)), method: 'homebrew' };
         } else {
           const result = await options.direct.download(onProgress);
@@ -207,19 +226,21 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
           }
         }
         phase = 'ready';
-        setIndicator(indicatorForReady(options.language(), prepared.update));
-        await publish(copyFor(options.language(), 'ready', options.currentVersion, prepared.update));
+        const ready = readyUpdate(prepared);
+        currentUpdate = ready;
+        setIndicator(indicatorForReady(options.language(), ready, prepared.method));
+        await publish(copyFor(options.language(), 'ready', options.currentVersion, ready, prepared.method));
         return;
       } catch (error) {
         const retryDelayMs = retryDelaysMs[attempt];
-        if (automatic && retryDelayMs !== undefined && isTransientUpdateDownloadError(error)) {
+        if (updateMethod === 'direct' && automatic && retryDelayMs !== undefined && isTransientUpdateDownloadError(error)) {
           const retryAt = new Date(Date.now() + retryDelayMs).toISOString();
           setIndicator(indicatorForRetry(options.language(), update, retryAt));
           await publish(retryCopy(options.language(), retryAt));
           await wait(retryDelayMs);
           if (closed) return;
           phase = 'preparing';
-          setIndicator(indicatorForPreparing(options.language(), update));
+          setIndicator(indicatorForPreparing(options.language(), update, 'direct'));
           continue;
         }
         prepared = null;
@@ -242,8 +263,8 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
       }
       options.canInstall();
       phase = 'installing';
-      await publish(copyFor(options.language(), 'installing', options.currentVersion, prepared.update));
-      if ((await options.homebrew.isManaged()) !== (prepared.method === 'homebrew')) throw new Error('AstraGit 的安装管理方式已变化，请重新检查更新。');
+      await publish(copyFor(options.language(), 'installing', options.currentVersion, readyUpdate(prepared), prepared.method));
+      if (prepared.method === 'direct' && await options.homebrew.isManaged()) throw new Error('AstraGit 的安装管理方式已变化，请重新检查更新。');
       /** 用户取消退出时保留下载结果；直接安装由原安装器完成退出后的替换。 */
       let accepted: boolean;
       if (prepared.method === 'direct') {
@@ -255,11 +276,11 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
         }
         accepted = result.restartAccepted === true;
       } else {
-        /** 保留本次下载结果，只有用户确认退出后才允许替换正在运行的应用。 */
+        /** brew 已在后台完成安装；退出前仅复验将要重启的真实 App。 */
         const preparedHomebrew = prepared;
         accepted = await options.onInstallReady(async () => {
           const currentHost = await ensureHost();
-          installed ??= await options.homebrew.install(preparedHomebrew, (progress) => {
+          installed = await options.homebrew.install(preparedHomebrew, (progress) => {
             void publish(progressCopy(options.language(), progress, preparedHomebrew.update));
           });
           currentHost.relaunchAfterProcessExit({ pid: process.pid, ...installed! });
@@ -267,8 +288,9 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
       }
       if (!accepted) {
         phase = 'ready';
-        setIndicator(indicatorForReady(options.language(), prepared.update));
-        await publish(copyFor(options.language(), 'ready', options.currentVersion, prepared.update));
+        const ready = readyUpdate(prepared);
+        setIndicator(indicatorForReady(options.language(), ready, prepared.method));
+        await publish(copyFor(options.language(), 'ready', options.currentVersion, ready, prepared.method));
       }
     } catch (error) {
       await publishFailure(error, 'install');
@@ -311,7 +333,7 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
   async function publishFailure(error: unknown, step: UpdateFailureStep): Promise<void> {
     phase = 'failed';
     lastFailureStep = step;
-    const state = failedCopy(options.language(), error, step);
+    const state = failedCopy(options.language(), error, step, updateMethod === 'homebrew' && !prepared && step === 'install');
     setIndicator({
       phase: 'failed',
       currentVersion: options.currentVersion,
@@ -354,7 +376,8 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
         return;
       }
       if (phase === 'manual' || phase === 'downloaded') return;
-      if (input?.blockedPrepareVersion === update.latestVersion && previousIndicator.failure?.step !== 'check' && previousIndicator.phase === 'failed' && previousIndicator.latestVersion === update.latestVersion) {
+      const failedHomebrewUpgrade = previousIndicator.method === 'homebrew' && previousIndicator.failure?.step === 'install';
+      if ((failedHomebrewUpgrade || input?.blockedPrepareVersion === update.latestVersion) && previousIndicator.failure?.step !== 'check' && previousIndicator.phase === 'failed' && previousIndicator.latestVersion === update.latestVersion) {
         phase = 'failed';
         setIndicator({ ...previousIndicator, updatedAt: new Date().toISOString() });
         lastFailureStep = previousIndicator.failure?.step ?? 'check';
@@ -362,10 +385,10 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
         return;
       }
       if (phase === 'ready' && prepared) {
-        setIndicator(indicatorForReady(options.language(), update));
+        setIndicator(indicatorForReady(options.language(), readyUpdate(prepared), prepared.method));
         return;
       }
-      setIndicator(indicatorForAvailable(options.language(), update));
+      setIndicator(indicatorForAvailable(options.language(), update, updateMethod ?? 'direct'));
       await prepareUpdate(true);
     });
     return loaded;
@@ -377,13 +400,13 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
     hidden = true;
     if (action === 'check') await checkAutomatically();
     else if (action === 'prepare') {
-      const canPrepare = phase === 'available' || (phase === 'failed' && (lastFailureStep === 'prepare' || lastFailureStep === 'download'));
+      const canPrepare = phase === 'available' || (phase === 'failed' && (lastFailureStep === 'prepare' || lastFailureStep === 'download' || (updateMethod === 'homebrew' && !prepared)));
       if (canPrepare) await runExclusive(() => prepareUpdate(true));
       else if (operation) await operation;
     } else if (action === 'restart' && phase === 'ready') {
       if (prepared) await runExclusive(installPreparedUpdate);
       else {
-        // 持久化 ready 不是本进程已校验的安装凭据；只复验预取，不能凭恢复状态安装。
+        // 持久化 ready 不能代替本进程的安装复验；先由服务重新读取安装事实。
         await runExclusive(() => prepareUpdate(true));
       }
     }
@@ -393,7 +416,7 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
   return {
     performAction,
     showOrCheck: () => {
-      if (phase === 'preparing' || phase === 'installing' || (phase === 'available' && currentUpdate) || (phase === 'failed' && lastState?.state === 'failed')) return showCurrent();
+      if (phase === 'preparing' || phase === 'installing' || (phase === 'ready' && prepared) || (phase === 'available' && currentUpdate) || (phase === 'failed' && lastState?.state === 'failed')) return showCurrent();
       hidden = false;
       return runExclusive(() => checkForUpdate(true, true).then(() => undefined));
     },
@@ -402,6 +425,7 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
     restoreIndicatorState: (state) => {
       if (!isIndicatorState(state) || state.currentVersion !== options.currentVersion || state.phase === 'idle') return;
       indicatorState = { ...state };
+      updateMethod = state.method ?? null;
       phase = state.phase === 'ready' ? 'ready' : state.phase === 'failed' ? 'failed' : state.phase === 'manual' || state.phase === 'downloaded' ? state.phase : 'available';
       lastFailureStep = state.failure?.step ?? 'check';
       lastState = nativeStateFromIndicator(options.language(), state);
@@ -424,9 +448,26 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
   };
 }
 
-/** 只有安装方式、版本与摘要一致的准备结果才可继续复用。 */
+/** Homebrew 已安装版本是待重启事实；直接下载仍核对对应清单摘要。 */
 function samePreparedUpdate(prepared: PreparedUpdate, update: DesktopReleaseUpdateStatus): boolean {
+  if (prepared.method === 'homebrew') {
+    try { return compareReleaseVersions(prepared.installed.version, prepared.update.currentVersion) > 0; }
+    catch { return false; }
+  }
   return prepared.update.latestVersion === update.latestVersion && prepared.update.artifact?.sha256 === update.artifact?.sha256;
+}
+
+function readyUpdate(prepared: PreparedUpdate): DesktopReleaseUpdateStatus {
+  return prepared.method === 'homebrew' ? { ...prepared.update, latestVersion: prepared.installed.version } : prepared.update;
+}
+
+function hasNewerVersion(update: DesktopReleaseUpdateStatus): boolean {
+  try { return compareReleaseVersions(update.latestVersion, update.currentVersion) > 0; }
+  catch { return false; }
+}
+
+function canPrepareUpdate(update: DesktopReleaseUpdateStatus, method: 'homebrew' | 'direct'): boolean {
+  return method === 'homebrew' ? hasNewerVersion(update) : update.status === 'available' && Boolean(update.artifact);
 }
 
 function idleIndicator(currentVersion: string): HomebrewUpdateIndicatorState {
@@ -439,28 +480,33 @@ function idleIndicator(currentVersion: string): HomebrewUpdateIndicatorState {
   };
 }
 
-function indicatorForAvailable(language: 'zh-CN' | 'en-US', update: DesktopReleaseUpdateStatus): Omit<HomebrewUpdateIndicatorState, 'updatedAt'> {
+function indicatorForAvailable(language: 'zh-CN' | 'en-US', update: DesktopReleaseUpdateStatus, method: 'homebrew' | 'direct'): Omit<HomebrewUpdateIndicatorState, 'updatedAt'> {
   return {
     phase: 'available',
     currentVersion: update.currentVersion,
     latestVersion: update.latestVersion,
-    detail: language === 'zh-CN' ? `AstraGit ${update.latestVersion} 可用，正在准备后台下载。` : `AstraGit ${update.latestVersion} is available and will be downloaded in the background.`,
+    detail: method === 'homebrew'
+      ? language === 'zh-CN' ? `AstraGit ${update.latestVersion} 可用，将通过 Homebrew 在后台升级。` : `AstraGit ${update.latestVersion} is available and will be upgraded through Homebrew in the background.`
+      : language === 'zh-CN' ? `AstraGit ${update.latestVersion} 可用，正在准备后台下载。` : `AstraGit ${update.latestVersion} is available and will be downloaded in the background.`,
   };
 }
 
-function indicatorForPreparing(language: 'zh-CN' | 'en-US', update: DesktopReleaseUpdateStatus): Omit<HomebrewUpdateIndicatorState, 'updatedAt'> {
+function indicatorForPreparing(language: 'zh-CN' | 'en-US', update: DesktopReleaseUpdateStatus, method: 'homebrew' | 'direct'): Omit<HomebrewUpdateIndicatorState, 'updatedAt'> {
   return {
     phase: 'preparing',
     currentVersion: update.currentVersion,
     latestVersion: update.latestVersion,
-    detail: language === 'zh-CN' ? `正在下载并校验 AstraGit ${update.latestVersion}。` : `Downloading and verifying AstraGit ${update.latestVersion}.`,
+    detail: method === 'homebrew'
+      ? language === 'zh-CN' ? '正在通过 Homebrew 后台升级 AstraGit，你可以继续工作。' : 'Upgrading AstraGit through Homebrew in the background. You can keep working.'
+      : language === 'zh-CN' ? `正在下载并校验 AstraGit ${update.latestVersion}。` : `Downloading and verifying AstraGit ${update.latestVersion}.`,
   };
 }
 
-function indicatorFromProgress(language: 'zh-CN' | 'en-US', progress: HomebrewUpdateProgress, update: DesktopReleaseUpdateStatus): Omit<HomebrewUpdateIndicatorState, 'updatedAt'> {
+function indicatorFromProgress(language: 'zh-CN' | 'en-US', progress: HomebrewUpdateProgress, update: DesktopReleaseUpdateStatus, method: 'homebrew' | 'direct'): Omit<HomebrewUpdateIndicatorState, 'updatedAt'> {
   const ratio = progress.downloadedBytes !== undefined && progress.totalBytes !== undefined && progress.totalBytes > 0 ? Math.min(1, progress.downloadedBytes / progress.totalBytes) : undefined;
   return {
-    ...indicatorForPreparing(language, update),
+    ...indicatorForPreparing(language, update, method),
+    detail: progressCopy(language, progress, update, method === 'direct').detail,
     ...(ratio === undefined ? {} : { progress: ratio }),
   };
 }
@@ -475,12 +521,14 @@ function indicatorForRetry(language: 'zh-CN' | 'en-US', update: DesktopReleaseUp
   };
 }
 
-function indicatorForReady(language: 'zh-CN' | 'en-US', update: DesktopReleaseUpdateStatus): Omit<HomebrewUpdateIndicatorState, 'updatedAt'> {
+function indicatorForReady(language: 'zh-CN' | 'en-US', update: DesktopReleaseUpdateStatus, method: 'homebrew' | 'direct'): Omit<HomebrewUpdateIndicatorState, 'updatedAt'> {
   return {
     phase: 'ready',
     currentVersion: update.currentVersion,
     latestVersion: update.latestVersion,
-    detail: language === 'zh-CN' ? `AstraGit ${update.latestVersion} 已下载并通过校验，等待你决定何时重启。` : `AstraGit ${update.latestVersion} is downloaded and verified, waiting for you to choose when to restart.`,
+    detail: method === 'homebrew'
+      ? language === 'zh-CN' ? `AstraGit ${update.latestVersion} 已通过 Homebrew 安装，重启后生效。` : `AstraGit ${update.latestVersion} is installed through Homebrew. Restart to use the new version.`
+      : language === 'zh-CN' ? `AstraGit ${update.latestVersion} 已下载并通过校验，等待你决定何时重启。` : `AstraGit ${update.latestVersion} is downloaded and verified, waiting for you to choose when to restart.`,
     progress: 1,
   };
 }
@@ -510,7 +558,7 @@ function manualCopy(language: 'zh-CN' | 'en-US', update: DesktopReleaseUpdateSta
   };
 }
 
-function copyFor(language: 'zh-CN' | 'en-US', state: 'checking' | 'available' | 'upToDate' | 'ready' | 'installing', currentVersion: string, update?: DesktopReleaseUpdateStatus): NativeUpdateProgressState {
+function copyFor(language: 'zh-CN' | 'en-US', state: 'checking' | 'available' | 'upToDate' | 'ready' | 'installing', currentVersion: string, update?: DesktopReleaseUpdateStatus, method: 'homebrew' | 'direct' = 'direct'): NativeUpdateProgressState {
   const zh = language === 'zh-CN';
   const latestVersion = update?.latestVersion ?? currentVersion;
   if (state === 'checking') {
@@ -525,7 +573,10 @@ function copyFor(language: 'zh-CN' | 'en-US', state: 'checking' | 'available' | 
     return {
       state,
       title: zh ? '发现新版本' : 'A New Version Is Available',
-      detail: zh ? `当前版本 ${currentVersion}，最新版本 ${latestVersion}。AstraGit 可以在后台下载并校验更新。` : `Current version ${currentVersion}; latest version ${latestVersion}. AstraGit can download and verify the update in the background.`,
+      detail: method === 'homebrew'
+        ? zh ? `当前版本 ${currentVersion}，最新版本 ${latestVersion}。Homebrew 会在后台完成升级，重启后生效。` : `Current version ${currentVersion}; latest version ${latestVersion}. Homebrew will upgrade the app in the background. Restart when ready.`
+        : zh ? `当前版本 ${currentVersion}，最新版本 ${latestVersion}。AstraGit 可以在后台下载并校验更新。` : `Current version ${currentVersion}; latest version ${latestVersion}. AstraGit can download and verify the update in the background.`,
+      ...(method === 'homebrew' ? { primaryActionTitle: zh ? '更新' : 'Update' } : {}),
     };
   }
   if (state === 'upToDate') {
@@ -538,10 +589,18 @@ function copyFor(language: 'zh-CN' | 'en-US', state: 'checking' | 'available' | 
   if (state === 'ready') {
     return {
       state,
-      title: zh ? '更新已下载' : 'Update Downloaded',
-      detail: zh ? `AstraGit ${latestVersion} 已下载并通过校验。点击“立即重启”后才会安装并切换到新版。` : `AstraGit ${latestVersion} has been downloaded and verified. It will only be installed after you choose Restart Now.`,
+      title: method === 'homebrew' ? zh ? '更新已安装' : 'Update Installed' : zh ? '更新已下载' : 'Update Downloaded',
+      detail: method === 'homebrew'
+        ? zh ? `AstraGit ${latestVersion} 已通过 Homebrew 安装。点击“立即重启”切换到新版。` : `AstraGit ${latestVersion} is installed through Homebrew. Choose Restart Now to use the new version.`
+        : zh ? `AstraGit ${latestVersion} 已下载并通过校验。点击“立即重启”后才会安装并切换到新版。` : `AstraGit ${latestVersion} has been downloaded and verified. It will only be installed after you choose Restart Now.`,
     };
   }
+  if (method === 'homebrew') return {
+    state,
+    title: zh ? '正在重启 AstraGit' : 'Restarting AstraGit',
+    detail: zh ? '正在核对已安装的应用，随后重新打开 AstraGit。' : 'Checking the installed app before reopening AstraGit.',
+    progressCaption: zh ? '正在重启' : 'Restarting',
+  };
   return {
     state,
     title: zh ? '正在安装更新' : 'Installing Update',
@@ -564,8 +623,10 @@ function progressCopy(language: 'zh-CN' | 'en-US', progress: HomebrewUpdateProgr
     return {
       state: 'verifying',
       title: zh ? '正在校验更新' : 'Verifying Update',
-      detail: zh ? `正在检查 AstraGit ${update.latestVersion} 更新包是否完整。` : `Checking that the AstraGit ${update.latestVersion} update package is complete.`,
-      progressCaption: zh ? '正在校验下载内容' : 'Verifying downloaded update',
+      detail: !direct
+        ? zh ? '正在核对 Homebrew 已安装的 AstraGit。' : 'Checking the AstraGit app installed by Homebrew.'
+        : zh ? `正在检查 AstraGit ${update.latestVersion} 更新包是否完整。` : `Checking that the AstraGit ${update.latestVersion} update package is complete.`,
+      progressCaption: !direct ? zh ? '正在核对已安装应用' : 'Checking installed app' : zh ? '正在校验下载内容' : 'Verifying downloaded update',
     };
   }
   if (progress.phase === 'reconnecting') {
@@ -578,7 +639,12 @@ function progressCopy(language: 'zh-CN' | 'en-US', progress: HomebrewUpdateProgr
       progressCaption: zh ? `第 ${progress.reconnectCount ?? 1} 次重新连接` : `Reconnect ${progress.reconnectCount ?? 1}`,
     };
   }
-  if (progress.phase === 'installing') return copyFor(language, 'installing', update.currentVersion, update);
+  if (progress.phase === 'installing') return direct ? copyFor(language, 'installing', update.currentVersion, update) : {
+    state: 'installing',
+    title: zh ? '正在通过 Homebrew 升级' : 'Upgrading through Homebrew',
+    detail: zh ? 'Homebrew 正在下载并安装 AstraGit，你可以继续工作。完成后再决定何时重启。' : 'Homebrew is downloading and installing AstraGit. You can keep working and choose when to restart after it finishes.',
+    progressCaption: zh ? '正在运行 brew upgrade' : 'Running brew upgrade',
+  };
   const totalBytes = progress.totalBytes;
   const downloadedBytes = progress.downloadedBytes;
   const ratio = downloadedBytes !== undefined && totalBytes !== undefined && totalBytes > 0 ? Math.min(1, downloadedBytes / totalBytes) : undefined;
@@ -592,7 +658,7 @@ function progressCopy(language: 'zh-CN' | 'en-US', progress: HomebrewUpdateProgr
       ? `正在下载 AstraGit ${update.latestVersion}${reconnectCount > 0 ? `；已重新连接 ${reconnectCount} 次` : ''}。你可以继续使用 AstraGit。`
       : `Downloading AstraGit ${update.latestVersion}${reconnectCount > 0 ? `; reconnected ${reconnectCount} time${reconnectCount === 1 ? '' : 's'}` : ''}. You can keep using AstraGit.`,
     progressCaption: zh ? `正在下载 AstraGit ${update.latestVersion}` : `Downloading AstraGit ${update.latestVersion}`,
-    canReconnect: !direct,
+    canReconnect: false,
     ...(ratio === undefined ? {} : { progress: ratio }),
     ...(percentText === null ? {} : { progressText: speedText === null ? percentText : `${percentText} · ${speedText}` }),
   };
@@ -608,12 +674,12 @@ function retryCopy(language: 'zh-CN' | 'en-US', retryAt: string): NativeUpdatePr
   };
 }
 
-function failedCopy(language: 'zh-CN' | 'en-US', error: unknown, step: UpdateFailureStep): NativeUpdateProgressState {
+function failedCopy(language: 'zh-CN' | 'en-US', error: unknown, step: UpdateFailureStep, allowUpgradeRetry = false): NativeUpdateProgressState {
   const zh = language === 'zh-CN';
   const explanation = describeUserFacingError(error, language);
   const technicalDetail = redactUserFacingErrorDetails(explanation.details);
   // 下载失败只有已识别的短暂中断可以直接重试；安装失败先处理具体原因。
-  const canRetry = step !== 'install' && (explanation.action === 'retry' || isTransientUpdateDownloadError(error));
+  const canRetry = allowUpgradeRetry || (step !== 'install' && (explanation.action === 'retry' || isTransientUpdateDownloadError(error)));
   const copy = {
     check: {
       title: zh ? '无法检查更新' : 'Could Not Check for Updates',
@@ -643,7 +709,7 @@ function nativeStateFromIndicator(language: 'zh-CN' | 'en-US', state: HomebrewUp
   if (state.phase === 'ready') {
     return {
       state: 'ready',
-      title: zh ? '更新已下载' : 'Update Downloaded',
+      title: state.method === 'homebrew' ? zh ? '更新已安装' : 'Update Installed' : zh ? '更新已就绪' : 'Update Ready',
       detail: state.detail,
       present: false,
     };
@@ -654,7 +720,7 @@ function nativeStateFromIndicator(language: 'zh-CN' | 'en-US', state: HomebrewUp
       title: state.failure?.title ?? (zh ? '更新未完成' : 'Update Incomplete'),
       detail: state.detail,
       technicalDetail: state.failure?.technicalDetail,
-      canRetry: state.failure?.canRetry === true && state.failure.step !== 'install',
+      canRetry: state.failure?.canRetry === true && (state.failure.step !== 'install' || state.method === 'homebrew'),
       present: false,
     };
   if (state.phase === 'manual') return { state: 'manual', title: zh ? '发现新版本' : 'A New Version Is Available', detail: state.detail, present: false };
@@ -670,6 +736,7 @@ function isIndicatorState(value: HomebrewUpdateIndicatorState): boolean {
   return (
     Boolean(value) &&
     ['idle', 'available', 'manual', 'downloaded', 'preparing', 'retrying', 'ready', 'failed'].includes(value.phase) &&
+    (value.method === undefined || value.method === 'homebrew' || value.method === 'direct') &&
     typeof value.currentVersion === 'string' &&
     (value.latestVersion === null || typeof value.latestVersion === 'string') &&
     typeof value.detail === 'string' &&

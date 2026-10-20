@@ -754,6 +754,7 @@ const explanations: ReadonlyArray<readonly [codes: readonly string[], explanatio
     ['安装后的应用名称或版本与目标更新不符，AstraGit 已停止自动启动。请查看安装详情。', 'The installed app’s identity or version does not match the update. AstraGit stopped automatic relaunch. See the installation details.'],
   ],
   [['ASTRAGIT_UPDATE_DOWNLOAD_INTERRUPTED'], ['更新下载中断，当前版本仍可使用。可以重新下载。', 'The update download was interrupted. You can keep using the current version and download again.', 'retry']],
+  [['ASTRAGIT_UPDATE_HOMEBREW_NO_UPGRADE'], ['Homebrew 已执行升级，但尚未提供比当前运行版本更新的安装。请稍后重新检查更新。', 'Homebrew ran the upgrade, but did not install a version newer than the running app. Check for updates again later.', 'check']],
   [
     ['ASTRAGIT_RELEASE_MANIFEST_NETWORK'],
     [

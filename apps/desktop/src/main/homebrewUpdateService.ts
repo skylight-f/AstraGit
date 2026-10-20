@@ -1,23 +1,15 @@
 import { distributionAppName, astragitDistribution, astragitHomebrewCask } from './desktopDistribution.js';
-import { execFile as execFileCallback, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { constants as fsConstants, createReadStream, type Stats } from 'node:fs';
+import { execFile as execFileCallback } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
 import { access, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import type { ReleaseUpdateStatus as DesktopReleaseUpdateStatus } from '@astragit/shared';
+import { compareReleaseVersions, type ReleaseUpdateStatus as DesktopReleaseUpdateStatus } from '@astragit/shared';
 
 const execFile = promisify(execFileCallback);
 const caskToken = astragitHomebrewCask;
 const commandOutputLimit = 8 * 1024 * 1024;
-const progressOutputLimit = 4 * 1024;
-const downloadProgressPollIntervalMs = 500;
-const downloadSpeedDisplayWindowMs = 5_000;
-const defaultDownloadStallWindowMs = 30_000;
-const defaultMinimumDownloadBytesPerSecond = 16 * 1024;
-const defaultMinimumRemainingBytesForReconnect = 8 * 1024 * 1024;
-const ansiEscapePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'gu');
 
 export interface HomebrewUpdateProgress {
   phase: 'updating' | 'downloading' | 'reconnecting' | 'verifying' | 'installing';
@@ -26,659 +18,148 @@ export interface HomebrewUpdateProgress {
   bytesPerSecond?: number;
   reconnectCount?: number;
 }
-
+export interface HomebrewInstalledUpdate { appPath: string; bundleId: string; version: string }
 export interface HomebrewPreparedUpdate {
   update: DesktopReleaseUpdateStatus;
   brewPath: string;
-  cachePath: string;
-  verifiedArtifact: VerifiedArtifactIdentity;
+  installed: HomebrewInstalledUpdate;
 }
-
-export interface HomebrewInstalledUpdate {
-  appPath: string;
-  bundleId: string;
-  version: string;
-}
-
 export interface HomebrewUpdateService {
-  /** 只查询本机安装记录；来源或路径冲突必须报错，不能自动接管。 */
   isManaged(): Promise<boolean>;
+  /** Homebrew 完整负责更新、下载、校验和安装；成功后只等待用户重启。 */
   prepare(update: DesktopReleaseUpdateStatus, onProgress: (progress: HomebrewUpdateProgress) => void): Promise<HomebrewPreparedUpdate>;
+  /** 重启前复验真实安装，不再执行第二次 upgrade。 */
   install(prepared: HomebrewPreparedUpdate, onProgress: (progress: HomebrewUpdateProgress) => void): Promise<HomebrewInstalledUpdate>;
-
   reconnectDownload(): boolean;
 }
-
 export class HomebrewUpdateError extends Error {
-  constructor(
-    message: string,
-    readonly kind: 'transient_download' | 'structural',
-  ) {
-    super(message);
-    this.name = 'HomebrewUpdateError';
-    // 保留下载分类供提示使用，重试仍由原有下载状态决定。
+  constructor(message: string, readonly kind: 'transient_download' | 'structural') {
+    super(message); this.name = 'HomebrewUpdateError';
     if (kind === 'transient_download') this.cause = { code: 'ASTRAGIT_UPDATE_DOWNLOAD_INTERRUPTED', message };
   }
 }
-
 export function isTransientHomebrewDownloadError(error: unknown): boolean {
   return error instanceof HomebrewUpdateError && error.kind === 'transient_download';
 }
+interface CreateHomebrewUpdateServiceOptions { currentAppPath: string; currentAppVersion: string; bundleId: string; testMode: boolean }
+interface HomebrewCaskInfo { installedVersion: string | null; tap: string; appTarget: string | null }
 
-interface CreateHomebrewUpdateServiceOptions {
-  currentAppPath: string;
-  currentAppVersion: string;
-  bundleId: string;
-  testMode: boolean;
-}
-
-interface HomebrewCaskInfo {
-  version: string;
-  installedVersion: string | null;
-  tap: string;
-  url: string;
-  sha256: string;
-  appTarget: string | null;
-}
-
-interface VerifiedArtifactIdentity {
-  device: number;
-  inode: number;
-  size: number;
-  modifiedAtMs: number;
-  changedAtMs: number;
-}
-
-interface DownloadRecoveryPolicy {
-  stallWindowMs: number;
-  minimumBytesPerSecond: number;
-  minimumRemainingBytes: number;
-}
-
-/** Homebrew 继续拥有 Cask 版本登记；AstraGit 只编排预取、复验和用户确认后的安装。 */
 export function createHomebrewUpdateService(options: CreateHomebrewUpdateServiceOptions): HomebrewUpdateService {
-  const recoveryPolicy = downloadRecoveryPolicy(options.testMode);
-  let reconnectActiveDownload: (() => boolean) | null = null;
+  let preparing: Promise<HomebrewPreparedUpdate> | null = null;
+  async function prepare(update: DesktopReleaseUpdateStatus, onProgress: (progress: HomebrewUpdateProgress) => void): Promise<HomebrewPreparedUpdate> {
+    if (process.platform !== 'darwin') throw new Error('Homebrew Cask 升级只支持 macOS。');
+    if (update.currentVersion !== options.currentAppVersion) throw new Error('更新状态与当前 AstraGit App 版本不一致。');
+    const brewPath = await resolveHomebrewBinary(options.testMode);
+    if (!brewPath) throw new Error('未找到 Homebrew。请先安装 Homebrew，再重试 AstraGit 更新。');
+    const current = await validateManagedCask(await inspectCask(brewPath), options);
+    if (compareReleaseVersions(current.version, options.currentAppVersion) > 0) return { update, brewPath, installed: current };
+    onProgress({ phase: 'installing' });
+    // 与终端手动升级使用相同参数，交由 Homebrew 自行刷新元数据和处理安装包。
+    await runBrew(brewPath, ['upgrade', '--cask', caskToken], true, 30 * 60_000);
+    onProgress({ phase: 'verifying' });
+    const installed = await validateManagedCask(await inspectCask(brewPath), options);
+    if (compareReleaseVersions(installed.version, options.currentAppVersion) <= 0) {
+      throw new Error(`Homebrew 已执行升级，但当前没有比运行版本 ${options.currentAppVersion} 更新的可安装版本（当前安装 ${installed.version}）。请稍后重新检查。`, {
+        cause: { code: 'ASTRAGIT_UPDATE_HOMEBREW_NO_UPGRADE', message: 'Homebrew did not install a newer version' },
+      });
+    }
+    return { update, brewPath, installed };
+  }
   return {
-    /** 未安装 Homebrew 或未登记 AstraGit 时交给直接更新，其他查询错误保留原始原因。 */
     async isManaged() {
       if (!astragitDistribution.homebrewEnabled) return false;
       const brewPath = await resolveHomebrewBinary(options.testMode);
       if (!brewPath) return false;
-      const { stdout } = await runBrew(brewPath, ['list', '--cask', '--versions'], { timeoutMs: 60_000, allowAutoUpdate: false });
-      if (!stdout.split(/\r?\n/u).some((line) => [astragitDistribution.cask, caskToken].includes(line.trim().split(/\s/u)[0]))) return false;
-      const cask = await inspectCask(brewPath);
-      await validateManagedCask(cask, options);
+      const { stdout } = await runBrew(brewPath, ['list', '--cask', '--versions']);
+      if (!stdout.split(/\r?\n/u).some(line => [astragitDistribution.cask, caskToken].includes(line.trim().split(/\s/u)[0]))) return false;
+      await validateManagedCask(await inspectCask(brewPath), options);
       return true;
     },
-
-    async prepare(update, onProgress) {
-      assertUpdateCanUseHomebrew(update, options);
-      const brewPath = await resolveHomebrewBinary(options.testMode);
-      if (!brewPath) throw new Error('未找到 Homebrew。请先安装 Homebrew，再重试 AstraGit 更新。');
-      let cask = await retryOperation(() => inspectCask(brewPath), 2);
-      await validateManagedCask(cask, options);
-      if (!caskMatchesRelease(cask, update)) {
-        onProgress({ phase: 'updating' });
-        await retryOperation(() => runBrew(brewPath, ['update'], { timeoutMs: 5 * 60_000, allowAutoUpdate: true }), 2);
-        cask = await retryOperation(() => inspectCask(brewPath), 2);
-      }
-      validateCask(cask, update, options.currentAppPath);
-      const cachePath = await readCachePath(brewPath, options.testMode);
-      const artifact = update.artifact!;
-      onProgress({ phase: 'verifying' });
-      const cachedArtifact = await verifyArtifact(cachePath, artifact.sha256, artifact.sizeBytes);
-      if (cachedArtifact) return { update, brewPath, cachePath, verifiedArtifact: cachedArtifact };
-
-      onProgress({ phase: 'downloading', ...(artifact.sizeBytes === null ? {} : { totalBytes: artifact.sizeBytes }) });
-      let fetchAttempt = 0;
-      await retryOperation(
-        () => {
-          const reconnectCount = fetchAttempt;
-          fetchAttempt += 1;
-          if (reconnectCount > 0) onProgress({ phase: 'reconnecting', reconnectCount });
-          return fetchCask(brewPath, cachePath, artifact.sizeBytes, onProgress, options.testMode, reconnectCount, recoveryPolicy, (reconnect) => {
-            reconnectActiveDownload = reconnect;
-          });
-        },
-        2,
-        isTransientHomebrewDownloadError,
-      );
-      onProgress({ phase: 'verifying' });
-      const downloadedArtifact = await verifyArtifact(cachePath, artifact.sha256, artifact.sizeBytes);
-      if (!downloadedArtifact) throw new Error('Homebrew 下载完成，但缓存安装包未通过发布清单校验。');
-      return { update, brewPath, cachePath, verifiedArtifact: downloadedArtifact };
+    prepare(update, onProgress) {
+      if (preparing) return preparing;
+      const pending = prepare(update, onProgress).finally(() => { if (preparing === pending) preparing = null; });
+      preparing = pending;
+      return pending;
     },
-
     async install(prepared, onProgress) {
-      assertUpdateCanUseHomebrew(prepared.update, options);
-      const artifact = prepared.update.artifact!;
-      if (!(await matchesArtifactIdentity(prepared.cachePath, prepared.verifiedArtifact))) {
-        const reverifiedArtifact = await verifyArtifact(prepared.cachePath, artifact.sha256, artifact.sizeBytes);
-        if (!reverifiedArtifact) throw new Error('已预取的更新包已变化或不完整，请重新下载。');
-        prepared.verifiedArtifact = reverifiedArtifact;
-      }
-      const beforeInstall = await inspectCask(prepared.brewPath);
-      await validateManagedCask(beforeInstall, options);
-      validateCask(beforeInstall, prepared.update, options.currentAppPath);
-      onProgress({ phase: 'installing' });
-      await runBrew(prepared.brewPath, ['upgrade', '--cask', '--no-quit', '--yes', '--require-sha', caskToken], {
-        timeoutMs: 15 * 60_000,
-        allowAutoUpdate: false,
-      });
-      const installed = await inspectCask(prepared.brewPath);
-      if (installed.installedVersion !== prepared.update.latestVersion) {
-        throw new Error(`Homebrew 安装后版本不一致：expected=${prepared.update.latestVersion} actual=${installed.installedVersion ?? 'none'}`, {
-          cause: { code: 'ASTRAGIT_UPDATE_INSTALLED_IDENTITY_MISMATCH', message: 'Installed app does not match the requested release' },
+      onProgress({ phase: 'verifying' });
+      const installed = await validateManagedCask(await inspectCask(prepared.brewPath), options);
+      if (compareReleaseVersions(installed.version, prepared.installed.version) < 0 || compareReleaseVersions(installed.version, options.currentAppVersion) <= 0) {
+        throw new Error('Homebrew 安装后的 AstraGit App 版本已变化，已停止重启，请重新检查更新。', {
+          cause: { code: 'ASTRAGIT_UPDATE_INSTALLED_IDENTITY_MISMATCH', message: 'Installed app changed before relaunch' },
         });
       }
-      if (installed.appTarget !== resolve(options.currentAppPath)) {
-        throw new Error('Homebrew 安装后的 AstraGit App 位置与当前日常正式应用不一致。');
-      }
-      if (!installed.appTarget) throw new Error('Homebrew 安装后没有返回 AstraGit App 的精确位置。');
-      return inspectInstalledApp(installed.appTarget, options.bundleId, [prepared.update.latestVersion]);
+      return installed;
     },
-
-    reconnectDownload() {
-      return reconnectActiveDownload?.() ?? false;
-    },
+    // 升级是一个 Homebrew 命令，不再由应用终止或重连其下载子进程。
+    reconnectDownload: () => false,
   };
 }
 
-/** 安装登记不能代替磁盘事实；退出旧进程前必须复验将要重启的真实 App。 */
-async function inspectInstalledApp(appPath: string, expectedBundleId: string, expectedVersions: readonly string[]): Promise<HomebrewInstalledUpdate> {
-  const resolvedAppPath = resolve(appPath);
-  const appStat = await stat(resolvedAppPath).catch(() => null);
-  if (!appStat?.isDirectory()) throw new Error('Homebrew 安装后的 AstraGit App 不存在。');
-  const infoPlistPath = join(resolvedAppPath, 'Contents', 'Info.plist');
-  const [bundleId, shortVersion, bundleVersion] = await Promise.all([readPlistString(infoPlistPath, 'CFBundleIdentifier'), readPlistString(infoPlistPath, 'CFBundleShortVersionString'), readPlistString(infoPlistPath, 'CFBundleVersion')]);
-  if (bundleId !== expectedBundleId) {
-    throw new Error(`Homebrew 安装后的 AstraGit App 身份不一致：expected=${expectedBundleId} actual=${bundleId}`, { cause: { code: 'ASTRAGIT_UPDATE_INSTALLED_IDENTITY_MISMATCH', message: 'Installed app does not match the requested release' } });
-  }
-  if (shortVersion !== bundleVersion || !expectedVersions.includes(shortVersion)) {
-    throw new Error(`Homebrew 安装后的 AstraGit App 版本不一致：expected=${expectedVersions.join('|')} actual=${shortVersion} (${bundleVersion})`, {
-      cause: { code: 'ASTRAGIT_UPDATE_INSTALLED_IDENTITY_MISMATCH', message: 'Installed app does not match the requested release' },
-    });
-  }
-  return { appPath: resolvedAppPath, bundleId, version: shortVersion };
-}
-
-async function readPlistString(infoPlistPath: string, key: string): Promise<string> {
-  try {
-    const { stdout } = await execFile('/usr/bin/plutil', ['-extract', key, 'raw', '-o', '-', infoPlistPath], {
-      encoding: 'utf8',
-      timeout: 10_000,
-      maxBuffer: 64 * 1024,
-    });
-    const value = stdout.trim();
-    if (!value) throw new Error('值为空');
-    return value;
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`无法读取 Homebrew 安装后的 AstraGit App 身份字段 ${key}：${detail}`);
-  }
-}
-
-function assertUpdateCanUseHomebrew(update: DesktopReleaseUpdateStatus, options: CreateHomebrewUpdateServiceOptions): void {
-  if (process.platform !== 'darwin') throw new Error('Homebrew Cask 升级只支持 macOS。');
-  if (update.status !== 'available' || !update.artifact) throw new Error('当前没有可预取的 AstraGit 更新。');
-  if (update.currentVersion !== options.currentAppVersion) throw new Error('更新状态与当前 AstraGit App 版本不一致。');
-  const expectedArch = process.arch === 'x64' ? 'x64' : 'arm64';
-  if (update.artifact.arch !== expectedArch) throw new Error('更新安装包与当前 Mac 架构不一致。');
-}
-
-/** 版本漂移可以由 Homebrew 收敛，但当前 App 的路径、身份和实际版本必须可信。 */
-async function validateManagedCask(cask: HomebrewCaskInfo, options: CreateHomebrewUpdateServiceOptions): Promise<void> {
+async function validateManagedCask(cask: HomebrewCaskInfo, options: CreateHomebrewUpdateServiceOptions): Promise<HomebrewInstalledUpdate> {
   if (cask.tap !== astragitDistribution.homebrewTap) throw new Error('AstraGit 只允许使用本发行版配置的 Homebrew Tap 升级。');
   if (!cask.installedVersion) throw new Error('当前 AstraGit 没有目标 Homebrew Cask 管理收据，不能自动接管安装。');
-  if (cask.appTarget !== resolve(options.currentAppPath)) {
-    throw new Error('Homebrew Cask 管理的 AstraGit App 不是当前正在使用的日常正式应用。');
-  }
-  // 未重启时磁盘 App 可能已是 Homebrew 刚安装的版本；路径和身份仍必须严格一致。
-  await inspectInstalledApp(options.currentAppPath, options.bundleId, [options.currentAppVersion, cask.installedVersion]);
+  if (cask.appTarget !== resolve(options.currentAppPath)) throw new Error('Homebrew Cask 管理的 AstraGit App 不是当前正在使用的日常正式应用。');
+  return inspectInstalledApp(cask.appTarget, options.bundleId, cask.installedVersion);
 }
-
-/** 缺少安装工具是合法安装方式；执行失败不冒充工具缺失。 */
+async function inspectInstalledApp(appPath: string, expectedBundleId: string, receiptVersion: string): Promise<HomebrewInstalledUpdate> {
+  const appStat = await stat(appPath).catch(() => null);
+  if (!appStat?.isDirectory()) throw new Error('Homebrew 安装后的 AstraGit App 不存在。');
+  const plist = join(appPath, 'Contents', 'Info.plist');
+  const [bundleId, shortVersion, bundleVersion] = await Promise.all(['CFBundleIdentifier', 'CFBundleShortVersionString', 'CFBundleVersion'].map(key => readPlistString(plist, key)));
+  if (bundleId !== expectedBundleId || shortVersion !== bundleVersion || shortVersion !== receiptVersion) {
+    throw new Error(`Homebrew 安装收据与真实 AstraGit App 身份或版本不一致：receipt=${receiptVersion} app=${shortVersion} (${bundleVersion})`, {
+      cause: { code: 'ASTRAGIT_UPDATE_INSTALLED_IDENTITY_MISMATCH', message: 'Installed app does not match its Homebrew receipt' },
+    });
+  }
+  return { appPath: resolve(appPath), bundleId, version: shortVersion! };
+}
+async function readPlistString(path: string, key: string): Promise<string> {
+  const { stdout } = await execFile('/usr/bin/plutil', ['-extract', key, 'raw', '-o', '-', path], { encoding: 'utf8', timeout: 10_000, maxBuffer: 64 * 1024 });
+  if (!stdout.trim()) throw new Error(`无法读取 Homebrew 安装后的 AstraGit App 身份字段 ${key}。`);
+  return stdout.trim();
+}
+async function inspectCask(brewPath: string): Promise<HomebrewCaskInfo> {
+  const { stdout } = await runBrew(brewPath, ['info', '--cask', '--json=v2', caskToken]);
+  let value: unknown;
+  try { value = JSON.parse(stdout); } catch { throw new Error('Homebrew 返回的 AstraGit Cask 信息不是有效 JSON。'); }
+  if (!isRecord(value) || !Array.isArray(value.casks) || value.casks.length !== 1 || !isRecord(value.casks[0])) throw new Error('Homebrew 没有返回唯一的 AstraGit Cask。');
+  const cask = value.casks[0];
+  let appTarget: string | null = null;
+  for (const artifact of Array.isArray(cask.artifacts) ? cask.artifacts : []) {
+    if (isRecord(artifact) && Array.isArray(artifact.app) && artifact.app.includes(`${distributionAppName}.app`) && typeof artifact.target === 'string') appTarget = resolve(artifact.target);
+  }
+  if (typeof cask.tap !== 'string') throw new Error('Homebrew AstraGit Cask 缺少必要版本或产物信息。');
+  return { tap: cask.tap, installedVersion: typeof cask.installed === 'string' && cask.installed.trim() ? cask.installed.trim() : null, appTarget };
+}
 async function resolveHomebrewBinary(testMode: boolean): Promise<string | null> {
-  const testOverride = process.env.ASTRAGIT_HOMEBREW_BIN?.trim();
-  if (testOverride) {
+  const override = process.env.ASTRAGIT_HOMEBREW_BIN?.trim();
+  if (override) {
     if (!testMode) throw new Error('ASTRAGIT_HOMEBREW_BIN 只允许隔离测试包使用。');
-    const candidate = resolve(testOverride);
-    if (!isAbsolute(testOverride) || !isUnderTemporaryDirectory(candidate)) throw new Error('隔离 Homebrew 替身必须位于系统临时目录。');
-    await access(candidate, fsConstants.X_OK);
-    return candidate;
+    const candidate = resolve(override);
+    if (!isAbsolute(override) || !isUnderTemporaryDirectory(candidate)) throw new Error('隔离 Homebrew 替身必须位于系统临时目录。');
+    await access(candidate, fsConstants.X_OK); return candidate;
   }
   for (const candidate of ['/opt/homebrew/bin/brew', '/usr/local/bin/brew']) {
-    try {
-      await access(candidate, fsConstants.X_OK);
-      return candidate;
-    } catch (error) {
-      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
-    }
+    try { await access(candidate, fsConstants.X_OK); return candidate; }
+    catch (error) { if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error; }
   }
   return null;
 }
-
-async function inspectCask(brewPath: string): Promise<HomebrewCaskInfo> {
-  const { stdout } = await runBrew(brewPath, ['info', '--cask', '--json=v2', caskToken], { timeoutMs: 60_000, allowAutoUpdate: false });
-  let value: unknown;
-  try {
-    value = JSON.parse(stdout);
-  } catch {
-    throw new Error('Homebrew 返回的 AstraGit Cask 信息不是有效 JSON。');
-  }
-  if (!isRecord(value) || !Array.isArray(value.casks) || value.casks.length !== 1 || !isRecord(value.casks[0])) {
-    throw new Error('Homebrew 没有返回唯一的 AstraGit Cask。');
-  }
-  const cask = value.casks[0];
-  const artifacts = Array.isArray(cask.artifacts) ? cask.artifacts : [];
-  let appTarget: string | null = null;
-  for (const artifact of artifacts) {
-    if (!isRecord(artifact) || !Array.isArray(artifact.app) || typeof artifact.target !== 'string') continue;
-    if (artifact.app.includes(`${distributionAppName}.app`)) appTarget = resolve(artifact.target);
-  }
-  const installedVersion = typeof cask.installed === 'string' && cask.installed.trim() ? cask.installed.trim() : null;
-  if (typeof cask.version !== 'string' || typeof cask.tap !== 'string' || typeof cask.url !== 'string' || typeof cask.sha256 !== 'string') {
-    throw new Error('Homebrew AstraGit Cask 缺少必要版本或产物信息。');
-  }
-  return {
-    version: cask.version,
-    installedVersion,
-    tap: cask.tap,
-    url: cask.url,
-    sha256: cask.sha256,
-    appTarget,
-  };
-}
-
-function validateCask(cask: HomebrewCaskInfo, update: DesktopReleaseUpdateStatus, currentAppPath: string): void {
-  if (cask.tap !== astragitDistribution.homebrewTap) throw new Error('AstraGit 只允许使用本发行版配置的 Homebrew Tap 升级。');
-  if (!cask.installedVersion) throw new Error('当前 AstraGit 没有目标 Homebrew Cask 管理收据，不能自动接管安装。');
-  if (!caskMatchesRelease(cask, update)) {
-    throw new Error('Homebrew Cask 与 AstraGit 发布清单不一致，为避免安装错误版本已停止升级。');
-  }
-  if (cask.appTarget !== resolve(currentAppPath)) {
-    throw new Error('Homebrew Cask 管理的 AstraGit App 不是当前正在使用的日常正式应用。');
-  }
-}
-
-function caskMatchesRelease(cask: HomebrewCaskInfo, update: DesktopReleaseUpdateStatus): boolean {
-  const artifact = update.artifact!;
-  return cask.version === update.latestVersion && cask.sha256 === artifact.sha256 && cask.url === artifact.downloadUrl;
-}
-
-async function readCachePath(brewPath: string, testMode: boolean): Promise<string> {
-  const { stdout } = await retryOperation(() => runBrew(brewPath, ['--cache', '--cask', caskToken], { timeoutMs: 60_000, allowAutoUpdate: false }), 2);
-  const cachePath = resolve(stdout.trim());
-  if (!stdout.trim() || !isAbsolute(stdout.trim())) throw new Error('Homebrew 没有返回有效的 AstraGit 缓存路径。');
-  if (testMode && process.env.ASTRAGIT_HOMEBREW_BIN?.trim() && !isUnderTemporaryDirectory(cachePath)) {
-    throw new Error('隔离 Homebrew 缓存必须位于系统临时目录。');
-  }
-  return cachePath;
-}
-
-async function fetchCask(
-  brewPath: string,
-  cachePath: string,
-  expectedSizeBytes: number | null,
-  onProgress: (progress: HomebrewUpdateProgress) => void,
-  testMode: boolean,
-  reconnectCount: number,
-  recoveryPolicy: DownloadRecoveryPolicy,
-  setReconnect: (reconnect: (() => boolean) | null) => void,
-): Promise<void> {
-  const brewArgs = ['fetch', '--cask', '--retry', caskToken];
-  const executable = !testMode && (await isExecutable('/usr/bin/script')) ? '/usr/bin/script' : brewPath;
-  const args = executable === brewPath ? brewArgs : ['-q', '/dev/null', brewPath, ...brewArgs];
-  await new Promise<void>((resolveFetch, rejectFetch) => {
-    const child = spawn(executable, args, {
-      detached: true,
-      env: homebrewEnvironment(false),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stderr = '';
-    let stdout = '';
-    let progressOutput = '';
-    let lastDownloadedBytes: number | undefined;
-    let lastTotalBytes: number | undefined;
-    let lastBytesPerSecond: number | undefined;
-    let fetchFinished = false;
-    let terminationReason: 'manual' | 'low_speed' | 'timeout' | null = null;
-    let forceTerminationTimer: ReturnType<typeof setTimeout> | null = null;
-    const speedSamples: Array<{ observedAtMs: number; downloadedBytes: number }> = [];
-    const timeout = setTimeout(() => requestTermination('timeout'), 15 * 60_000);
-    const cacheProgressTimer =
-      expectedSizeBytes === null
-        ? undefined
-        : setInterval(() => {
-            void publishCachedProgress();
-          }, downloadProgressPollIntervalMs);
-    setReconnect(() => requestTermination('manual'));
-    const inspect = (chunk: Buffer) => {
-      const rawText = chunk.toString('utf8');
-      const text = stripTerminalFormatting(rawText);
-      stdout = appendBounded(stdout, text);
-      progressOutput = appendTail(progressOutput, rawText, progressOutputLimit);
-      publishParsedProgress();
-    };
-    child.stdout.on('data', inspect);
-    child.stderr.on('data', (chunk: Buffer) => {
-      const rawText = chunk.toString('utf8');
-      const text = stripTerminalFormatting(rawText);
-      stderr = appendBounded(stderr, text);
-      progressOutput = appendTail(progressOutput, rawText, progressOutputLimit);
-      publishParsedProgress();
-    });
-
-    /** Homebrew 的伪终端输出可能跨多个 data 事件，必须基于滚动缓冲解析完整进度。 */
-    function publishParsedProgress(): void {
-      const parsed = parseHomebrewProgress(stripTerminalFormatting(progressOutput), expectedSizeBytes);
-      if (parsed) publishProgress(parsed);
-    }
-
-    /** Homebrew 下载会先写入缓存目标的 .incomplete 文件，文件大小是不依赖终端格式的真实进度事实。 */
-    async function publishCachedProgress(): Promise<void> {
-      if (fetchFinished || expectedSizeBytes === null) return;
-      try {
-        const partialArtifact = await stat(`${cachePath}.incomplete`);
-        if (fetchFinished || !partialArtifact.isFile()) return;
-        const downloadedBytes = Math.min(partialArtifact.size, expectedSizeBytes);
-        const bytesPerSecond = observeDownloadSpeed(downloadedBytes, expectedSizeBytes);
-        publishProgress({
-          downloadedBytes,
-          totalBytes: expectedSizeBytes,
-          ...(bytesPerSecond === undefined ? {} : { bytesPerSecond }),
-        });
-      } catch {
-        // 下载尚未创建临时文件时，继续等待 Homebrew 输出。
-      }
-    }
-
-    function publishProgress(parsed: { downloadedBytes: number; totalBytes?: number; bytesPerSecond?: number }): void {
-      const roundedBytesPerSecond = parsed.bytesPerSecond === undefined ? lastBytesPerSecond : Math.max(0, Math.round(parsed.bytesPerSecond));
-      if (parsed.downloadedBytes === lastDownloadedBytes && parsed.totalBytes === lastTotalBytes && roundedBytesPerSecond === lastBytesPerSecond) return;
-      lastDownloadedBytes = parsed.downloadedBytes;
-      lastTotalBytes = parsed.totalBytes;
-      lastBytesPerSecond = roundedBytesPerSecond;
-      onProgress({
-        phase: 'downloading',
-        ...parsed,
-        ...(roundedBytesPerSecond === undefined ? {} : { bytesPerSecond: roundedBytesPerSecond }),
-        reconnectCount,
-      });
-    }
-
-    function observeDownloadSpeed(downloadedBytes: number, totalBytes: number): number | undefined {
-      const observedAtMs = Date.now();
-      const previousSample = speedSamples.at(-1);
-      if (previousSample && downloadedBytes < previousSample.downloadedBytes) speedSamples.length = 0;
-      speedSamples.push({ observedAtMs, downloadedBytes });
-      const oldestNeededAtMs = observedAtMs - Math.max(recoveryPolicy.stallWindowMs, downloadSpeedDisplayWindowMs);
-      while (speedSamples.length > 2 && speedSamples[1]!.observedAtMs <= oldestNeededAtMs) speedSamples.shift();
-
-      const displaySample = sampleAtOrBefore(speedSamples, observedAtMs - downloadSpeedDisplayWindowMs);
-      const displayElapsedMs = displaySample ? observedAtMs - displaySample.observedAtMs : 0;
-      const bytesPerSecond = displaySample && displayElapsedMs >= 1_000 ? ((downloadedBytes - displaySample.downloadedBytes) * 1_000) / displayElapsedMs : undefined;
-
-      const stallSample = sampleAtOrBefore(speedSamples, observedAtMs - recoveryPolicy.stallWindowMs);
-      const stallElapsedMs = stallSample ? observedAtMs - stallSample.observedAtMs : 0;
-      const remainingBytes = Math.max(0, totalBytes - downloadedBytes);
-      if (stallSample && stallElapsedMs >= recoveryPolicy.stallWindowMs && remainingBytes >= recoveryPolicy.minimumRemainingBytes) {
-        const stallBytesPerSecond = ((downloadedBytes - stallSample.downloadedBytes) * 1_000) / stallElapsedMs;
-        if (stallBytesPerSecond < recoveryPolicy.minimumBytesPerSecond) requestTermination('low_speed');
-      }
-      return bytesPerSecond;
-    }
-
-    function requestTermination(reason: 'manual' | 'low_speed' | 'timeout'): boolean {
-      if (fetchFinished || terminationReason) return false;
-      terminationReason = reason;
-      const signaled = terminateProcessGroup(child.pid, 'SIGTERM');
-      if (!signaled) {
-        terminationReason = null;
-        return false;
-      }
-      forceTerminationTimer = setTimeout(() => terminateProcessGroup(child.pid, 'SIGKILL'), 3_000);
-      forceTerminationTimer.unref();
-      return true;
-    }
-
-    function stopProgressMonitoring(): void {
-      fetchFinished = true;
-      clearTimeout(timeout);
-      if (cacheProgressTimer) clearInterval(cacheProgressTimer);
-      if (forceTerminationTimer) clearTimeout(forceTerminationTimer);
-      setReconnect(null);
-    }
-
-    child.once('error', (error) => {
-      stopProgressMonitoring();
-      if (terminationReason) {
-        rejectFetch(new HomebrewUpdateError(downloadReconnectMessage(terminationReason), 'transient_download'));
-        return;
-      }
-      const kind = isTransientDownloadFailure(error.message, typeof (error as NodeJS.ErrnoException).code === 'string' ? (error as NodeJS.ErrnoException).code : undefined) ? 'transient_download' : 'structural';
-      rejectFetch(new HomebrewUpdateError(`Homebrew 下载更新失败：${error.message}`, kind));
-    });
-    child.once('exit', (code, signal) => {
-      stopProgressMonitoring();
-      if (code === 0) resolveFetch();
-      else if (terminationReason) rejectFetch(new HomebrewUpdateError(downloadReconnectMessage(terminationReason), 'transient_download'));
-      else {
-        const detail = stderr || stdout;
-        const kind = isTransientDownloadFailure(detail, signal ?? undefined) ? 'transient_download' : 'structural';
-        rejectFetch(new HomebrewUpdateError(formatCommandFailure('Homebrew 下载更新失败', detail, code ?? undefined, signal ?? undefined), kind));
-      }
-    });
-  });
-}
-
-function sampleAtOrBefore(
-  samples: ReadonlyArray<{
-    observedAtMs: number;
-    downloadedBytes: number;
-  }>,
-  cutoffMs: number,
-): { observedAtMs: number; downloadedBytes: number } | undefined {
-  let match: { observedAtMs: number; downloadedBytes: number } | undefined;
-  for (const sample of samples) {
-    if (sample.observedAtMs > cutoffMs) break;
-    match = sample;
-  }
-  return match;
-}
-
-function terminateProcessGroup(pid: number | undefined, signal: NodeJS.Signals): boolean {
-  if (!pid) return false;
-  try {
-    process.kill(-pid, signal);
-    return true;
-  } catch {
-    try {
-      process.kill(pid, signal);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-
-function downloadReconnectMessage(reason: 'manual' | 'low_speed' | 'timeout'): string {
-  if (reason === 'manual') return '已按用户要求重新建立 Homebrew 下载连接。';
-  if (reason === 'low_speed') return 'Homebrew 下载连接持续异常低速，AstraGit 已重新建立连接。';
-  return 'Homebrew 下载超过单次等待上限，AstraGit 已重新建立连接。';
-}
-
-function downloadRecoveryPolicy(testMode: boolean): DownloadRecoveryPolicy {
-  if (!testMode) {
-    return {
-      stallWindowMs: defaultDownloadStallWindowMs,
-      minimumBytesPerSecond: defaultMinimumDownloadBytesPerSecond,
-      minimumRemainingBytes: defaultMinimumRemainingBytesForReconnect,
-    };
-  }
-  return {
-    stallWindowMs: readPositiveIntegerEnvironment('ASTRAGIT_HOMEBREW_STALL_WINDOW_MS', defaultDownloadStallWindowMs, 2_000),
-    minimumBytesPerSecond: readPositiveIntegerEnvironment('ASTRAGIT_HOMEBREW_MIN_SPEED_BPS', defaultMinimumDownloadBytesPerSecond, 1),
-    minimumRemainingBytes: readPositiveIntegerEnvironment('ASTRAGIT_HOMEBREW_MIN_REMAINING_BYTES', defaultMinimumRemainingBytesForReconnect, 1),
-  };
-}
-
-function readPositiveIntegerEnvironment(name: string, fallback: number, minimum: number): number {
-  const raw = process.env[name]?.trim();
-  if (!raw) return fallback;
-  const parsed = Number(raw);
-  return Number.isSafeInteger(parsed) && parsed >= minimum ? parsed : fallback;
-}
-
-/** 只有明确的网络中断、服务端暂时不可用或下载超时才进入后台重试。 */
-function isTransientDownloadFailure(detail: string, codeOrSignal?: string): boolean {
-  if (codeOrSignal === 'SIGTERM' || ['EAI_AGAIN', 'ECONNABORTED', 'ECONNRESET', 'ENETDOWN', 'ENETUNREACH', 'ETIMEDOUT'].includes(codeOrSignal ?? '')) return true;
-  return /(?:curl:\s*\((?:5|6|7|18|28|35|47|52|55|56|92)\)|http[^\n]*(?:408|425|429|5\d\d)|could not resolve|connection (?:reset|refused|timed out)|network is unreachable|operation timed out|temporary failure)/iu.test(detail);
-}
-
-async function runBrew(brewPath: string, args: string[], options: { timeoutMs: number; allowAutoUpdate: boolean }): Promise<{ stdout: string; stderr: string }> {
-  try {
-    return await execFile(brewPath, args, {
-      encoding: 'utf8',
-      timeout: options.timeoutMs,
-      maxBuffer: commandOutputLimit,
-      env: homebrewEnvironment(options.allowAutoUpdate),
-    });
-  } catch (error) {
+async function runBrew(brewPath: string, args: string[], upgrading = false, timeoutMs = 60_000): Promise<{ stdout: string; stderr: string }> {
+  const env: NodeJS.ProcessEnv = { ...process.env, HOMEBREW_NO_ANALYTICS: '1', HOMEBREW_NO_ENV_HINTS: '1', NONINTERACTIVE: '1' };
+  if (upgrading) {
+    // Cask 的 uninstall quit stanza 会退出当前 Main；由用户点击重启后统一交接。
+    env.HOMEBREW_NO_UPGRADE_QUIT_CASKS = '1';
+  } else env.HOMEBREW_NO_AUTO_UPDATE = '1';
+  try { return await execFile(brewPath, args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: commandOutputLimit, env }); }
+  catch (error) {
     const failure = error as NodeJS.ErrnoException & { stdout?: string; stderr?: string; code?: string | number; signal?: string };
-    throw new Error(formatCommandFailure(`Homebrew ${args[0] ?? '命令'} 失败`, failure.stderr || failure.stdout || failure.message, failure.code, failure.signal));
+    const output = (failure.stderr || failure.stdout || failure.message).trim();
+    throw new HomebrewUpdateError(`Homebrew ${args[0] ?? '命令'} 失败${failure.code === undefined ? '' : ` (code ${failure.code})`}：${output}`, 'structural');
   }
 }
-
-function homebrewEnvironment(allowAutoUpdate: boolean): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    HOMEBREW_NO_ANALYTICS: '1',
-    HOMEBREW_NO_ENV_HINTS: '1',
-    HOMEBREW_NO_INSTALL_CLEANUP: '1',
-    HOMEBREW_NO_AUTO_UPDATE: allowAutoUpdate ? undefined : '1',
-    HOMEBREW_NO_UPGRADE_QUIT_CASKS: '1',
-    NONINTERACTIVE: '1',
-  };
-}
-
-async function verifyArtifact(path: string, expectedSha256: string, expectedSizeBytes: number | null): Promise<VerifiedArtifactIdentity | null> {
-  try {
-    const before = await stat(path);
-    if (!before.isFile() || (expectedSizeBytes !== null && before.size !== expectedSizeBytes)) return null;
-    const hash = createHash('sha256');
-    for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
-    if (hash.digest('hex') !== expectedSha256) return null;
-    const after = await stat(path);
-    const beforeIdentity = artifactIdentity(before);
-    const afterIdentity = artifactIdentity(after);
-    return sameArtifactIdentity(beforeIdentity, afterIdentity) && after.isFile() ? afterIdentity : null;
-  } catch {
-    return null;
-  }
-}
-
-async function matchesArtifactIdentity(path: string, expected: VerifiedArtifactIdentity): Promise<boolean> {
-  try {
-    const current = await stat(path);
-    return current.isFile() && sameArtifactIdentity(artifactIdentity(current), expected);
-  } catch {
-    return false;
-  }
-}
-
-function artifactIdentity(fileStat: Stats): VerifiedArtifactIdentity {
-  return {
-    device: fileStat.dev,
-    inode: fileStat.ino,
-    size: fileStat.size,
-    modifiedAtMs: fileStat.mtimeMs,
-    changedAtMs: fileStat.ctimeMs,
-  };
-}
-
-function sameArtifactIdentity(left: VerifiedArtifactIdentity, right: VerifiedArtifactIdentity): boolean {
-  return left.device === right.device && left.inode === right.inode && left.size === right.size && left.modifiedAtMs === right.modifiedAtMs && left.changedAtMs === right.changedAtMs;
-}
-
-function parseHomebrewProgress(text: string, expectedSizeBytes: number | null): { downloadedBytes: number; totalBytes?: number } | null {
-  const matches = [...text.matchAll(/(\d+(?:\.\d+)?)\s*(B|KB|MB|GB)\s*\/\s*(\d+(?:\.\d+)?)\s*(B|KB|MB|GB)/giu)];
-  const match = matches.at(-1);
-  if (!match) return null;
-  const downloadedBytes = toBytes(Number(match[1]), match[2]);
-  const parsedTotal = toBytes(Number(match[3]), match[4]);
-  const totalBytes = expectedSizeBytes ?? parsedTotal;
-  if (!Number.isFinite(downloadedBytes) || downloadedBytes < 0 || !Number.isFinite(totalBytes) || totalBytes <= 0) return null;
-  return { downloadedBytes: Math.min(downloadedBytes, totalBytes), totalBytes };
-}
-
-function toBytes(value: number, unit: string): number {
-  const multiplier = unit.toUpperCase() === 'GB' ? 1024 ** 3 : unit.toUpperCase() === 'MB' ? 1024 ** 2 : unit.toUpperCase() === 'KB' ? 1024 : 1;
-  return Math.round(value * multiplier);
-}
-
-function stripTerminalFormatting(value: string): string {
-  return value.replace(ansiEscapePattern, '').replace(/\r/gu, '\n');
-}
-
-function appendBounded(current: string, next: string): string {
-  const combined = `${current}${next}`;
-  return combined.length <= commandOutputLimit ? combined : combined.slice(-commandOutputLimit);
-}
-
-function appendTail(current: string, next: string, limit: number): string {
-  const combined = `${current}${next}`;
-  return combined.length <= limit ? combined : combined.slice(-limit);
-}
-
-function formatCommandFailure(prefix: string, output: string, code: string | number | undefined, signal: string | undefined): string {
-  const summary = output
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(-3)
-    .join(' ');
-  return `${prefix}${code === undefined ? '' : ` (code ${code})`}${signal ? ` (signal ${signal})` : ''}${summary ? `：${summary}` : '。'}`;
-}
-
-/** 只为检查、缓存定位和明确的瞬时下载故障做短重试；安装命令不进入此流程。 */
-async function retryOperation<T>(operation: () => Promise<T>, retryCount: number, shouldRetry: (error: unknown) => boolean = () => true): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error;
-      if (attempt === retryCount || !shouldRetry(error)) break;
-      await delay(attempt === 0 ? 400 : 1_200);
-    }
-  }
-  throw lastError;
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
-}
-
-async function isExecutable(path: string): Promise<boolean> {
-  try {
-    await access(path, fsConstants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function isUnderTemporaryDirectory(path: string): boolean {
-  const normalized = resolve(path);
-  const roots = [resolve(tmpdir()), resolve('/tmp')];
-  return roots.some((root) => {
-    const pathRelative = relative(root, normalized);
-    return Boolean(pathRelative) && !pathRelative.startsWith('..') && !pathRelative.includes('/../');
-  });
+  return [resolve(tmpdir()), resolve('/tmp')].some(root => { const part = relative(root, resolve(path)); return Boolean(part) && part !== '..' && !part.startsWith('../') && !isAbsolute(part); });
 }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }

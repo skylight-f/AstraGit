@@ -10,6 +10,7 @@ export interface NativeUpdateProgressState {
   state: 'checking' | 'available' | 'manual' | 'downloaded' | 'upToDate' | 'updating' | 'downloading' | 'verifying' | 'ready' | 'installing' | 'failed';
   title: string;
   detail: string;
+  primaryActionTitle?: string;
   progressCaption?: string;
   progressText?: string;
   progress?: number;

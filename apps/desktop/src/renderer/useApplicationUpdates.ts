@@ -63,17 +63,17 @@ export function hasApplicationUpdate(state: HomebrewUpdateIndicatorState | null)
 }
 
 export function canPrepareApplicationUpdate(state: HomebrewUpdateIndicatorState | null): boolean {
-  return state?.phase === 'available' || (state?.phase === 'failed' && state.failure?.canRetry === true && ['prepare', 'download'].includes(state.failure.step));
+  return state?.phase === 'available' || (state?.phase === 'failed' && state.failure?.canRetry === true && (['prepare', 'download'].includes(state.failure.step) || (state.method === 'homebrew' && state.failure.step === 'install')));
 }
 
 export function applicationUpdateLabel(update: Pick<ApplicationUpdates, 'state' | 'busy'>, zh: boolean): string {
   const text = (cn: string, en: string) => zh ? cn : en;
-  if (update.busy === 'restart') return text('正在安装更新…', 'Installing update…');
   const state = update.state;
-  if (state?.phase === 'ready') return text('重启并更新', 'Restart and update');
+  if (update.busy === 'restart') return state?.method === 'homebrew' ? text('正在重启…', 'Restarting…') : text('正在安装更新…', 'Installing update…');
+  if (state?.phase === 'ready') return state.method === 'homebrew' ? text('重启生效', 'Restart to update') : text('重启并更新', 'Restart and update');
   if (state?.phase === 'preparing') {
     const progress = state.progress !== undefined && Number.isFinite(state.progress) ? ` ${Math.floor(Math.min(1, Math.max(0, state.progress)) * 100)}%` : '';
-    return text('正在下载', 'Downloading') + progress;
+    return (state.method === 'homebrew' ? text('正在更新', 'Updating') : text('正在下载', 'Downloading')) + progress;
   }
   if (state?.phase === 'retrying') return text('等待重试下载', 'Waiting to retry');
   if (state?.phase === 'downloaded') return text('安装包已下载', 'Installer downloaded');

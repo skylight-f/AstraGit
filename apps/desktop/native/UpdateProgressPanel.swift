@@ -275,7 +275,7 @@ private final class UpdateProgressPanelController: NSObject, NSApplicationDelega
         case "available":
             progressRow.isHidden = true
             progressIndicator.isHidden = true
-            setButtons(secondary: localized("later"), primary: localized("download"))
+            setButtons(secondary: localized("later"), primary: command["primaryActionTitle"] as? String ?? localized("download"))
         case "downloading":
             progressRow.isHidden = false
             progressIndicator.isHidden = false

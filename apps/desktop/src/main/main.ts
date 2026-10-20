@@ -79,8 +79,8 @@ async function confirmUpdateRestart(): Promise<boolean> {
   const zh = updateLanguage === 'zh-CN';
   const result = await dialog.showMessageBox(mainWindow!, {
     type: 'question', buttons: zh ? ['取消', '立即重启'] : ['Cancel', 'Restart Now'], defaultId: 0, cancelId: 0,
-    title: zh ? '安装 AstraGit 更新' : 'Install AstraGit Update',
-    message: zh ? '结束当前工作并安装更新？' : 'Finish current work and install the update?',
+    title: zh ? '重启 AstraGit' : 'Restart AstraGit',
+    message: zh ? '结束当前工作并重启以启用更新？' : 'Finish current work and restart to apply the update?',
     detail: zh ? '请先结束当前 Git 操作。提交草稿、项目配置和用户数据会保留。' : 'Finish active Git operations first. Commit drafts, projects and user data will be retained.',
   });
   return result.response === 1;

@@ -18,6 +18,8 @@ export interface ReleaseUpdateStatus {
 }
 export interface HomebrewUpdateIndicatorState {
   phase: 'idle' | 'available' | 'manual' | 'downloaded' | 'preparing' | 'retrying' | 'ready' | 'failed';
+  /** Homebrew ready 已安装到磁盘；direct ready 仍等待重启安装。 */
+  method?: 'homebrew' | 'direct';
   currentVersion: string;
   latestVersion: string | null;
   detail: string;

@@ -8,11 +8,11 @@ function fixture(t) {
   const update = { status: 'available', currentVersion: '0.1.0', latestVersion: '0.2.0', artifact: { sha256: 'a'.repeat(64), sizeBytes: 120_000 }, automaticInstallEnabled: false, reason: 'Unsigned direct channel' };
   const controller = createHomebrewUpdateController({
     helperPath: '/unused', language: () => 'zh-CN', currentVersion: '0.1.0', loadUpdateStatus: async () => update,
-    direct: { manualInstallReason: async () => assert.fail('Homebrew must not use direct installation'), download: async () => assert.fail('Homebrew must use brew fetch') },
+    direct: { manualInstallReason: async () => assert.fail('Homebrew must not use direct installation'), download: async () => assert.fail('Homebrew must use its upgrade command') },
     homebrew: {
       isManaged: async () => true,
-      prepare: async () => { prepares++; return { update, brewPath: '/brew', cachePath: '/cache', verifiedArtifact: {} }; },
-      install: async () => { assert.equal(quit, false); events.push('brew-upgrade'); if (fail) throw new Error('installation failed'); return { appPath: '/Applications/AstraGit.app', bundleId: 'com.astragit.desktop', version: '0.2.0' }; },
+      prepare: async () => { prepares++; events.push('brew-upgrade'); return { update, brewPath: '/brew', installed: { appPath: '/Applications/AstraGit.app', bundleId: 'com.astragit.desktop', version: '0.2.0' } }; },
+      install: async () => { assert.equal(quit, false); events.push('verify-installed'); if (fail) throw new Error('installed app identity changed'); return { appPath: '/Applications/AstraGit.app', bundleId: 'com.astragit.desktop', version: '0.2.0' }; },
     },
     canInstall: () => {}, openDownloadPage: async () => assert.fail('No external navigation'),
     onInstallReady: async activate => { events.push('confirm'); if (!accepted) return false; await activate(); events.push('quit'); quit = true; return true; },
@@ -26,31 +26,31 @@ function fixture(t) {
   return { controller, events, states, action: value => action(value), accept: () => { accepted = true; }, fail: () => { fail = true; }, prepares: () => prepares };
 }
 
-test('native controller retains downloaded update on cancel, then installs and arms relaunch before quitting', async t => {
+test('native controller retains the installed brew update on cancel, then revalidates and arms relaunch before quitting', async t => {
   const f = fixture(t); await f.controller.showOrCheck();
   f.action('download'); await waitFor(() => f.controller.getIndicatorState().phase === 'ready');
-  f.action('restart'); await waitFor(() => f.events.length === 1 && f.controller.getIndicatorState().phase === 'ready');
-  assert.deepEqual(f.events, ['confirm']); assert.equal(f.prepares(), 1);
+  f.action('restart'); await waitFor(() => f.events.length === 2 && f.controller.getIndicatorState().phase === 'ready');
+  assert.deepEqual(f.events, ['brew-upgrade', 'confirm']); assert.equal(f.prepares(), 1);
   f.accept(); f.action('restart'); await waitFor(() => f.events.includes('quit'));
-  assert.deepEqual(f.events, ['confirm', 'confirm', 'brew-upgrade', 'native-relaunch', 'quit']);
-  assert.equal(f.prepares(), 1, 'Cancel preserves the same verified download.');
+  assert.deepEqual(f.events, ['brew-upgrade', 'confirm', 'confirm', 'verify-installed', 'native-relaunch', 'quit']);
+  assert.equal(f.prepares(), 1, 'Cancel preserves the already installed brew update without upgrading again.');
 });
 
-test('native controller leaves the old application open on installation failure and never retries installation automatically', async t => {
+test('native controller leaves the old application open if restart revalidation fails and never repeats the upgrade', async t => {
   const f = fixture(t); await f.controller.showOrCheck(); f.action('download');
   await waitFor(() => f.controller.getIndicatorState().phase === 'ready');
   f.accept(); f.fail(); f.action('restart'); await waitFor(() => f.controller.getIndicatorState().phase === 'failed');
-  assert.deepEqual(f.events, ['confirm', 'brew-upgrade']);
+  assert.deepEqual(f.events, ['brew-upgrade', 'confirm', 'verify-installed']);
   assert.equal(f.controller.getIndicatorState().failure.step, 'install');
   assert.equal(f.states.at(-1).canRetry, false);
-  await f.controller.showOrCheck(); assert.deepEqual(f.events, ['confirm', 'brew-upgrade']);
+  await f.controller.showOrCheck(); assert.deepEqual(f.events, ['brew-upgrade', 'confirm', 'verify-installed']);
 });
 
-test('automatic download has one owner and reopening the native window reuses its prepared result', async t => {
+test('automatic brew upgrade has one owner and reopening the native window reuses its installed result', async t => {
   const f = fixture(t);
   await f.controller.checkAutomatically(); assert.equal(f.controller.getIndicatorState().phase, 'ready');
   await f.controller.showOrCheck(); await f.controller.showOrCheck();
-  assert.equal(f.prepares(), 1); assert.deepEqual(f.events, []);
+  assert.equal(f.prepares(), 1); assert.deepEqual(f.events, ['brew-upgrade']);
 });
 
 function actionFixture(t, input = {}) {
@@ -67,13 +67,13 @@ function actionFixture(t, input = {}) {
     homebrew: {
       isManaged: async () => !input.manual,
       prepare: async (_update, progress) => {
-        prepares++; events.push('prepare');
+        prepares++; events.push('brew-upgrade');
         progress({ phase: 'downloading', downloadedBytes: 1, totalBytes: 2 });
         await input.waitForPrepare;
-        if (failPrepare) throw new Error('download checksum did not match');
-        return { update, brewPath: '/brew', cachePath: '/cache', verifiedArtifact: {} };
+        if (failPrepare) throw new Error('Homebrew upgrade failed');
+        return { update, brewPath: '/brew', installed: { appPath: '/Applications/AstraGit.app', bundleId: 'com.astragit.desktop', version: input.installedVersion ?? '0.2.0' } };
       },
-      install: async () => { events.push('brew-upgrade'); if (input.failInstall) throw new Error('installation failed'); return { appPath: '/Applications/AstraGit.app', bundleId: 'com.astragit.desktop', version: '0.2.0' }; },
+      install: async () => { events.push('verify-installed'); if (input.failInstall) throw new Error('installed app identity changed'); return { appPath: '/Applications/AstraGit.app', bundleId: 'com.astragit.desktop', version: input.installedVersion ?? '0.2.0' }; },
     },
     canInstall: () => {}, openDownloadPage: async () => events.push('open-release'),
     onInstallReady: async activate => { events.push('confirm'); if (!accepted) return false; await activate(); events.push('quit'); return true; },
@@ -89,33 +89,38 @@ function actionFixture(t, input = {}) {
   return { controller, events, states, hosts: () => hosts, prepares: () => prepares, checks: () => checks, accept: () => { accepted = true; }, allowPrepare: () => { failPrepare = false; }, action: value => action(value), update };
 }
 
-test('explicit check prepares silently; only explicit ready restart confirms and installs once', async t => {
+test('explicit check upgrades silently; ready restart confirms and revalidates without another brew upgrade', async t => {
   const f = actionFixture(t);
   await f.controller.performAction('restart'); assert.deepEqual(f.events, []);
   const ready = await f.controller.performAction('check');
-  assert.equal(ready.phase, 'ready'); assert.equal(f.hosts(), 0); assert.deepEqual(f.events, ['prepare']);
+  assert.equal(ready.phase, 'ready'); assert.equal(f.hosts(), 0); assert.deepEqual(f.events, ['brew-upgrade']);
   await f.controller.performAction('prepare'); assert.equal(f.prepares(), 1);
   const cancelled = await f.controller.performAction('restart');
-  assert.equal(cancelled.phase, 'ready'); assert.deepEqual(f.events, ['prepare', 'confirm']); assert.equal(f.hosts(), 0);
+  assert.equal(cancelled.phase, 'ready'); assert.deepEqual(f.events, ['brew-upgrade', 'confirm']); assert.equal(f.hosts(), 0);
   f.accept(); await f.controller.performAction('restart');
-  assert.deepEqual(f.events, ['prepare', 'confirm', 'confirm', 'brew-upgrade', 'relaunch', 'quit']); assert.equal(f.hosts(), 1);
+  assert.deepEqual(f.events, ['brew-upgrade', 'confirm', 'confirm', 'verify-installed', 'relaunch', 'quit']); assert.equal(f.hosts(), 1);
   assert.ok(f.states.every(state => state.present === false), 'The explicit restart must not open an update-details window.');
 });
 
-test('repeated prepare/check actions reuse the one download and never install while downloading', async t => {
+test('repeated prepare/check actions share one pending brew upgrade and cannot restart it', async t => {
   let release; const waitForPrepare = new Promise(resolve => { release = resolve; });
   const f = actionFixture(t, { waitForPrepare });
   const check = f.controller.performAction('check'); await waitFor(() => f.prepares() === 1);
   const prepare = f.controller.performAction('prepare'); const duplicate = f.controller.performAction('check');
-  await f.controller.performAction('restart'); assert.deepEqual(f.events, ['prepare']); assert.equal(f.hosts(), 0);
+  await f.controller.performAction('restart'); assert.deepEqual(f.events, ['brew-upgrade']); assert.equal(f.hosts(), 0);
   release(); await Promise.all([check, prepare, duplicate]);
   assert.equal(f.prepares(), 1); assert.equal(f.controller.getIndicatorState().phase, 'ready'); assert.equal(f.hosts(), 0);
 });
 
-test('prepare can explicitly retry download failure but cannot retry installation failure', async t => {
+test('failed brew upgrade is not automatically retried; explicit prepare may retry, while restart identity failure cannot replay upgrade', async t => {
   const f = actionFixture(t, { failPrepare: true, failInstall: true });
   const failed = await f.controller.performAction('check');
-  assert.equal(failed.phase, 'failed'); assert.equal(failed.failure.step, 'download'); assert.equal(f.hosts(), 0);
+  assert.equal(failed.phase, 'failed'); assert.equal(failed.failure.step, 'install'); assert.equal(f.hosts(), 0);
+  await f.controller.checkAutomatically();
+  assert.equal(f.prepares(), 1, 'Automatic checks must not retry a failed brew upgrade.');
+  await f.controller.showOrCheck();
+  assert.equal(f.prepares(), 1, 'Opening the update window must not retry a failed brew upgrade.');
+  assert.equal(f.states.at(-1).canRetry, true);
   f.allowPrepare(); await f.controller.performAction('prepare'); assert.equal(f.prepares(), 2);
   f.accept(); await f.controller.performAction('restart');
   assert.equal(f.controller.getIndicatorState().failure.step, 'install');
@@ -138,8 +143,8 @@ test('restored ready indicator is revalidated and prepared before a later explic
   const f = actionFixture(t);
   f.controller.restoreIndicatorState({ phase: 'ready', currentVersion: '0.1.0', latestVersion: '0.2.0', detail: 'Persisted ready', updatedAt: new Date().toISOString() });
   f.accept(); const ready = await f.controller.performAction('restart');
-  assert.equal(ready.phase, 'ready'); assert.deepEqual(f.events, ['prepare']); assert.equal(f.checks(), 1); assert.equal(f.hosts(), 0);
-  await f.controller.performAction('restart'); assert.deepEqual(f.events, ['prepare', 'confirm', 'brew-upgrade', 'relaunch', 'quit']);
+  assert.equal(ready.phase, 'ready'); assert.deepEqual(f.events, ['brew-upgrade']); assert.equal(f.checks(), 1); assert.equal(f.hosts(), 0);
+  await f.controller.performAction('restart'); assert.deepEqual(f.events, ['brew-upgrade', 'confirm', 'verify-installed', 'relaunch', 'quit']);
 });
 
 test('failed check with no known update stays failed without announcing a version or opening a window', async t => {
@@ -147,4 +152,30 @@ test('failed check with no known update stays failed without announcing a versio
   const failed = await f.controller.performAction('check');
   assert.equal(failed.phase, 'failed'); assert.equal(failed.failure.step, 'check'); assert.equal(failed.latestVersion, null); assert.equal(f.hosts(), 0); assert.deepEqual(f.events, []);
   await f.controller.performAction('prepare'); assert.equal(f.prepares(), 0);
+});
+
+for (const version of ['0.1.9', '0.3.0']) {
+  test(`the ready indicator uses actual installed ${version} and manifest drift cannot replay brew upgrade`, async t => {
+    const input = { installedVersion: version };
+    const f = actionFixture(t, input);
+    const ready = await f.controller.performAction('check');
+    assert.equal(ready.phase, 'ready'); assert.equal(ready.latestVersion, version); assert.equal(ready.method, 'homebrew');
+    f.update.latestVersion = '99.0.0'; f.update.artifact.sha256 = 'c'.repeat(64);
+    input.checkError = new Error('A later manifest request failed');
+    await f.controller.checkAutomatically();
+    assert.equal(f.controller.getIndicatorState().phase, 'ready', 'Offline checks must preserve an already verified Homebrew installation.');
+    assert.equal(f.controller.getIndicatorState().latestVersion, version);
+    assert.equal(f.prepares(), 1); const checksBeforeRestart = f.checks();
+    f.accept(); await f.controller.performAction('restart');
+    assert.deepEqual(f.events, ['brew-upgrade', 'confirm', 'verify-installed', 'relaunch', 'quit']);
+    assert.equal(f.checks(), checksBeforeRestart, 'Restart must not add a manifest request after an offline automatic check.');
+    assert.equal(f.prepares(), 1);
+  });
+}
+
+test('Homebrew upgrades a detected version without needing a direct-channel artifact', async t => {
+  const f = actionFixture(t, { update: { status: 'unavailable', artifact: null, latestVersion: '0.2.0' } });
+  const ready = await f.controller.performAction('check');
+  assert.equal(ready.phase, 'ready'); assert.equal(ready.method, 'homebrew'); assert.equal(f.prepares(), 1);
+  assert.deepEqual(f.events, ['brew-upgrade']);
 });
