@@ -117,7 +117,7 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
       reply.header('Vary', 'Origin');
       reply.header('Access-Control-Allow-Credentials', 'false');
     }
-    reply.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+    reply.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
     reply.header('Access-Control-Allow-Headers', 'content-type,authorization,x-astragit-api-token,x-astragit-trace-id');
     reply.header('Access-Control-Max-Age', '600');
     return request.method === 'OPTIONS';
@@ -205,6 +205,16 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     } catch (error) {
       return sendNativeQueryRouteError(reply, error);
     }
+  });
+
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/conflict', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: { path?: string } }>, reply) => {
+    try { return await workbench.readConflict(request.params.projectId, request.params.repositoryId, request.query.path ?? ''); }
+    catch (error) { return sendError(reply, error); }
+  });
+  // UTF-8 文本最多 2 MiB；JSON 控制字符转义最多放大六倍，只放宽这一条路由。
+  server.put('/api/projects/:projectId/git/workbench/repositories/:repositoryId/conflict', { bodyLimit: 12 * 1024 * 1024 + 64 * 1024 }, async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    try { return await workbench.saveConflict(request.params.projectId, request.params.repositoryId, request.body); }
+    catch (error) { return sendError(reply, error); }
   });
 
   server.get('/api/projects/:projectId/git/status', async (request: FastifyRequest<{ Params: { projectId: string } }>, reply) => {

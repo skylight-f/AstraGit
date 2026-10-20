@@ -14,6 +14,9 @@ import type {
   GitCommitSelectionMode,
   GitCommitSelectionTarget,
   GitCommitSelectionPreview,
+  ProjectGitConflictFile,
+  ProjectGitConflictSaveResponse,
+  SaveProjectGitConflictInput,
 } from './gitContracts.js';
 import { jsonRequest, type LocalApiTransport } from '../../transport/localApiTransport.js';
 import { buildGitCommandRequest, gitClientCommandTypes } from './gitCommandClient.js';
@@ -37,6 +40,8 @@ export interface GitApiClient {
   loadProjectGitHistory: (projectId: string, repositoryId: string, offset: number, ref?: string) => Promise<{ commits: NonNullable<GitStatusSummary['recentCommits']>; hasMore: boolean }>;
   loadProjectGitCommit: (projectId: string, repositoryId: string, commitHash: string) => Promise<ProjectGitCommitDetail>;
   loadProjectGitComparisonDiff: (projectId: string, repositoryId: string, ref: string, mode: 'current' | 'working-tree') => Promise<GitDiffSummary>;
+  readProjectGitConflict: (projectId: string, repositoryId: string, path: string) => Promise<ProjectGitConflictFile>;
+  saveProjectGitConflict: (projectId: string, repositoryId: string, input: SaveProjectGitConflictInput) => Promise<ProjectGitConflictSaveResponse>;
   executeProjectGitAction: (projectId: string, repositoryId: string, input: ProjectGitAction) => Promise<ProjectGitActionResponse>;
   cancelProjectGitAction: (projectId: string, repositoryId: string) => Promise<{ cancelled: boolean }>;
   loadProjectGitDiff: (projectId: string) => Promise<GitDiffSummary>;
@@ -92,6 +97,8 @@ export function createGitApiClient(transport: LocalApiTransport): GitApiClient {
       transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/history?offset=${offset}${ref ? `&ref=${encodeURIComponent(ref)}` : ''}`),
     loadProjectGitCommit: (projectId, repositoryId, commitHash) => transport.request<ProjectGitCommitDetail>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/commits/${encodeURIComponent(commitHash)}`),
     loadProjectGitComparisonDiff: (projectId, repositoryId, ref, mode) => transport.request<GitDiffSummary>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/compare?ref=${encodeURIComponent(ref)}&mode=${mode}`),
+    readProjectGitConflict: (projectId, repositoryId, path) => transport.request<ProjectGitConflictFile>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/conflict?path=${encodeURIComponent(path)}`),
+    saveProjectGitConflict: (projectId, repositoryId, input) => transport.request<ProjectGitConflictSaveResponse>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/conflict`, jsonRequest('PUT', input)),
     executeProjectGitAction: async (projectId, repositoryId, input) => {
       const body = await buildWorkspaceGitCommandRequest({
         commandType: workspaceGitClientCommandTypes.workbenchAction,

@@ -9,6 +9,8 @@ import {
   getProjectGitComparisonDiff,
   getProjectGitHistory,
   getProjectGitRepositorySnapshot,
+  readProjectGitConflict,
+  saveProjectGitConflict,
   redactGitOutput,
   type DiscoveredGitRepository,
   type GitDiffSummary,
@@ -16,6 +18,9 @@ import {
   type ProjectGitActionResult,
   type ProjectGitCommitDetail,
   type ProjectGitRepositorySnapshot,
+  type ProjectGitConflictFile,
+  type ProjectGitConflictWriteResult,
+  type SaveProjectGitConflictInput,
 } from '@astragit/git-core';
 import type { ProjectStore } from './projectStore.js';
 import { projectError } from './projectStore.js';
@@ -51,6 +56,9 @@ export interface ProjectGitActionResponse {
   repositoryId: string;
   repositoryName: string;
   result: ProjectGitActionResult;
+  snapshot: ProjectGitRepositorySnapshot;
+}
+export interface ProjectGitConflictSaveResponse extends ProjectGitConflictWriteResult {
   snapshot: ProjectGitRepositorySnapshot;
 }
 
@@ -98,6 +106,45 @@ export class ProjectGitWorkbenchService {
     const resolved = await this.resolveRepository(projectId, repositoryId);
     if (!ref.trim()) throw projectError('ASTRAGIT_REF_REQUIRED', '必须选择一个比较分支。');
     return getProjectGitComparisonDiff(resolved.repository.localPath, ref, mode);
+  }
+
+  async readConflict(projectId: string, repositoryId: string, path: string): Promise<ProjectGitConflictFile> {
+    const resolved = await this.resolveRepository(projectId, repositoryId);
+    return this.withRepositoryGate(resolved, async (signal) => {
+      try { return await readProjectGitConflict(resolved.repository.localPath, path, signal); }
+      catch (error) { throw workbenchGitError(error); }
+    });
+  }
+
+  async saveConflict(projectId: string, repositoryId: string, value: unknown): Promise<ProjectGitConflictSaveResponse> {
+    const resolved = await this.resolveRepository(projectId, repositoryId);
+    const input = parseConflictSaveInput(value);
+    return this.withRepositoryGate(resolved, async (signal) => {
+      const operation = this.operations.start(projectId, resolved.id, resolved.repository.name, input.markResolved ? 'resolve_conflict' : 'save_conflict');
+      const commands: string[] = [];
+      try {
+        const result = await saveProjectGitConflict(resolved.repository.localPath, input, signal, async (command) => {
+          commands.push(redactGitOutput(command).slice(0, 65_536));
+          this.operations.update(operation.id, { commands: [...commands] });
+        });
+        const outcome = result.remainingConflictFiles.length ? 'conflict' : 'completed';
+        this.operations.update(operation.id, { status: outcome, durationMs: Date.now() - Date.parse(operation.startedAt), commands, output: input.markResolved ? `Resolved and staged: ${input.path}` : `Saved worktree draft: ${input.path}` });
+        let snapshot: ProjectGitRepositorySnapshot;
+        try { snapshot = await getProjectGitRepositorySnapshot(resolved.repository.localPath); }
+        catch (error) { throw Object.assign(projectError('ASTRAGIT_GIT_ACTION_REFRESH_FAILED', '冲突结果已保存，但刷新仓库失败。请刷新核对，避免重复保存。'), { ...gitFailureDiagnostics(error), operationStage: 'refresh', operationStatus: outcome }); }
+        return { ...result, snapshot };
+      } catch (error) {
+        const failure = workbenchGitError(error);
+        if (operation.status === 'running') {
+          const diagnostics = gitFailureDiagnostics(failure);
+          this.operations.update(operation.id, {
+            status: diagnostics.operationStatus === 'failed_before_write' ? 'failed_before_write' : 'unknown_after_write', durationMs: Date.now() - Date.parse(operation.startedAt), commands,
+            output: redactGitOutput([failure.message, diagnostics.details].filter(Boolean).join('\n')).slice(0, 65_536),
+          });
+        }
+        throw failure;
+      }
+    });
   }
 
   async execute(projectId: string, repositoryId: string, value: unknown, signal?: AbortSignal): Promise<ProjectGitActionResponse> {
@@ -192,6 +239,16 @@ export class ProjectGitWorkbenchService {
     return { id: project.id, name: project.name, localPath: project.localPath };
   }
 
+  /** 与工作台写操作共用同一仓库互斥门；读取三方快照时也不与切换/暂存交错。 */
+  private async withRepositoryGate<T>(resolved: ResolvedProjectGitRepository, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const path = resolved.repository.localPath;
+    if (this.activeRepositories.has(path)) throw projectError('ASTRAGIT_BUSY', '该仓库已有 Git 操作正在执行，请等待完成。');
+    const controller = new AbortController();
+    this.activeRepositories.set(path, controller);
+    try { return await work(controller.signal); }
+    finally { this.activeRepositories.delete(path); }
+  }
+
   private async resolveRepository(projectId: string, repositoryId: string): Promise<ResolvedProjectGitRepository> {
     const project = this.requireProject(projectId);
     const normalizedRepositoryId = repositoryId.trim();
@@ -201,6 +258,15 @@ export class ProjectGitWorkbenchService {
     if (!repository) throw projectError('ASTRAGIT_REPOSITORY_NOT_FOUND', '所选仓库已不属于当前项目，请刷新 Git 工作台。');
     return { id: normalizedRepositoryId, project, repository };
   }
+}
+
+function parseConflictSaveInput(value: unknown): SaveProjectGitConflictInput {
+  if (!isRecord(value) || typeof value.path !== 'string' || typeof value.expectedFingerprint !== 'string' || typeof value.markResolved !== 'boolean' || (value.content !== undefined && typeof value.content !== 'string') || (value.acceptSide !== undefined && value.acceptSide !== 'current' && value.acceptSide !== 'incoming') || Object.keys(value).some(key => !['path', 'expectedFingerprint', 'content', 'acceptSide', 'markResolved'].includes(key))) throw projectError('ASTRAGIT_GIT_CONFLICT_INPUT_INVALID', '冲突保存参数无效，请重新载入后重试。');
+  return { path: value.path, expectedFingerprint: value.expectedFingerprint, markResolved: value.markResolved, ...(typeof value.content === 'string' ? { content: value.content } : {}), ...(value.acceptSide ? { acceptSide: value.acceptSide } : {}) };
+}
+function workbenchGitError(error: unknown): Error & { code: string; statusCode: number } {
+  const code = isRecord(error) && typeof error.code === 'string' && /^[A-Z][A-Z0-9_]{1,127}$/u.test(error.code) ? error.code : 'ASTRAGIT_ACTION_FAILED';
+  return Object.assign(projectError(code, redactGitOutput(error instanceof Error ? error.message : String(error))), gitFailureDiagnostics(error));
 }
 
 export function stableRepositoryId(projectId: string, relativePath: string): string {

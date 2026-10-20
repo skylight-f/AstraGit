@@ -8,9 +8,10 @@ import { TreeStructure } from '@phosphor-icons/react/dist/csr/TreeStructure';
 import { Archive } from '@phosphor-icons/react/dist/csr/Archive';
 import { Stop } from '@phosphor-icons/react/dist/csr/Stop';
 import { Sparkle } from '@phosphor-icons/react/dist/csr/Sparkle';
-import type { DashboardClient, GitDiffSummary, ProjectGitAction, ProjectGitRepositoryWorkbenchItem, ProjectRecord } from '../apiClient.js';
+import type { DashboardClient, GitDiffSummary, ProjectGitAction, ProjectGitRepositorySnapshot, ProjectGitRepositoryWorkbenchItem, ProjectRecord } from '../apiClient.js';
 import { loadGitCommitModelOptions } from './gitCommitModels.js';
 import { ProjectGitDiffWindow, SideBySideDiff } from './ProjectGitDiffViewer.js';
+import { GitConflictEditor } from './GitConflictEditor.js';
 import { notifyProjectGitChanged, projectGitWorkbenchCacheEntry, readCachedProjectGitWorkbench, requestProjectGitWorkbench, subscribeProjectGitRefresh } from './projectGitWorkbenchState.js';
 import { SourceRepositoryTree } from './SourceFileTree.js';
 import { buildSourceCommitUnits, defaultSourcePushTarget, readSourceGitState, sourceRepositoryFiles, writeSourceGitState, type SourceGitState } from './sourceGitState.js';
@@ -26,6 +27,8 @@ import './sourceGit.css';
 
 export function ProjectSourceChanges(props: { project: ProjectRecord; client: DashboardClient; language: 'zh-CN' | 'en-US'; active: boolean; modelSettingsRevision?: number; onBusyChange: (busy: boolean) => void }) {
   const { client, project, active, onBusyChange } = props;
+  const currentProjectId = useRef(project.id);
+  currentProjectId.current = project.id;
   const zh = props.language === 'zh-CN';
   const label = (cn: string, en: string) => zh ? cn : en;
   const [state, setState] = useState(() => readSourceGitState(project.id));
@@ -60,6 +63,7 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewError, setReviewError] = useState('');
   const [diff, setDiff] = useState<GitDiffSummary | null>(null);
+  const [diffTarget, setDiffTarget] = useState('');
   const [diffError, setDiffError] = useState('');
   const [diffLoading, setDiffLoading] = useState(false);
   const refresh = useCallback(async () => {
@@ -67,7 +71,7 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
     setLoading(true);
     try {
       const value = await requestProjectGitWorkbench(client, project.id);
-      if (version !== refreshVersion.current) return value;
+      if (currentProjectId.current !== project.id || version !== refreshVersion.current) return value;
       const previous = snapshotRef.current;
       snapshotRef.current = value;
       setSnapshot(value);
@@ -78,7 +82,7 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
         return [repository.id, changedHead ? [] : (current.selected[repository.id] ?? []).filter(path => valid.has(path))];
       })) }));
       return value;
-    } finally { if (version === refreshVersion.current) setLoading(false); }
+    } finally { if (currentProjectId.current === project.id && version === refreshVersion.current) setLoading(false); }
   }, [client, project.id, update]);
   useEffect(() => {
     if (!active) return;
@@ -102,14 +106,18 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
   const locked = busy || generating || reviewBusy || operation !== null;
   const focusedId = state.focus?.repositoryId;
   const focusedPath = state.focus?.path;
+  const focusedRepository = repositories.find(repository => repository.id === focusedId);
+  const focusedConflict = Boolean(focusedPath && focusedRepository?.snapshot.conflictFiles.includes(focusedPath));
+  const currentDiffTarget = JSON.stringify([focusedId, focusedPath, state.selectionMode]);
   useEffect(() => {
     if (!active || !focusedId || !focusedPath) return;
     const repository = snapshot?.repositories.find(repo => repo.id === focusedId);
-    if (!repository || !sourceRepositoryFiles(repository, snapshot!.repositories, state.selectionMode).some(file => file.path === focusedPath)) { setDiff(null); setDiffError(''); setDiffLoading(false); return; }
+    setDiffTarget(currentDiffTarget);
+    if (!repository || repository.snapshot.conflictFiles.includes(focusedPath) || !sourceRepositoryFiles(repository, snapshot!.repositories, state.selectionMode).some(file => file.path === focusedPath)) { setDiff(null); setDiffError(''); setDiffLoading(false); return; }
     const controller = new AbortController(); setDiffLoading(true); setDiffError(''); setDiff(null);
     void client.previewGitCommitSelection(project.id, [{ repositoryId: repository.id, relativePath: repository.relativePath, paths: [focusedPath] }], state.selectionMode, controller.signal).then(value => { if (!controller.signal.aborted) setDiff(value.repositories[0]?.diff ?? null); }).catch(reason => { if (!controller.signal.aborted) setDiffError(gitFailureText(reason)); }).finally(() => { if (!controller.signal.aborted) setDiffLoading(false); });
     return () => controller.abort();
-  }, [active, client, focusedId, focusedPath, project.id, snapshot, state.selectionMode]);
+  }, [active, client, focusedId, focusedPath, project.id, snapshot, state.selectionMode, currentDiffTarget]);
   const toggle = (id: string, paths: string[], checked: boolean) => update(current => { const selected = new Set(current.selected[id]); for (const path of paths) { if (checked) selected.add(path); else selected.delete(path); } return { ...current, selected: { ...current.selected, [id]: [...selected] } }; });
   const setMessage = (message: string) => update(current => current.messageMode === 'shared' ? { ...current, sharedMessage: message } : { ...current, drafts: { ...current.drafts, [editorRepository]: message } });
 
@@ -233,6 +241,47 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
     }
     finally { busyRef.current = false; setOperation(null); onBusyChange(false); }
   }
+  async function conflictSaved(repositoryId: string, path: string, result: { resolved: boolean; snapshot?: ProjectGitRepositorySnapshot }): Promise<void> {
+    const projectId = project.id;
+    if (currentProjectId.current !== projectId) {
+      notifyProjectGitChanged(projectId);
+      return;
+    }
+    refreshVersion.current += 1;
+    const entry = projectGitWorkbenchCacheEntry(client, projectId);
+    entry.request = null;
+    const selectAfterSave = (saved: ProjectGitRepositorySnapshot) => {
+      if (currentProjectId.current !== projectId || !result.resolved || saved.conflictFiles.includes(path)) return;
+      update(current => {
+        if (currentProjectId.current !== projectId || current.focus?.repositoryId !== repositoryId || current.focus.path !== path) return current;
+        const repository = snapshotRef.current?.repositories.find(repository => repository.id === repositoryId);
+        if (!repository) return current;
+        const ordinary = sourceRepositoryFiles({ ...repository, snapshot: saved }, snapshotRef.current?.repositories ?? [], current.selectionMode);
+        return { ...current, focus: { repositoryId, path: saved.conflictFiles[0] ?? ordinary.find(file => file.path === path)?.path ?? ordinary[0]?.path ?? '' } };
+      });
+    };
+    if (result.snapshot && snapshotRef.current?.projectId === projectId) {
+      const next = { ...snapshotRef.current, refreshedAt: new Date().toISOString(), repositories: snapshotRef.current.repositories.map(repository => repository.id === repositoryId ? { ...repository, snapshot: result.snapshot! } : repository) };
+      snapshotRef.current = next;
+      entry.snapshot = next;
+      setSnapshot(next);
+      selectAfterSave(result.snapshot);
+    }
+    try {
+      const pending = refresh();
+      const version = refreshVersion.current;
+      const next = await pending;
+      if (currentProjectId.current !== projectId || version !== refreshVersion.current) return;
+      const repository = next.repositories.find(repository => repository.id === repositoryId);
+      if (repository) selectAfterSave(repository.snapshot);
+    } catch (reason) {
+      if (currentProjectId.current !== projectId) return;
+      const summary = reportApplicationError(reason, { language: zh ? 'zh-CN' : 'en', title: label('冲突结果已保存，但刷新仓库失败', 'Conflict result was saved, but repository refresh failed') });
+      setError(summary);
+    } finally {
+      notifyProjectGitChanged(projectId);
+    }
+  }
   const groupLabels = { conflicts: label('冲突', 'Conflicts'), changes: label('更改', 'Changes'), untracked: label('未版本控制的文件', 'Unversioned Files') };
   const filteredQuery = state.search.trim().toLocaleLowerCase();
   const fileGroups = (['conflicts', 'changes', 'untracked'] as const).map(group => ({
@@ -297,7 +346,7 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
       </div>}
       {error ? <p className="source-git-error" role="alert"><VisibleApplicationError error={error} language={zh ? 'zh-CN' : 'en'} /></p> : null}
     </aside>
-    <section className="source-git-detail"><div className="source-git-diff">{diffLoading ? <p className="source-git-empty">{label('正在读取实际提交差异…', 'Loading selected commit diff…')}</p> : diffError ? <p className="source-git-error" role="alert"><VisibleApplicationError error={diffError} language={zh ? 'zh-CN' : 'en'} /></p> : focusedPath && diff ? <SideBySideDiff diff={diff} zh={zh} title={`${repositories.find(repository => repository.id === focusedId)?.name ?? ''} / ${focusedPath}`} fill /> : <div className="source-git-empty"><h3>{label('选择文件查看差异', 'Select a file to see its diff')}</h3><p>{label('左侧按仓库分组勾选，查看文件不会改变勾选范围。', 'Select files by repository. Previewing a file preserves your selection.')}</p></div>}</div>
+    <section className="source-git-detail"><div className="source-git-diff">{focusedConflict && focusedId && focusedPath ? <GitConflictEditor client={client} projectId={project.id} repositoryId={focusedId} filePath={focusedPath} zh={zh} disabled={locked} onSaved={result => conflictSaved(focusedId, focusedPath, result)} /> : focusedPath && (diffTarget !== currentDiffTarget || diffLoading) ? <p className="source-git-empty">{label('正在读取实际提交差异…', 'Loading selected commit diff…')}</p> : diffError && diffTarget === currentDiffTarget ? <p className="source-git-error" role="alert"><VisibleApplicationError error={diffError} language={zh ? 'zh-CN' : 'en'} /></p> : focusedPath && diff && diffTarget === currentDiffTarget ? <SideBySideDiff diff={diff} zh={zh} title={`${focusedRepository?.name ?? ''} / ${focusedPath}`} fill /> : <div className="source-git-empty"><h3>{label('选择文件查看差异', 'Select a file to see its diff')}</h3><p>{label('左侧按仓库分组勾选，查看文件不会改变勾选范围。', 'Select files by repository. Previewing a file preserves your selection.')}</p></div>}</div>
       {state.lastResults.length ? <section className="source-git-results" aria-label={label('批次结果', 'Batch results')}><header><strong>{label('最近一次批次', 'Last batch')}</strong>{state.lastResults.some(result => ['push_failed', 'push_blocked'].includes(result.status) && result.commitSha) ? <button type="button" disabled={locked} onClick={() => void retryPush()}>{label('重试失败的推送', 'Retry failed pushes')}</button> : null}</header>{state.lastResults.map(result => <div key={result.repositoryId}><strong>{result.repositoryName}</strong><span>{statuses[result.status]}</span>{result.commitSha ? <code title={result.commitSha}>{result.commitSha.slice(0, 8)}</code> : null}{result.error ? <p><VisibleApplicationError error={result.error} language={zh ? 'zh-CN' : 'en'} /></p> : null}</div>)}</section> : null}
     </section>
     {stashPreview ? <ModalPortal role="dialog" aria-label={label('贮藏差异', 'Stash diff')} rootClassName="gitapp-diff-root" onDismiss={() => setStashPreview(null)}><div className="gitapp-diff-dialog" data-modal-surface="dialog"><header><strong>{label('贮藏差异', 'Stash diff')}</strong><button type="button" onClick={() => setStashPreview(null)}>{label('关闭', 'Close')}</button></header><ProjectGitDiffWindow client={client} projectId={project.id} {...stashPreview} filePath="" stage="combined" language={props.language} appearance="light" /></div></ModalPortal> : null}

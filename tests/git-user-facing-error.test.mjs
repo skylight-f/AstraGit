@@ -224,3 +224,31 @@ test('a generic child command error does not replace a classified root reason', 
   assert.match(uncertain.message, /执行结果尚未确认/u);
   assert.equal(uncertain.outcomeUnconfirmed, true);
 });
+
+
+test('conflict editor failures explain current state without promising that partial saves were rolled back', () => {
+  const cases = [
+    ['PATH_UNSAFE', /链接目录.*外部工具/u, /linked directory.*external tool/u],
+    ['NOT_FOUND', /已不处于未解决冲突.*刷新/u, /no longer an unresolved conflict.*Refresh/u],
+    ['STALE', /已变化.*草稿未写入.*保留草稿.*重新载入/u, /changed.*draft was not written.*Keep the draft.*reload/u],
+    ['INPUT_INVALID', /参数或版本凭据无效.*保留草稿/u, /parameters or version token are invalid.*Keep the draft/u],
+    ['TEXT_UNSUPPORTED', /二进制文件.*子模块.*符号链接.*外部工具/u, /binary file.*submodule.*symbolic link.*external tool/u],
+    ['CONTENT_INVALID', /UTF-8.*空字符.*大小限制/u, /UTF-8.*null character.*size limit/u],
+    ['MARKERS_REMAIN', /格式不完整的冲突标记.*不能标记为已解决/u, /malformed conflict markers.*cannot be marked resolved/u],
+    ['READ_FAILED', /无法读取或核对.*已有草稿请先保留/u, /could not be read or verified.*Keep any existing draft/u],
+  ];
+  const wrappedPartial = describe('ASTRAGIT_GIT_ACTION_FAILED', 'en-US', { operationStatus: 'unknown_after_write', cause: { code: 'ASTRAGIT_GIT_CONFLICT_STALE', message: 'stale after save' } });
+  assert.match(wrappedPartial.message, /conflict save result is unconfirmed/u);
+  assert.equal(wrappedPartial.outcomeUnconfirmed, true);
+  for (const [suffix, zh, en] of cases) {
+    const code = 'ASTRAGIT_GIT_CONFLICT_' + suffix;
+    assert.match(describe(code).message, zh, code);
+    assert.match(describe(code, 'en-US').message, en, code);
+    assert.notEqual(describe(code).action, 'retry', code);
+    const partial = describe(code, 'zh-CN', { operationStatus: 'unknown_after_write', cause: { code: 'ASTRAGIT_GIT_COMMAND_FAILED', message: 'index refresh failed' } });
+    assert.match(partial.message, /保存结果尚未确认.*可能已变化.*保留草稿/u, code);
+    assert.doesNotMatch(partial.message, /草稿未写入|已回滚|自动重试/u, code);
+    assert.equal(partial.outcomeUnconfirmed, true, code);
+    assert.equal(partial.action, 'check', code);
+  }
+});

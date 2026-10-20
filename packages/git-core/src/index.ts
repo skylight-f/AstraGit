@@ -6,8 +6,10 @@ import { constants, realpathSync } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
-import { defaultTaskBranchPrefix, normalizeTaskBranchPrefix } from '@astragit/shared';
+import { defaultTaskBranchPrefix, normalizeTaskBranchPrefix, hasUnresolvedGitConflictMarkers } from '@astragit/shared';
 import { commitSelectedPaths } from './gitSelectedCommit.js';
+import { readProjectConflict, saveProjectConflict, type ProjectGitConflictFile, type ProjectGitConflictWriteResult, type SaveProjectGitConflictInput } from './gitProjectConflict.js';
+export type { ProjectGitConflictFile, ProjectGitConflictIndexStage, ProjectGitConflictWriteResult, SaveProjectGitConflictInput } from './gitProjectConflict.js';
 export { readSelectedCommitFingerprint, readSelectedGitCommitChanges, type GitCommitSelectionMode } from './gitCommitSelectionContext.js';
 
 const execFileAsync = promisify(execFile);
@@ -42,6 +44,7 @@ export const gitMutatingCapabilityNames = [
   'cleanupTaskIntegrationWorktree',
   'executeHighRiskGitOperation',
   'executeProjectGitAction',
+  'saveProjectGitConflict',
 ] as const;
 
 export interface GitStatusSummary {
@@ -2942,6 +2945,30 @@ async function readIntegrationState(cwd: string): Promise<'merge' | 'rebase' | n
 /** 执行项目 Git 工作台白名单动作；调用方不能传入任意子命令或任意工作目录。 */
 export async function executeProjectGitAction(cwd: string, action: ProjectGitAction, signal?: AbortSignal, env?: NodeJS.ProcessEnv, onCommand?: (command: string) => Promise<void>): Promise<ProjectGitActionResult> {
   return projectGitExecution.run({ signal, env, onCommand }, () => executeProjectGitActionInternal(cwd, action));
+}
+
+/** 冲突编辑直接使用当前项目仓库的 Git stage，不复用任务集成的来源/任务重映射。 */
+export async function readProjectGitConflict(cwd: string, path: string, signal?: AbortSignal): Promise<ProjectGitConflictFile> {
+  return projectGitExecution.run({ signal }, async () => {
+    const context = await getGitRepositoryContext(cwd);
+    if (!context.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是可用的 Git 仓库。');
+    return readProjectConflict(context.topLevel, path, { run: (args) => runGit(context.topLevel, args), signal, hasConflictMarkers: hasUnresolvedGitConflictMarkers });
+  });
+}
+
+/** 只保存/暂存冲突结果，不继续合并、变基或创建提交。 */
+export async function saveProjectGitConflict(cwd: string, input: SaveProjectGitConflictInput, signal?: AbortSignal, onCommand?: (command: string) => Promise<void>): Promise<ProjectGitConflictWriteResult> {
+  return projectGitExecution.run({ signal, onCommand }, async () => {
+    const context = await getGitRepositoryContext(cwd);
+    if (!context.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是可用的 Git 仓库。');
+    return saveProjectConflict(context.topLevel, input, {
+      signal, hasConflictMarkers: hasUnresolvedGitConflictMarkers,
+      run: (args, index) => {
+        const execution = projectGitExecution.getStore();
+        return projectGitExecution.run({ ...execution, env: { ...execution?.env, ...(index ? { GIT_INDEX_FILE: index } : {}) } }, () => runGit(context.topLevel, args));
+      },
+    });
+  });
 }
 
 /** 推送前只验证本地目标配置，不联系远端、不写入仓库。 */

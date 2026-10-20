@@ -46,11 +46,12 @@ import { ListBulletsIcon as ListBullets } from '@phosphor-icons/react/dist/csr/L
 import { MagnifyingGlassIcon as MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
 import { TreeStructureIcon as TreeStructure } from '@phosphor-icons/react/dist/csr/TreeStructure';
 import { WarningCircleIcon as WarningCircle } from '@phosphor-icons/react/dist/csr/WarningCircle';
-import type { DashboardClient, GitDiffHunk, GitFileDiff, ProjectGitAction, ProjectGitCommitDetail, ProjectGitOperationRecord, ProjectGitRepositoryWorkbenchItem, ProjectGitWorkbenchSnapshot, ProjectRecord } from '../apiClient.js';
+import type { DashboardClient, GitDiffHunk, GitFileDiff, ProjectGitAction, ProjectGitCommitDetail, ProjectGitOperationRecord, ProjectGitRepositorySnapshot, ProjectGitRepositoryWorkbenchItem, ProjectGitWorkbenchSnapshot, ProjectRecord } from '../apiClient.js';
 import { Button } from '../ui/Button.js';
 import { ModalPortal } from '../ui/ModalPortal.js';
 import { reportApplicationError, VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
 import { ProjectGitDiffWindow, SideBySideDiff } from './ProjectGitDiffViewer.js';
+import { GitConflictEditor } from './GitConflictEditor.js';
 import { describeUserFacingError } from '@astragit/shared';
 import { gitConflictMessage, gitFailureCode, gitFailureTitle } from './gitOperationFeedback.js';
 
@@ -69,7 +70,7 @@ export interface ProjectGitWorkbenchProps {
   project: ProjectRecord;
   client: Pick<
     DashboardClient,
-    'loadProjectGitHistory' | 'loadProjectGitWorkbench' | 'loadProjectGitOperations' | 'loadProjectGitCommit' | 'loadProjectGitComparisonDiff' | 'executeProjectGitAction' | 'cancelProjectGitAction' | 'generateGitCommitMessage' | 'loadGitCommitModels'
+    'loadProjectGitHistory' | 'loadProjectGitWorkbench' | 'loadProjectGitOperations' | 'loadProjectGitCommit' | 'loadProjectGitComparisonDiff' | 'executeProjectGitAction' | 'cancelProjectGitAction' | 'generateGitCommitMessage' | 'loadGitCommitModels' | 'readProjectGitConflict' | 'saveProjectGitConflict'
   >;
   language: 'zh-CN' | 'en-US';
   modelSettingsRevision?: number;
@@ -79,7 +80,11 @@ const projectGitViewPreferences = new Map<string, { repositoryId: string; search
 
 export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const zh = props.language === 'zh-CN';
+  const currentProjectId = useRef(props.project.id);
+  currentProjectId.current = props.project.id;
   const [snapshot, setSnapshot] = useState<ProjectGitWorkbenchSnapshot | null>(() => readCachedProjectGitWorkbench(props.client, props.project.id));
+  const currentSnapshot = useRef(snapshot);
+  currentSnapshot.current = snapshot;
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(() => (snapshot ? 'ready' : 'loading'));
   const [error, setError] = useState<string | null>(null);
   const [conflictAction, setConflictAction] = useState<{ repositoryId: string; action: ProjectGitAction; result: import('../apiClient.js').ProjectGitActionResponse['result'] } | null>(null);
@@ -96,6 +101,8 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const [commitLoading, setCommitLoading] = useState(false);
   const [selectedFilePath, setSelectedFilePath] = useState('');
   const [selectedFileStage, setSelectedFileStage] = useState<ChangeStage>('unstaged');
+  const currentFileSelection = useRef({ repositoryId: selectedRepositoryId, path: selectedFilePath, tab });
+  currentFileSelection.current = { repositoryId: selectedRepositoryId, path: selectedFilePath, tab };
   const [searchQuery, setSearchQuery] = useState(() => projectGitViewPreferences.get(props.project.id)?.searchQuery ?? '');
   useEffect(() => {
     projectGitViewPreferences.set(props.project.id, { repositoryId: selectedRepositoryId, searchQuery });
@@ -268,13 +275,25 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       return;
     }
     if (repository.id !== selectedRepositoryId) setSelectedRepositoryId(repository.id);
-    const unstagedPaths = new Set(repository.snapshot.fileStatuses.filter((file) => file.workingTreeStatus !== ' ' || file.indexStatus === '?').map((file) => file.path));
-    const stagedPaths = new Set(repository.snapshot.fileStatuses.filter((file) => file.indexStatus !== ' ' && file.indexStatus !== '?').map((file) => file.path));
+    const conflicts = new Set(repository.snapshot.conflictFiles);
+    if (conflicts.has(selectedFilePath)) {
+      if (selectedFileStage !== 'unstaged') setSelectedFileStage('unstaged');
+      return;
+    }
+    const ordinary = repository.snapshot.fileStatuses.filter((file) => !conflicts.has(file.path));
+    const unstagedPaths = new Set(ordinary.filter((file) => file.workingTreeStatus !== ' ' || file.indexStatus === '?').map((file) => file.path));
+    const stagedPaths = new Set(ordinary.filter((file) => file.indexStatus !== ' ' && file.indexStatus !== '?').map((file) => file.path));
     const selectedPaths = selectedFileStage === 'staged' ? stagedPaths : unstagedPaths;
     if (selectedPaths.has(selectedFilePath)) return;
     const otherStagePaths = selectedFileStage === 'staged' ? unstagedPaths : stagedPaths;
     if (otherStagePaths.has(selectedFilePath)) {
       setSelectedFileStage(selectedFileStage === 'staged' ? 'unstaged' : 'staged');
+      return;
+    }
+    const firstConflictPath = repository.snapshot.conflictFiles[0];
+    if (firstConflictPath) {
+      setSelectedFilePath(firstConflictPath);
+      setSelectedFileStage('unstaged');
       return;
     }
     const firstUnstagedPath = unstagedPaths.values().next().value;
@@ -330,6 +349,45 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     }
   }
 
+  async function conflictSaved(repositoryId: string, path: string, result: { resolved: boolean; snapshot?: ProjectGitRepositorySnapshot }): Promise<void> {
+    const projectId = props.project.id;
+    if (currentProjectId.current !== projectId) {
+      notifyProjectGitChanged(projectId);
+      return;
+    }
+    const version = ++requestVersionRef.current;
+    const entry = projectGitWorkbenchCacheEntry(props.client, projectId);
+    entry.request = null;
+    const selectAfterSave = (saved: ProjectGitRepositorySnapshot) => {
+      const current = currentFileSelection.current;
+      if (currentProjectId.current !== projectId || !result.resolved || current.tab !== 'changes' || current.repositoryId !== repositoryId || current.path !== path || saved.conflictFiles.includes(path)) return;
+      const nextConflict = saved.conflictFiles[0];
+      const nextFile = saved.fileStatuses.find((file) => file.path === path) ?? saved.fileStatuses[0];
+      setSelectedFilePath(nextConflict ?? nextFile?.path ?? '');
+      setSelectedFileStage(nextConflict || !nextFile || nextFile.workingTreeStatus !== ' ' || nextFile.indexStatus === '?' ? 'unstaged' : 'staged');
+    };
+    if (result.snapshot && currentSnapshot.current?.projectId === projectId) {
+      const next = { ...currentSnapshot.current, refreshedAt: new Date().toISOString(), repositories: currentSnapshot.current.repositories.map((repository) => repository.id === repositoryId ? { ...repository, snapshot: result.snapshot! } : repository) };
+      currentSnapshot.current = next;
+      entry.snapshot = next;
+      setSnapshot(next);
+      selectAfterSave(result.snapshot);
+    }
+    try {
+      const next = await requestProjectGitWorkbench(props.client, projectId);
+      if (currentProjectId.current !== projectId || version !== requestVersionRef.current) return;
+      currentSnapshot.current = next;
+      setSnapshot(next);
+      setLoadState('ready');
+      const repository = next.repositories.find((item) => item.id === repositoryId);
+      if (repository) selectAfterSave(repository.snapshot);
+    } catch (reason) {
+      if (currentProjectId.current === projectId && version === requestVersionRef.current) setError(errorMessage(reason, zh, { title: zh ? '冲突结果已保存，但刷新仓库失败' : 'Conflict result was saved, but repository refresh failed' }));
+    } finally {
+      notifyProjectGitChanged(projectId);
+    }
+  }
+
   async function execute(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string): Promise<ExecutionOutcome> {
     if (actionBusyRef.current) return null;
     actionBusyRef.current = true;
@@ -365,7 +423,13 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     } catch (reason) {
       const explanation = describeUserFacingError(reason, zh ? 'zh-CN' : 'en');
       const code = gitFailureCode(reason);
-      const reviewFiles = () => { setSelectedRepositoryId(repository.id); setTab('changes'); };
+      const reviewFiles = () => {
+        const latest = currentSnapshot.current?.repositories.find((item) => item.id === repository.id);
+        setSelectedRepositoryId(repository.id);
+        setSelectedFilePath(latest?.snapshot.conflictFiles[0] ?? '');
+        setSelectedFileStage('unstaged');
+        setTab('changes');
+      };
       const recovery = explanation.outcomeUnconfirmed || code === 'ASTRAGIT_GIT_ACTION_REFRESH_FAILED'
         ? { label: zh ? '刷新仓库状态' : 'Refresh repository', onClick: () => loadWorkbench() }
         : code === 'ASTRAGIT_GIT_CHECKOUT_BLOCKED'
@@ -459,6 +523,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     const newBranch = (baseRef: string) => form(label('新建分支…', 'New branch…'), label('分支名称', 'Branch name'), (branchName) => ({ type: 'create_branch', branchName, baseRef }));
     if (target.kind === 'file' || target.kind === 'directory' || target.kind === 'stage') {
       const files = repository.snapshot.fileStatuses
+        .filter((file) => !repository.snapshot.conflictFiles.includes(file.path))
         .filter((file) => !subtree || subtree.repositoryId !== repository.id || file.path === subtree.path || file.path.startsWith(`${subtree.path}/`))
         .filter(
           (file) =>
@@ -1131,6 +1196,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
             />
           ) : tab === 'changes' ? (
             <LocalChangesSurface
+              client={props.client}
               query={fileQuery}
               commitRequest={commitRequest}
               previewRevision={snapshot?.refreshedAt}
@@ -1151,6 +1217,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
               }}
               onOpenDiff={openDiffWindow}
               onExecute={execute}
+              onConflictSaved={conflictSaved}
               onConfirmAction={(repository, action, title, description, danger) =>
                 setMenuConfirmation({
                   title,
@@ -1794,6 +1861,7 @@ function RepositoryNavigationTree(props: { repositories: ProjectGitRepositoryWor
 }
 
 function LocalChangesSurface(props: {
+  client: Pick<DashboardClient, 'readProjectGitConflict' | 'saveProjectGitConflict'>;
   query: string;
   commitRequest: number;
   /** 刷新时即使二进制补丁相同，也重新读取当前文件。 */
@@ -1813,6 +1881,7 @@ function LocalChangesSurface(props: {
   onSelectFile: (path: string, stage: ChangeStage) => void;
   onOpenDiff: (repository: ProjectGitRepositoryWorkbenchItem, filePath: string, options?: { stage?: 'combined' | ChangeStage; commitHash?: string; comparisonRef?: string; comparisonMode?: 'current' | 'working-tree' }) => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
+  onConflictSaved: (repositoryId: string, path: string, result: { resolved: boolean; snapshot?: ProjectGitRepositorySnapshot }) => Promise<void>;
   onConfirmAction: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, title: string, description: string, danger: boolean) => void;
   onCommit: () => void;
   commitDrafts: Record<string, string>;
@@ -1846,10 +1915,12 @@ function LocalChangesSurface(props: {
     if (commitActive) commitInputRef.current?.focus();
   }, [commitActive]);
   const repository = props.selectedRepository;
+  const conflicts = new Set(repository?.snapshot.conflictFiles ?? []);
+  const selectedConflict = Boolean(repository && conflicts.has(props.selectedFilePath));
   const message = repository ? (props.commitDrafts[repository.id] ?? '') : '';
-  const stagedCount = repository?.snapshot.fileStatuses.filter((file) => file.indexStatus !== ' ' && file.indexStatus !== '?').length ?? 0;
+  const stagedCount = repository?.snapshot.fileStatuses.filter((file) => !conflicts.has(file.path) && file.indexStatus !== ' ' && file.indexStatus !== '?').length ?? 0;
   const generating = props.generatingCommitFor === repository?.id;
-  const canCommit = Boolean(repository && stagedCount > 0 && message.trim() && !props.busy && !generating);
+  const canCommit = Boolean(repository && !conflicts.size && stagedCount > 0 && message.trim() && !props.busy && !generating);
   async function commitCurrentRepository(): Promise<void> {
     if (!repository || !canCommit || committingRef.current) return;
     committingRef.current = true;
@@ -1865,7 +1936,7 @@ function LocalChangesSurface(props: {
   }
   const subtree = props.subtree;
   const matchesSubtree = (path: string) => !subtree || subtree.repositoryId !== props.selectedRepository?.id || path === subtree.path || path.startsWith(`${subtree.path}/`);
-  const visibleFileStatuses = repository?.snapshot.fileStatuses.filter((file) => matchesSubtree(file.path) && file.path.toLocaleLowerCase().includes(props.query.trim().toLocaleLowerCase())) ?? [];
+  const visibleFileStatuses = repository?.snapshot.fileStatuses.filter((file) => !conflicts.has(file.path) && matchesSubtree(file.path) && file.path.toLocaleLowerCase().includes(props.query.trim().toLocaleLowerCase())) ?? [];
   const visibleChangeCount = visibleFileStatuses.length;
   const emptyVisibleChanges = Boolean(repository && visibleChangeCount === 0 && repository.snapshot.conflictFiles.length === 0);
   const workspaceClean = Boolean(emptyVisibleChanges && repository?.snapshot.fileStatuses.length === 0);
@@ -1990,7 +2061,10 @@ function LocalChangesSurface(props: {
       </aside>
       <GitPaneSeparator name="files" label={props.zh ? '调整文件列表宽度' : 'Resize file list'} initial={30} min={15} max={65} />
       <main className="project-git-change-diff">
-        {emptyVisibleChanges ? (
+        {repository && selectedConflict ? (
+          <GitConflictEditor client={props.client} projectId={props.projectId} repositoryId={repository.id} filePath={props.selectedFilePath} zh={props.zh} disabled={props.busy !== null}
+            onSaved={(result) => props.onConflictSaved(repository.id, props.selectedFilePath, result)} />
+        ) : emptyVisibleChanges ? (
           <div className="project-git-change-diff-empty" role="status">
             <span className="project-git-empty-symbol">
               <CheckCircle aria-hidden="true" />

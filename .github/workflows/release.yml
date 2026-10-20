@@ -72,6 +72,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm setup:desktop
+      - name: 校验原生辅助程序的架构检查
+        run: node --test tests/macos-architecture.test.mjs
       - name: 构建并校验正式安装包
         env:
           CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}

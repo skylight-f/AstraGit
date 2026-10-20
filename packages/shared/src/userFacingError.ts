@@ -261,6 +261,14 @@ const explanations: ReadonlyArray<readonly [codes: readonly string[], explanatio
   [['ASTRAGIT_GIT_PUSH_NON_FAST_FORWARD', 'ASTRAGIT_TASK_REMOTE_DIVERGED'], ['远端分支包含本地尚未合入的提交，推送被拒绝。请先抓取并核对分支差异，合并或变基后再推送。', 'The remote branch contains commits that are not integrated locally, so the push was rejected. Fetch and review the branch differences, then merge or rebase before pushing again.']],
   [['ASTRAGIT_GIT_REMOTE_REJECTED'], ['远端服务器拒绝了推送。请查看详情，检查分支保护、仓库权限及远端检查要求，再核对哪些引用已更新。', 'The remote server rejected the push. Check the details for branch protection, repository permissions, or remote checks, and verify which refs were updated.']],
   [['ASTRAGIT_GIT_NETWORK_FAILED'], ['Git 无法连接远端，或连接在完整响应前中断。请检查网络、代理及服务器状态；如果刚才在推送，请先核对远端分支是否已更新。', 'Git could not reach the remote, or the connection ended before a complete response was received. Check the network, proxy, and server. If this happened during a push, verify the remote branch before trying again.', 'check']],
+  [['ASTRAGIT_GIT_CONFLICT_PATH_UNSAFE'], ['冲突文件路径无效或经过链接目录，不能在这里安全编辑。请在仓库中核对实际路径，使用外部工具处理后暂存。', 'The conflict path is invalid or passes through a linked directory, so it cannot be safely edited here. Verify the actual repository path and resolve and stage the file using an external tool.']],
+  [['ASTRAGIT_GIT_CONFLICT_NOT_FOUND'], ['该文件已不处于未解决冲突状态。请刷新仓库，确认最新文件与暂存状态。', 'This file is no longer an unresolved conflict. Refresh the repository and check the latest file and index state.', 'check']],
+  [['ASTRAGIT_GIT_CONFLICT_STALE', 'ASTRAGIT_GIT_CONFLICT_BLOCK_STALE'], ['冲突文件、当前提交或暂存版本已变化，本次草稿未写入。请保留草稿，重新载入冲突文件并核对最新内容。', 'The conflicted file, current commit, or index version changed, so this draft was not written. Keep the draft, reload the conflict, and review the latest contents.', 'check']],
+  [['ASTRAGIT_GIT_CONFLICT_INPUT_INVALID', 'ASTRAGIT_GIT_CONFLICT_CHOICE_INVALID', 'ASTRAGIT_GIT_CONFLICT_MARKER_SIZE_INVALID'], ['冲突保存参数或版本凭据无效。请保留草稿并重新载入冲突文件，核对内容后再保存。', 'The conflict save parameters or version token are invalid. Keep the draft and reload the conflict, then review it before saving again.', 'check']],
+  [['ASTRAGIT_GIT_CONFLICT_TEXT_UNSUPPORTED'], ['该冲突涉及二进制文件、子模块或符号链接，无法在文本编辑器中保存。请使用外部工具处理，并在确认结果后暂存。', 'This conflict involves a binary file, submodule, or symbolic link and cannot be saved in the text editor. Resolve it using an external tool, then review and stage the result.']],
+  [['ASTRAGIT_GIT_CONFLICT_CONTENT_INVALID'], ['冲突结果不是有效的 UTF-8 文本、包含空字符或超出大小限制，无法保存。请检查草稿，或使用外部工具处理。', 'The conflict result is not valid UTF-8 text, contains a null character, or exceeds the size limit and cannot be saved. Review the draft or resolve it using an external tool.']],
+  [['ASTRAGIT_GIT_CONFLICT_MARKERS_REMAIN'], ['结果中仍有未处理或格式不完整的冲突标记，不能标记为已解决。请继续处理所有冲突块，并检查手工编辑后的标记。', 'Unresolved or malformed conflict markers remain, so the file cannot be marked resolved. Resolve every conflict block and check any manually edited markers.']],
+  [['ASTRAGIT_GIT_CONFLICT_READ_FAILED'], ['无法读取或核对当前冲突版本。请刷新仓库并重新载入冲突文件；已有草稿请先保留。', 'The current conflict versions could not be read or verified. Keep any existing draft, refresh the repository, and reload the conflict.', 'check']],
   [['ASTRAGIT_GIT_UNMERGED_FILES', 'ASTRAGIT_GIT_CONFLICTS_REMAIN'], ['仓库仍有未解决的冲突，操作未能继续。请处理冲突文件，并在确认内容后暂存；如有正在进行的合并或变基，再继续或中止该流程。', 'The repository still has unresolved conflicts, so the action could not continue. Resolve the files and stage them after reviewing their contents. If a merge or rebase is in progress, continue or abort that operation.']],
   [['ASTRAGIT_GIT_LOCAL_CHANGES_BLOCKED'], ['本地修改或未跟踪文件会被此次操作覆盖，Git 已停止执行。请先提交、贮藏（未跟踪文件需勾选包含），或备份并移开相关文件，再重新操作。', 'Local changes or untracked files would be overwritten, so Git stopped the action. Commit or stash them (include untracked files when needed), or back up and move the affected files before trying again.']],
   [['ASTRAGIT_GIT_SMART_OPERATION_FAILED_RESTORED'], ['更新未完成，自动贮藏的本地修改已恢复。请刷新并核对仓库状态，再查看详情处理更新失败的原因。', 'The update did not complete, and the automatically stashed local changes were restored. Refresh and check the repository state, then review the details to resolve the update failure.', 'check']],
@@ -1269,6 +1277,12 @@ const checkoutBlockExplanations: Readonly<Record<'tracked' | 'untracked', ErrorE
   ],
 };
 
+const conflictWriteUnconfirmedExplanation: ErrorExplanation = [
+  '冲突保存结果尚未确认，工作区或暂存区可能已变化。请保留草稿，先刷新并重新载入冲突文件核对，不要重复保存或覆盖。',
+  'The conflict save result is unconfirmed, and the working tree or index may have changed. Keep the draft, refresh, and reload the conflict to check it before saving or overwriting again.',
+  'check',
+];
+
 const gitRefreshOutcomeExplanations: Readonly<Record<'completed' | 'conflict', ErrorExplanation>> = {
   completed: [
     'Git 操作已完成，但刷新最新仓库状态失败。请先刷新并核对当前状态，不要重复执行刚才的 Git 操作。',
@@ -1298,11 +1312,14 @@ export function describeUserFacingError(error: unknown, language: UserFacingErro
   for (let item: UserFacingErrorCause | undefined = root; item; item = item.cause) chain.push(item);
   // 已解释过的字符串仍可切换语言，避免再次格式化时丢失原因。
   const normalizedMessage = unwrapAstraGitErrorMessage(root.message);
-  const translated = [...explanations.map(([, copy]) => copy), ...Object.values(checkoutBlockExplanations), ...Object.values(gitRefreshOutcomeExplanations)].find((copy) => copy[0] === normalizedMessage || copy[1] === normalizedMessage);
+  const translated = [...explanations.map(([, copy]) => copy), ...Object.values(checkoutBlockExplanations), ...Object.values(gitRefreshOutcomeExplanations), conflictWriteUnconfirmedExplanation].find((copy) => copy[0] === normalizedMessage || copy[1] === normalizedMessage);
   // 发送后核对可能包住读取失败，仍优先解释刷新状态，底层原因继续完整保留在详情中。
   const readFailure = chain.find((item) => item.code === 'ASTRAGIT_CONVERSATION_READ_FAILED' || item.code === 'ASTRAGIT_CONVERSATION_ARCHIVE_STATE_UNCONFIRMED');
   // 写入请求超时不能根据已收到的局部原因推断最终结果。
   const mutationOutcome = chain.find((item) => item.code === 'ASTRAGIT_LOCAL_API_MUTATION_OUTCOME_UNKNOWN');
+  // 冲突保存发生部分写入后，不能用写入前校验文案承诺草稿从未落盘。
+  const conflictFailure = chain.find((item) => item.code?.startsWith('ASTRAGIT_GIT_CONFLICT_'));
+  const conflictWriteUnconfirmed = conflictFailure && chain.some((item) => item.operationStatus === 'unknown_after_write') ? conflictFailure : undefined;
   // 动作后的读取失败必须保留已确认的执行事实，不能由底层读取异常改写成动作未执行。
   const postActionRead = chain.find((item) => item.code === 'ASTRAGIT_GIT_ACTION_REFRESH_FAILED' || item.code === 'ASTRAGIT_GIT_ACTION_STATE_READ_FAILED');
   // 恢复结果由外层流程核实；底层命令失败只说明原因，不能覆盖本地修改已恢复/仍在贮藏中的事实。
@@ -1312,12 +1329,12 @@ export function describeUserFacingError(error: unknown, language: UserFacingErro
   const deepestFirst = [...chain].reverse();
   const specificFirst = [...deepestFirst.filter((item) => !genericGitCodes.has(item.code ?? '')), ...deepestFirst.filter((item) => genericGitCodes.has(item.code ?? ''))];
   // 只改变解释优先级，不改变下方对发送结果未知的保护。
-  const explanationChain = mutationOutcome ? [mutationOutcome] : postActionRead ? [postActionRead] : readFailure ? [readFailure] : recoveryOutcome ? [recoveryOutcome] : specificFirst;
+  const explanationChain = mutationOutcome ? [mutationOutcome] : conflictWriteUnconfirmed ? [conflictWriteUnconfirmed] : postActionRead ? [postActionRead] : readFailure ? [readFailure] : recoveryOutcome ? [recoveryOutcome] : specificFirst;
   const match =
     explanationChain.flatMap((item) => {
       /** 完整业务文案去除传输前缀后精确匹配，原始消息仍留在详情中。 */
       const message = unwrapAstraGitErrorMessage(item.message);
-      const stateExplanation = gitRefreshOutcomeExplanation(item) ?? gitCheckoutBlockExplanation(item);
+      const stateExplanation = item === conflictWriteUnconfirmed ? conflictWriteUnconfirmedExplanation : gitRefreshOutcomeExplanation(item) ?? gitCheckoutBlockExplanation(item);
       return stateExplanation ? [[[], stateExplanation] as const] : explanations.filter(([codes]) => codes.includes(message) || (item.code && codes.includes(item.code)));
     })[0]?.[1] ?? translated;
   const details = chain
@@ -1327,6 +1344,7 @@ export function describeUserFacingError(error: unknown, language: UserFacingErro
   const zh = language === 'zh-CN';
   const unknownOutcome = Boolean(
     mutationOutcome ||
+      conflictWriteUnconfirmed ||
       postActionRead?.code === 'ASTRAGIT_GIT_ACTION_STATE_READ_FAILED' ||
       (postActionRead?.code !== 'ASTRAGIT_GIT_ACTION_REFRESH_FAILED' && chain.some((item) => /OUTCOME_UNKNOWN|DELIVERY_UNCONFIRMED|REPLAY_BLOCKED|ACCEPTANCE_HYDRATION_PENDING|^ASTRAGIT_CODEX_RPC_PROTOCOL_ERROR$|^ASTRAGIT_GIT_(?:TIMEOUT|SWITCH_FAILED)$|^ASTRAGIT_TASK_REMOTE_VERIFICATION_FAILED$/u.test(item.code ?? ''))),
   );

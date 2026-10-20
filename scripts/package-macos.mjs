@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build, Platform } from 'electron-builder';
+import { verifyMachOArchitecture } from './macos-architecture.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const desktop = join(root, 'apps/desktop');
@@ -115,7 +116,7 @@ try {
   for (const file of requiredFiles) {
     if (!archiveFiles.has(`/${file}`)) throw new Error(`Application archive is missing ${file}`);
   }
-  await run('/usr/bin/lipo', ['-verify_arch', process.arch === 'x64' ? 'x86_64' : 'arm64', join(appPath, 'Contents/Resources/app.asar.unpacked/dist/native/AstraGitUpdateProgress')]);
+  await verifyMachOArchitecture(join(appPath, 'Contents/Resources/app.asar.unpacked/dist/native/AstraGitUpdateProgress'), process.arch);
   for (const file of archiveFiles) {
     if (asar.statFile(archive, file.slice(1)).link) throw new Error(`Application archive contains an unresolved link: ${file}`);
   }
