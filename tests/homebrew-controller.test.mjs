@@ -55,17 +55,18 @@ test('automatic brew upgrade has one owner and reopening the native window reuse
 
 function actionFixture(t, input = {}) {
   const update = { status: 'available', currentVersion: '0.1.0', latestVersion: '0.2.0', artifact: { sha256: 'b'.repeat(64), sizeBytes: 120_000 }, automaticInstallEnabled: true, ...input.update };
-  const events = []; const states = []; let action; let hosts = 0; let prepares = 0; let accepted = false; let failPrepare = input.failPrepare; let checks = 0;
+  const events = []; const states = []; let action; let hosts = 0; let closedHosts = 0; let prepares = 0; let accepted = false; let failPrepare = input.failPrepare; let checks = 0;
   const controller = createHomebrewUpdateController({
     helperPath: '/unused', language: () => 'zh-CN', currentVersion: '0.1.0',
-    loadUpdateStatus: async () => { checks++; if (input.checkError) throw input.checkError; return update; },
+    loadUpdateStatus: async () => { checks++; await input.waitForCheck; if (input.checkError) throw input.checkError; return update; },
+    retryDelaysMs: input.retryDelaysMs,
     direct: {
       manualInstallReason: async () => input.manual ? 'Manual installation required' : null,
-      download: async () => { events.push('direct-download'); return { accepted: true, update }; },
-      install: async () => { events.push('direct-install'); return { accepted: true, restartAccepted: true }; },
+      download: async () => { events.push('direct-download'); if (input.downloadError) throw input.downloadError; return { accepted: true, update }; },
+      install: async () => { events.push('direct-install'); input.onQuit?.(); return { accepted: true, restartAccepted: true }; },
     },
     homebrew: {
-      isManaged: async () => !input.manual,
+      isManaged: async () => !input.manual && !input.direct,
       prepare: async (_update, progress) => {
         prepares++; events.push('brew-upgrade');
         progress({ phase: 'downloading', downloadedBytes: 1, totalBytes: 2 });
@@ -76,17 +77,18 @@ function actionFixture(t, input = {}) {
       install: async () => { events.push('verify-installed'); if (input.failInstall) throw new Error('installed app identity changed'); return { appPath: '/Applications/AstraGit.app', bundleId: 'com.astragit.desktop', version: input.installedVersion ?? '0.2.0' }; },
     },
     canInstall: () => {}, openDownloadPage: async () => events.push('open-release'),
-    onInstallReady: async activate => { events.push('confirm'); if (!accepted) return false; await activate(); events.push('quit'); return true; },
+    onInstallReady: async activate => { events.push('confirm'); if (!accepted) return false; await activate(); events.push('quit'); input.onQuit?.(); return true; },
     createHost: async () => {
       hosts++;
+      await input.waitForHost;
       return {
-        update: state => states.push(state), show: () => events.push('show'), close: () => {}, hide: () => {}, onExit: () => () => {},
+        update: state => states.push(state), show: () => events.push('show'), close: () => { closedHosts++; }, hide: () => {}, onExit: () => () => {},
         onAction: listener => { action = listener; return () => {}; }, relaunchAfterProcessExit: () => events.push('relaunch'),
       };
     },
   });
   t.after(() => controller.close());
-  return { controller, events, states, hosts: () => hosts, prepares: () => prepares, checks: () => checks, accept: () => { accepted = true; }, allowPrepare: () => { failPrepare = false; }, action: value => action(value), update };
+  return { controller, events, states, hosts: () => hosts, closedHosts: () => closedHosts, prepares: () => prepares, checks: () => checks, accept: () => { accepted = true; }, allowPrepare: () => { failPrepare = false; }, action: value => action(value), update };
 }
 
 test('explicit check upgrades silently; ready restart confirms and revalidates without another brew upgrade', async t => {
@@ -179,3 +181,87 @@ test('Homebrew upgrades a detected version without needing a direct-channel arti
   assert.equal(ready.phase, 'ready'); assert.equal(ready.method, 'homebrew'); assert.equal(f.prepares(), 1);
   assert.deepEqual(f.events, ['brew-upgrade']);
 });
+
+test('shutdown drains an active brew command and blocks new work without reopening its UI', async t => {
+  let release;
+  const waitForPrepare = new Promise(resolve => { release = resolve; });
+  const f = actionFixture(t, { waitForPrepare });
+  const check = f.controller.performAction('check');
+  await waitFor(() => f.prepares() === 1);
+  let drained = false;
+  const shutdown = f.controller.shutdown().then(() => { drained = true; });
+  await Promise.all([f.controller.showOrCheck(), f.controller.performAction('prepare'), f.controller.checkAutomatically()]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(drained, false, 'The application must keep its bridge alive until brew finishes.');
+  assert.equal(f.prepares(), 1);
+  assert.equal(f.checks(), 1);
+  assert.equal(f.hosts(), 0);
+  release();
+  await Promise.all([check, shutdown]);
+  assert.equal(drained, true);
+  assert.equal(f.hosts(), 0);
+  assert.deepEqual(f.events, ['brew-upgrade']);
+});
+
+test('shutdown during a release check does not start a later automatic brew upgrade', async t => {
+  let release;
+  const waitForCheck = new Promise(resolve => { release = resolve; });
+  const f = actionFixture(t, { waitForCheck });
+  const check = f.controller.checkAutomatically();
+  await waitFor(() => f.checks() === 1);
+  const shutdown = f.controller.shutdown();
+  release();
+  await Promise.all([check, shutdown]);
+  assert.equal(f.prepares(), 0);
+  assert.equal(f.hosts(), 0);
+  assert.equal(await f.controller.checkAutomatically(), false);
+});
+
+test('shutdown cancels a five-minute retry delay and prevents another download', { timeout: 3_000 }, async t => {
+  const f = actionFixture(t, {
+    direct: true,
+    retryDelaysMs: [5 * 60_000],
+    downloadError: new Error('fixture network disconnected', { cause: { code: 'ASTRAGIT_UPDATE_DOWNLOAD_INTERRUPTED' } }),
+  });
+  const check = f.controller.checkAutomatically();
+  await waitFor(() => f.controller.getIndicatorState().phase === 'retrying');
+  await f.controller.shutdown();
+  await check;
+  assert.deepEqual(f.events, ['direct-download']);
+  assert.equal(f.hosts(), 0);
+});
+
+test('shutdown closes a late native host before it can show a window or start checking', async t => {
+  let release;
+  const waitForHost = new Promise(resolve => { release = resolve; });
+  const f = actionFixture(t, { waitForHost });
+  const show = f.controller.showOrCheck();
+  await waitFor(() => f.hosts() === 1);
+  const shutdown = f.controller.shutdown();
+  release();
+  await Promise.all([show, shutdown]);
+  assert.equal(f.closedHosts(), 1);
+  assert.equal(f.checks(), 0);
+  assert.deepEqual(f.states, []);
+  assert.ok(!f.events.includes('show'));
+});
+
+for (const direct of [false, true]) {
+  test(`shutdown triggered by ${direct ? 'direct' : 'Homebrew'} restart drains without awaiting its own quit handler`, { timeout: 3_000 }, async t => {
+    let shutdown;
+    const input = { direct };
+    const f = actionFixture(t, input);
+    await f.controller.performAction('check');
+    f.accept();
+    input.onQuit = () => { shutdown = f.controller.shutdown({ preserveHost: !direct }); };
+    await f.controller.performAction('restart');
+    assert.ok(shutdown);
+    await shutdown;
+    if (!direct) {
+      assert.ok(f.events.includes('relaunch'));
+      assert.equal(f.closedHosts(), 0, 'The armed helper must outlive the old Main process.');
+      await f.controller.shutdown();
+      assert.equal(f.closedHosts(), 0, 'Repeated shutdown must preserve the original handoff decision.');
+    }
+  });
+}

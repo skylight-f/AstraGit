@@ -94,6 +94,12 @@ Apple Silicon 与 Intel 使用各自的 DMG 和摘要。Homebrew 安装采用 As
 
 显式本地安装包构建：`pnpm build:release`。该入口读取 Apple 发行凭据并生成 DMG；正式身份验收使用 `pnpm build:app`，日常开发验证使用 `pnpm dev`。
 
+## 系统代理
+
+AstraGit 跟随 macOS 系统代理。更新检查与下载、模型请求使用 Electron 系统网络栈；应用启动的 Homebrew、Git HTTP(S)、Codex 和默认 Git SSH 连接通过本机转发服务按目标解析同一套系统规则。系统代理切换后，新请求使用新规则，已建立的连接继续到结束；本机 API 与登录回调保持直连，无需给 AstraGit 单独配置代理端口。
+
+转发支持 HTTP、HTTPS、SOCKS4/5 及 PAC 首选路由。代理连接失败会报错，不自动尝试 PAC 后续备用项或直连，不重放写入请求。需要代理账号认证的企业代理尚未接入系统凭据。显式 Git `http.proxy`、自定义 SSH 命令和 `ProxyJump` / `ProxyCommand` 仍按用户配置执行；通过外部浏览器打开的链接由浏览器管理网络。
+
 ## 独立数据
 
 - macOS 默认数据目录：`~/Library/Application Support/AstraGit`。

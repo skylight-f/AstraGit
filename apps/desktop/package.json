@@ -19,7 +19,8 @@
     "@astragit/git-core": "workspace:*",
     "@astragit/git-server": "workspace:*",
     "@astragit/shared": "workspace:*",
-    "@astragit/storage": "workspace:*"
+    "@astragit/storage": "workspace:*",
+    "proxy-chain": "^3.0.1"
   },
   "devDependencies": {
     "@phosphor-icons/react": "^2.1.10",

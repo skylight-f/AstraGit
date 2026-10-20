@@ -20,6 +20,8 @@ export interface HomebrewUpdateController {
   onIndicatorState(listener: (state: HomebrewUpdateIndicatorState) => void): () => void;
   onCheckCompleted(listener: (checkedAt: string) => void): () => void;
   close(): void;
+  /** Stop new work, then keep the proxy alive until current update work settles. */
+  shutdown(options?: { preserveHost?: boolean }): Promise<void>;
 }
 
 interface CreateHomebrewUpdateControllerOptions {
@@ -56,6 +58,9 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
   let phase: ControllerPhase = 'idle';
   let hidden = false;
   let closed = false;
+  let hostCreation: Promise<NativeUpdateProgressHost | null> | null = null;
+  let shutdownPromise: Promise<void> | null = null;
+  const shutdownSignal = new AbortController();
   let currentUpdate: DesktopReleaseUpdateStatus | null = null;
   let prepared: PreparedUpdate | null = null;
   let installed: HomebrewInstalledUpdate | null = null;
@@ -69,41 +74,48 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
   const checkCompletedListeners = new Set<(checkedAt: string) => void>();
   const retryDelaysMs = options.retryDelaysMs ?? defaultRetryDelaysMs;
 
-  async function ensureHost(): Promise<NativeUpdateProgressHost> {
-    if (host) return host;
-    const created = await (options.createHost ?? createNativeUpdateProgressHost)({
-      executablePath: options.helperPath,
-      language: options.language,
-    });
-    host = created;
-    created.onAction((action) => {
-      if (action === 'closed' || action === 'later' || action === 'close') {
+  function ensureHost(): Promise<NativeUpdateProgressHost | null> {
+    if (closed) return Promise.resolve(null);
+    if (host) return Promise.resolve(host);
+    hostCreation ??= (async () => {
+      const created = await (options.createHost ?? createNativeUpdateProgressHost)({
+        executablePath: options.helperPath,
+        language: options.language,
+      });
+      if (closed) { created.close(); return null; }
+      host = created;
+      created.onAction((action) => {
+        if (closed) return;
+        if (action === 'closed' || action === 'later' || action === 'close') {
+          hidden = true;
+          return;
+        }
+        hidden = false;
+        if (action === 'download') void runExclusive(() => prepareUpdate(false));
+        else if (action === 'check') void runExclusive(() => checkForUpdate(true, true).then(() => undefined));
+        else if (action === 'open_download_page') void runExclusive(openDownloadPage);
+        else if (action === 'open_installer') void runExclusive(openDownloadedUpdate);
+        else if (action === 'restart') void runExclusive(installPreparedUpdate);
+        else if (action === 'retry') {
+          if (lastFailureStep === 'install' && prepared) void runExclusive(installPreparedUpdate);
+          else if (lastFailureStep === 'prepare' || lastFailureStep === 'download' || updateMethod === 'homebrew') void runExclusive(() => prepareUpdate(false));
+          else void runExclusive(() => checkForUpdate(true, true).then(() => undefined));
+        }
+      });
+      created.onExit(() => {
+        if (host === created) host = null;
         hidden = true;
-        return;
-      }
-      hidden = false;
-      if (action === 'download') void runExclusive(() => prepareUpdate(false));
-      else if (action === 'check') void runExclusive(() => checkForUpdate(true, true).then(() => undefined));
-      else if (action === 'open_download_page') void runExclusive(openDownloadPage);
-      else if (action === 'open_installer') void runExclusive(openDownloadedUpdate);
-      else if (action === 'restart') void runExclusive(installPreparedUpdate);
-      else if (action === 'retry') {
-        if (lastFailureStep === 'install' && prepared) void runExclusive(installPreparedUpdate);
-        else if (lastFailureStep === 'prepare' || lastFailureStep === 'download' || updateMethod === 'homebrew') void runExclusive(() => prepareUpdate(false));
-        else void runExclusive(() => checkForUpdate(true, true).then(() => undefined));
-      }
-    });
-    created.onExit(() => {
-      if (host === created) host = null;
-      hidden = true;
-    });
-    if (lastState) created.update({ ...lastState, present: !hidden });
-    return created;
+      });
+      if (lastState) created.update({ ...lastState, present: !hidden });
+      return created;
+    })().finally(() => { hostCreation = null; });
+    return hostCreation;
   }
 
   function runExclusive(task: () => Promise<void>): Promise<void> {
+    if (closed) return Promise.resolve();
     if (operation) return operation;
-    const running = task().finally(() => {
+    const running = Promise.resolve().then(() => closed ? undefined : task()).finally(() => {
       if (operation === running) operation = null;
     });
     operation = running;
@@ -111,6 +123,7 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
   }
 
   function setIndicator(next: Omit<HomebrewUpdateIndicatorState, 'updatedAt'> & { updatedAt?: string }): void {
+    if (closed) return;
     indicatorState = {
       ...(updateMethod ? { method: updateMethod } : {}),
       ...next,
@@ -120,21 +133,28 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
   }
 
   async function publish(state: NativeUpdateProgressState): Promise<void> {
+    if (closed) return;
     lastState = { ...state, present: !hidden };
     if (hidden && !host) return;
     const currentHost = await ensureHost();
-    currentHost.update(lastState);
+    if (closed) return;
+    currentHost?.update(lastState);
   }
 
   async function checkForUpdate(present: boolean, updateIndicator: boolean): Promise<DesktopReleaseUpdateStatus | null> {
+    if (closed) return null;
     phase = 'checking';
     lastFailureStep = 'check';
     if (present) {
       await publish(copyFor(options.language(), 'checking', options.currentVersion));
-      (await ensureHost()).show();
+      const currentHost = await ensureHost();
+      if (closed) return null;
+      currentHost?.show();
     }
+    if (closed) return null;
     try {
-      const update = await retryOperation(options.loadUpdateStatus, 2);
+      const update = await retryOperation(options.loadUpdateStatus, 2, shutdownSignal.signal);
+      if (closed) return null;
       currentUpdate = update;
       const checkedAt = validIsoDate(update.checkedAt) ?? new Date().toISOString();
       for (const listener of checkCompletedListeners) listener(checkedAt);
@@ -157,11 +177,13 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
       }
       if (!hasNewerVersion(update)) throw new Error(update.reason || '暂时无法取得可用更新。', { cause: update.error });
       updateMethod = (await options.homebrew.isManaged()) ? 'homebrew' : 'direct';
+      if (closed) return null;
       if (updateMethod === 'direct' && (update.status !== 'available' || !update.artifact)) {
         await publishManualUpdate(update);
         return update;
       }
       const manualReason = updateMethod === 'direct' ? await options.direct.manualInstallReason(update) : null;
+      if (closed) return null;
       if (manualReason) {
         await publishManualUpdate(update);
         return update;
@@ -179,6 +201,7 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
       if (present) await publish(copyFor(options.language(), 'available', options.currentVersion, update, updateMethod));
       return update;
     } catch (error) {
+      if (closed) return null;
       if (prepared?.method === 'homebrew' && samePreparedUpdate(prepared, prepared.update)) {
         currentUpdate = readyUpdate(prepared);
         phase = 'ready';
@@ -193,9 +216,10 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
   }
 
   async function prepareUpdate(automatic: boolean): Promise<void> {
+    if (closed) return;
     if (!currentUpdate || !updateMethod || phase === 'failed' || !canPrepareUpdate(currentUpdate, updateMethod)) {
       const loaded = await checkForUpdate(!automatic, true);
-      if (!loaded || !updateMethod || !canPrepareUpdate(loaded, updateMethod)) return;
+      if (closed || !loaded || !updateMethod || !canPrepareUpdate(loaded, updateMethod)) return;
     }
     if (prepared?.method === 'homebrew' && samePreparedUpdate(prepared, currentUpdate!)) return;
     // 手动安装版本只在用户点击后下载；缺少匹配产物时仍保留发布页入口。
@@ -217,6 +241,7 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
           prepared = { ...(await options.homebrew.prepare(update, onProgress)), method: 'homebrew' };
         } else {
           const result = await options.direct.download(onProgress);
+          if (closed) return;
           if (!result.accepted) throw new Error(result.reason);
           prepared = { method: 'direct', update: result.update };
           currentUpdate = result.update;
@@ -225,6 +250,7 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
             return;
           }
         }
+        if (closed) return;
         phase = 'ready';
         const ready = readyUpdate(prepared);
         currentUpdate = ready;
@@ -232,12 +258,13 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
         await publish(copyFor(options.language(), 'ready', options.currentVersion, ready, prepared.method));
         return;
       } catch (error) {
+        if (closed) return;
         const retryDelayMs = retryDelaysMs[attempt];
         if (updateMethod === 'direct' && automatic && retryDelayMs !== undefined && isTransientUpdateDownloadError(error)) {
           const retryAt = new Date(Date.now() + retryDelayMs).toISOString();
           setIndicator(indicatorForRetry(options.language(), update, retryAt));
           await publish(retryCopy(options.language(), retryAt));
-          await wait(retryDelayMs);
+          await wait(retryDelayMs, shutdownSignal.signal);
           if (closed) return;
           phase = 'preparing';
           setIndicator(indicatorForPreparing(options.language(), update, 'direct'));
@@ -251,9 +278,10 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
   }
 
   async function installPreparedUpdate(): Promise<void> {
+    if (closed) return;
     if (!prepared) {
       await prepareUpdate(false);
-      if (!prepared) return;
+      if (closed || !prepared) return;
     }
     lastFailureStep = 'install';
     try {
@@ -261,14 +289,18 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
         await publishManualUpdate(prepared.update);
         return;
       }
+      if (closed) return;
       options.canInstall();
       phase = 'installing';
       await publish(copyFor(options.language(), 'installing', options.currentVersion, readyUpdate(prepared), prepared.method));
+      if (closed) return;
       if (prepared.method === 'direct' && await options.homebrew.isManaged()) throw new Error('AstraGit 的安装管理方式已变化，请重新检查更新。');
+      if (closed) return;
       /** 用户取消退出时保留下载结果；直接安装由原安装器完成退出后的替换。 */
       let accepted: boolean;
       if (prepared.method === 'direct') {
         const result = await options.direct.install();
+        if (closed) return;
         if (!result.accepted) {
           prepared = null;
           await checkForUpdate(true, true);
@@ -280,12 +312,15 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
         const preparedHomebrew = prepared;
         accepted = await options.onInstallReady(async () => {
           const currentHost = await ensureHost();
+          if (closed || !currentHost) return;
           installed = await options.homebrew.install(preparedHomebrew, (progress) => {
             void publish(progressCopy(options.language(), progress, preparedHomebrew.update));
           });
+          if (closed) return;
           currentHost.relaunchAfterProcessExit({ pid: process.pid, ...installed! });
         });
       }
+      if (closed) return;
       if (!accepted) {
         phase = 'ready';
         const ready = readyUpdate(prepared);
@@ -357,19 +392,22 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
   }
 
   async function showCurrent(): Promise<void> {
+    if (closed) return;
     hidden = false;
     const currentHost = await ensureHost();
+    if (!currentHost || closed) return;
     if (lastState) currentHost.update({ ...lastState, present: true });
     currentHost.show();
   }
 
   async function checkAutomatically(input?: { blockedPrepareVersion?: string | null }): Promise<boolean> {
+    if (closed) return false;
     hidden = true;
     let loaded = false;
     await runExclusive(async () => {
       const previousIndicator = indicatorState;
       const update = await checkForUpdate(false, false);
-      if (!update) return;
+      if (closed || !update) return;
       loaded = true;
       if (update.status === 'up_to_date') {
         setIndicator(idleIndicator(options.currentVersion));
@@ -413,9 +451,19 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
     return { ...indicatorState };
   }
 
+  function closeController(preserveHost = false): void {
+    closed = true;
+    hidden = true;
+    shutdownSignal.abort();
+    if (!preserveHost) { host?.close(); host = null; }
+    indicatorListeners.clear();
+    checkCompletedListeners.clear();
+  }
+
   return {
     performAction,
     showOrCheck: () => {
+      if (closed) return Promise.resolve();
       if (phase === 'preparing' || phase === 'installing' || (phase === 'ready' && prepared) || (phase === 'available' && currentUpdate) || (phase === 'failed' && lastState?.state === 'failed')) return showCurrent();
       hidden = false;
       return runExclusive(() => checkForUpdate(true, true).then(() => undefined));
@@ -423,6 +471,7 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
     checkAutomatically,
     getIndicatorState: () => ({ ...indicatorState }),
     restoreIndicatorState: (state) => {
+      if (closed) return;
       if (!isIndicatorState(state) || state.currentVersion !== options.currentVersion || state.phase === 'idle') return;
       indicatorState = { ...state };
       updateMethod = state.method ?? null;
@@ -438,12 +487,16 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
       checkCompletedListeners.add(listener);
       return () => checkCompletedListeners.delete(listener);
     },
-    close: () => {
-      closed = true;
-      host?.close();
-      host = null;
-      indicatorListeners.clear();
-      checkCompletedListeners.clear();
+    close: () => closeController(),
+    shutdown: (input = {}) => {
+      if (shutdownPromise) return shutdownPromise;
+      closeController(input.preserveHost);
+      shutdownPromise ??= (async () => {
+        const results = await Promise.allSettled([operation, hostCreation]);
+        const failures = results.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+        if (failures.length) throw new AggregateError(failures, 'AstraGit 更新服务退出失败。');
+      })();
+      return shutdownPromise;
     },
   };
 }
@@ -750,10 +803,16 @@ function validIsoDate(value: string | undefined): string | null {
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
 }
 
-function wait(delayMs: number): Promise<void> {
+function wait(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
   return new Promise((resolveWait) => {
-    const timer = setTimeout(resolveWait, delayMs);
-    timer.unref();
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', finish);
+      resolveWait();
+    };
+    const timer = setTimeout(finish, delayMs);
+    signal?.addEventListener('abort', finish, { once: true });
   });
 }
 
@@ -777,22 +836,19 @@ function formatLocalTime(value: string, language: 'zh-CN' | 'en-US'): string {
 }
 
 /** Release 检查只读取外部事实；临时失败允许两次短间隔重试。 */
-async function retryOperation<T>(operation: () => Promise<T>, retryCount: number): Promise<T> {
+async function retryOperation<T>(operation: () => Promise<T>, retryCount: number, signal?: AbortSignal): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+    if (signal?.aborted) break;
     try {
       return await operation();
     } catch (error) {
       lastError = error;
       if (attempt === retryCount) break;
-      await delay(attempt === 0 ? 400 : 1_200);
+      await wait(attempt === 0 ? 400 : 1_200, signal);
     }
   }
   throw lastError;
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 }
 
 /** 仅网络下载中断可后台自动重试，校验及安装错误必须保留。 */

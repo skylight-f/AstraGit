@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, powerMonitor, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, powerMonitor, session, shell } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
@@ -12,14 +12,22 @@ import { createHomebrewUpdateService } from './homebrewUpdateService.js';
 import { createHomebrewUpdateController, type HomebrewUpdateController } from './homebrewUpdateController.js';
 import { createAutomaticUpdateScheduler, type AutomaticUpdateScheduler } from './automaticUpdateScheduler.js';
 import { execFile } from './releaseVerification.js';
+import { startSystemProxyBridge, type SystemProxyBridge } from './systemProxyBridge.js';
+import { installSystemProxyEnvironment, type InstalledSystemProxyEnvironment } from './systemProxyEnvironment.js';
 
 let mainWindow: BrowserWindow | null = null;
 let creatingWindow: Promise<void> | null = null;
 let gitServer: RunningGitServer | null = null;
+let serverInitialization: Promise<RunningGitServer> | null = null;
 let bootstrapToken = '';
 let shuttingDown = false;
 let homebrewUpdates: HomebrewUpdateController | null = null;
 let automaticUpdates: AutomaticUpdateScheduler | null = null;
+let systemProxy: SystemProxyBridge | null = null;
+let proxyEnvironment: InstalledSystemProxyEnvironment | null = null;
+let networkInitialization: Promise<void> | null = null;
+let updateSetup: Promise<void> | null = null;
+let servicesClosing: Promise<void> | null = null;
 let completeUpdateInitialization: () => void = () => {};
 const updateInitialization = new Promise<void>((resolveReady) => { completeUpdateInitialization = resolveReady; });
 let updateLanguage: 'zh-CN' | 'en-US' = 'zh-CN';
@@ -99,6 +107,7 @@ async function initializeUpdates(): Promise<void> {
     },
     canInstall: () => { if (development) throw new Error('开发应用不安装正式更新。'); },
     onInstallReady: (activate) => {
+      if (shuttingDown) return Promise.resolve(false);
       if (pendingUpgrade) return pendingUpgrade.result;
       let accept: (value: boolean) => void = () => {};
       let fail: (error: unknown) => void = () => {};
@@ -138,10 +147,12 @@ function applyApplicationDockIcon(): void {
 }
 
 async function ensureServer(): Promise<{ baseUrl: string; apiToken: string }> {
+  await ensureSystemProxy();
+  if (shuttingDown) throw new Error('AstraGit 正在退出。');
   if (gitServer) return { baseUrl: gitServer.baseUrl, apiToken: gitServer.apiToken };
   const dataDirectory = userDataPath();
   bootstrapToken = randomBytes(24).toString('hex');
-  gitServer = await startGitServer({
+  serverInitialization ??= startGitServer({
     dataDirectory,
     projectRoot: process.env.ASTRAGIT_PROJECT_ROOT ?? dataDirectory,
     apiToken: bootstrapToken,
@@ -150,7 +161,49 @@ async function ensureServer(): Promise<{ baseUrl: string; apiToken: string }> {
     codexNativeEnabled: process.env.ASTRAGIT_CODEX_ENABLED !== '0',
     currentCodexRuntimeCommandPath: () => process.env.ASTRAGIT_CODEX_COMMAND ?? 'codex',
   });
+  gitServer = await serverInitialization;
   return { baseUrl: gitServer.baseUrl, apiToken: gitServer.apiToken };
+}
+
+function ensureSystemProxy(): Promise<void> {
+  networkInitialization ??= (async () => {
+    await session.defaultSession.setProxy({ mode: 'system' });
+    systemProxy = await startSystemProxyBridge({ resolveProxy: url => session.defaultSession.resolveProxy(url) });
+    try {
+      // Install before constructing server/Codex managers or running Homebrew.
+      proxyEnvironment = await installSystemProxyEnvironment({ proxyUrl: systemProxy.proxyUrl });
+    } catch (error) {
+      await systemProxy.close();
+      systemProxy = null;
+      throw error;
+    }
+  })();
+  return networkInitialization;
+}
+
+function closeServices(): Promise<void> {
+  servicesClosing ??= (async () => {
+    try {
+      // A quit can arrive while a listener, helper or service is being created.
+      await networkInitialization?.catch(() => {});
+      await updateSetup?.catch(() => {});
+      automaticUpdates?.stop();
+      const consumers = await Promise.allSettled([
+        homebrewUpdates?.shutdown({ preserveHost: upgradeHandoff }),
+        (async () => {
+          const server = gitServer ?? await serverInitialization?.catch(() => null);
+          gitServer = null;
+          await server?.close();
+        })(),
+      ]);
+      const failures = consumers.flatMap(result => result.status === 'rejected' ? [result.reason] : []);
+      if (failures.length) throw new AggregateError(failures, 'AstraGit 服务退出失败。');
+    } finally {
+      try { await systemProxy?.close(); }
+      finally { await proxyEnvironment?.close(); }
+    }
+  })();
+  return servicesClosing;
 }
 
 async function createWindow(): Promise<void> {
@@ -161,6 +214,7 @@ async function createWindow(): Promise<void> {
 
 async function loadMainWindow(): Promise<void> {
   const config = await ensureServer();
+  if (shuttingDown) return;
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -241,13 +295,17 @@ app.whenReady().then(async () => {
   process.env.PATH = await resolveCliSearchPath();
   if (!existsSync(userDataPath())) mkdirSync(userDataPath(), { recursive: true });
   await createWindow();
-  try { await initializeUpdates(); } catch (error) { console.error('[AstraGit] 更新服务初始化失败', error); } finally { completeUpdateInitialization(); }
+  if (shuttingDown) return;
+  updateSetup = initializeUpdates();
+  try { await updateSetup; } catch (error) { console.error('[AstraGit] 更新服务初始化失败', error); } finally { completeUpdateInitialization(); }
   app.on('activate', () => {
     if (!shuttingDown && BrowserWindow.getAllWindows().length === 0) void createWindow();
   });
-}).catch((error: unknown) => {
+}).catch(async (error: unknown) => {
+  if (shuttingDown) return;
   console.error('[AstraGit] 启动失败', error);
-  app.exit(1);
+  shuttingDown = true;
+  try { await closeServices(); } finally { app.exit(1); }
 });
 
 app.on('second-instance', () => {
@@ -283,18 +341,14 @@ app.on('before-quit', (event) => {
     })();
     return;
   }
-  if (!gitServer && !shuttingDown) return;
+  if (!gitServer && !networkInitialization && !shuttingDown) return;
   event.preventDefault();
   if (shuttingDown) return;
   shuttingDown = true;
   automaticUpdates?.stop();
-  // 已交接的原生辅助程序必须存活到旧 Main 退出后才重启精确 App。
-  if (!upgradeHandoff) homebrewUpdates?.close();
-  const server = gitServer!;
-  gitServer = null;
   // Quit was already interrupted for asynchronous cleanup. Exit after the
   // service and SQLite have closed instead of re-entering native quit events.
-  void server.close().then(
+  void closeServices().then(
     () => app.exit(0),
     (error: unknown) => {
       console.error('[AstraGit] 退出清理失败', error);
