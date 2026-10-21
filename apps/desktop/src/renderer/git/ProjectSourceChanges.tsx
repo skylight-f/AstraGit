@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
 import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
@@ -19,6 +19,7 @@ import { previewForUnit, pushSourceResult, runSourceBatch, validateSourceReview,
 import { SourceCommitReview } from './SourceCommitReview.js';
 import { SourceCommitOptions } from './SourceCommitOptions.js';
 import { SourceRepositoryControls } from './SourceRepositoryControls.js';
+import { GitPaneSeparator } from './GitPaneSeparator.js';
 import type { BusyState, ExecutionOutcome } from './gitWorkbenchTypes.js';
 import { ModalPortal } from '../ui/ModalPortal.js';
 import { formatVisibleApplicationError, reportApplicationError, VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
@@ -44,6 +45,9 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
   const [tab, setTab] = useState<'commit' | 'stash'>('commit');
   const [operation, setOperation] = useState<BusyState>(null);
   const messageInput = useRef<HTMLTextAreaElement>(null);
+  const commitLayout = useRef<HTMLDivElement>(null);
+  const composer = useRef<HTMLElement>(null);
+  const [paneBounds, setPaneBounds] = useState({ min: 10, max: 88 });
   const [stashPreview, setStashPreview] = useState<{ repositoryId: string; commitHash: string } | null>(null);
   const [error, setError] = useState<unknown>(null);
   const operationErrors = useRef<Record<string, string>>({});
@@ -104,6 +108,30 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
   const editorRepository = units.find(unit => unit.repository.id === draftRepository)?.repository.id ?? units[0]?.repository.id ?? '';
   const selectedMessage = state.messageMode === 'shared' ? state.sharedMessage : state.drafts[editorRepository] ?? '';
   const locked = busy || generating || reviewBusy || operation !== null;
+  const hasFeedback = Boolean(feedback || (!model && modelWarning));
+  useLayoutEffect(() => {
+    const layout = commitLayout.current;
+    const editor = composer.current;
+    if (!layout || !editor) return;
+    const controls = [...editor.children].filter((element) => !element.classList.contains('source-git-message'));
+    const measure = () => {
+      const height = layout.getBoundingClientRect().height;
+      if (height <= 0) return;
+      const style = getComputedStyle(editor);
+      const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+      const gaps = (parseFloat(style.rowGap) || 0) * (editor.children.length - 1);
+      // Keep the textarea, wrapped action buttons and optional draft/feedback controls usable.
+      const minimumComposer = 48 + padding + gaps + controls.reduce((sum, control) => sum + control.getBoundingClientRect().height, 0);
+      const min = Math.min(45, 55 / height * 100);
+      const max = Math.max(min, Math.min(92, (height - minimumComposer - 6) / height * 100));
+      setPaneBounds(current => Math.abs(current.min - min) < 0.1 && Math.abs(current.max - max) < 0.1 ? current : { min, max });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(layout);
+    controls.forEach(control => observer.observe(control));
+    measure();
+    return () => observer.disconnect();
+  }, [tab, state.messageMode, hasFeedback]);
   const focusedId = state.focus?.repositoryId;
   const focusedPath = state.focus?.path;
   const focusedRepository = repositories.find(repository => repository.id === focusedId);
@@ -314,6 +342,7 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
           </span>
           {state.selectionMode === 'staged' ? <small className="source-git-scope-badge" title={label('可在提交选项中切换内容范围', 'Change content scope in commit options')}>{label('仅已暂存', 'Staged only')}</small> : null}
         </div>
+        <div ref={commitLayout} className="source-git-commit-layout">
         <div className="source-git-files" aria-busy={loading}>
           {fileGroups.map(({ group, repositories: groups }) => <section key={group} className="source-git-group" aria-label={groupLabels[group]}>
             <button type="button" className="source-git-group-heading" aria-expanded={!state.collapsed.includes(group)} onClick={() => collapse(group)}>{state.collapsed.includes(group) ? <CaretRight /> : <CaretDown />}<strong>{groupLabels[group]}</strong><small>{groups.reduce((count, item) => count + item.files.length, 0)}</small></button>
@@ -321,7 +350,8 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
           </section>)}
           {!fileGroups.length ? <p className="source-git-empty">{!snapshot ? label('正在发现项目内仓库…', 'Discovering repositories…') : allPaths.length && filteredQuery ? label('没有匹配的更改文件', 'No matching changed files') : label('当前范围没有更改。', 'No changes in this scope.')}</p> : null}
         </div>
-        <section className="source-git-composer">
+        <GitPaneSeparator name="source-files" label={label('调整文件列表与提交说明区域高度', 'Resize file list and commit message')} axis="y" initial={82} min={paneBounds.min} max={paneBounds.max} />
+        <section ref={composer} className="source-git-composer">
           {state.messageMode === 'individual' ? <div className="source-git-draft-repository"><label>{label('仓库说明', 'Repository draft')} <select aria-label={label('编辑仓库说明', 'Repository draft')} value={editorRepository} disabled={locked} onChange={event => setDraftRepository(event.target.value)}>{units.map(unit => <option key={unit.repository.id} value={unit.repository.id}>{unit.repository.name}</option>)}</select></label></div> : null}
           <div className="source-git-message">
             <textarea ref={messageInput} rows={3} aria-label={label('项目提交说明', 'Project commit message')} value={selectedMessage} disabled={locked || (state.messageMode === 'individual' && !editorRepository)} onChange={event => setMessage(event.target.value)} placeholder={label('提交说明', 'Commit message')} />
@@ -340,6 +370,7 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
           </div>
           {feedback || (!model && modelWarning) ? <p className="source-git-feedback" role="status">{feedback || modelWarning}</p> : null}
         </section>
+        </div>
       </> : <div className="source-git-files source-git-stashes">
         {repositories.filter(repository => repository.snapshot.stashes.length).map(repository => <details key={repository.id} open><summary>{repository.name} <small>{repository.snapshot.stashes.length}</small></summary>{repository.snapshot.stashes.map(stash => <div key={stash.ref} className="source-git-stash"><button type="button" title={stash.subject} onClick={() => setStashPreview({ repositoryId: repository.id, commitHash: stash.ref })}><Archive /><span>{stash.subject}<small>{stash.ref}</small></span></button><button type="button" disabled={locked} onClick={() => void execute(repository, { type: 'apply_stash', stashRef: stash.ref }, label('应用贮藏', 'Apply stash'))}>{label('应用', 'Apply')}</button></div>)}</details>)}
         {!repositories.some(repository => repository.snapshot.stashes.length) ? <p className="source-git-empty">{label('没有贮藏的更改', 'No stashed changes')}</p> : null}

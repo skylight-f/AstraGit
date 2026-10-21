@@ -273,6 +273,38 @@
   flex-direction: column;
   gap: 6px;
 }
+.source-git-commit-layout {
+  flex: 1;
+  display: grid;
+  min-height: 0;
+  min-width: 0;
+  grid-template-rows: minmax(55px, var(--git-source-files, 82%)) 6px minmax(0, 1fr);
+}
+.source-git-commit-layout > .source-git-composer {
+  min-height: 0;
+  border-top: 0;
+}
+.source-git-commit-layout > .git-separator-source-files {
+  background: transparent;
+  border-top: 1px solid var(--zeus-product-line);
+  box-sizing: border-box;
+}
+.source-git-commit-layout .source-git-message {
+  flex: 1;
+  min-height: 48px;
+}
+.source-git-commit-layout .source-git-composer textarea {
+  height: 100%;
+  max-height: none;
+  resize: none;
+}
+.source-git-commit-layout .source-git-composer > :not(.source-git-message) {
+  flex-shrink: 0;
+}
+.source-git-commit-layout .source-git-feedback {
+  max-height: 64px;
+  overflow: auto;
+}
 .source-git-message {
   position: relative;
 }

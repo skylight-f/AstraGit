@@ -2437,6 +2437,24 @@ body:has(.macos-ai-app.zeus-shell) {
   outline: 1px solid var(--zeus-product-accent, var(--zeus-brand-primary));
   outline-offset: -1px;
 }
+.macos-ai-app.zeus-shell .project-git-change-file-row.is-selected {
+  background: var(--zeus-source-list-selected);
+}
+.project-git-change-file-row {
+  user-select: none;
+}
+.project-git-file-selection-status {
+  flex: 0 0 24px;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 8px;
+  color: var(--zeus-product-muted);
+  font-size: 11px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .macos-ai-app.zeus-shell .project-git-change-file-row > .project-git-file-actions {
   flex: 0 0 24px;
   width: 24px;

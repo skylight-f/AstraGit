@@ -1,4 +1,5 @@
 import { GitFileStatusIcon, gitFileStatusCategory, gitFileStatusLabel } from './GitFileStatusIcon.js';
+import { pruneGitFileSelection, selectGitFilePaths, type GitFileSelection } from './gitFileSelection.js';
 import { DotsThreeIcon as DotsThree } from '@phosphor-icons/react/dist/csr/DotsThree';
 import { GitCommitIcon as GitCommit } from '@phosphor-icons/react/dist/csr/GitCommit';
 import { GitMergeIcon as GitMerge } from '@phosphor-icons/react/dist/csr/GitMerge';
@@ -31,7 +32,7 @@ import { loadGitCommitModelOptions } from './gitCommitModels.js';
 import { useGitOperationHistory } from './useGitOperationHistory.js';
 import { GitContextMenu, GitMenuActionDialog, type GitMenuItem, type GitMenuConfirmation } from './GitContextMenu.js';
 import { GitPaneSeparator } from './GitPaneSeparator.js';
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ArchiveIcon as Archive } from '@phosphor-icons/react/dist/csr/Archive';
 import { ArrowsClockwiseIcon as ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
@@ -57,11 +58,14 @@ import { gitConflictMessage, gitFailureCode, gitFailureTitle } from './gitOperat
 
 type GitTab = 'changes' | 'stash' | 'log' | 'console';
 type ChangeStage = 'staged' | 'unstaged';
+type GitContextEvent = ReactMouseEvent | ReactKeyboardEvent;
 interface GitContextTarget {
   kind: 'file' | 'directory' | 'stage' | 'local' | 'remote' | 'tag' | 'commit' | 'stash' | 'repository';
   repositoryId: string;
   ref: string;
   stage?: ChangeStage;
+  /** A frozen selection within one repository and one staging area. */
+  paths?: string[];
 }
 
 export interface ProjectGitWorkbenchProps {
@@ -496,13 +500,14 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     }
   }
 
-  function showGitContextMenu(event: ReactMouseEvent, target: GitContextTarget, position = { x: event.clientX, y: event.clientY }): void {
+  function showGitContextMenu(event: GitContextEvent, target: GitContextTarget, position = { x: 'clientX' in event ? event.clientX : 0, y: 'clientY' in event ? event.clientY : 0 }): void {
     event.preventDefault();
     event.stopPropagation();
     const repository = repositories.find((item) => item.id === target.repositoryId);
     if (!repository) return;
     const copy = (text: string) => navigator.clipboard.writeText(text);
     const label = (cn: string, en: string) => (zh ? cn : en);
+    let menuTitle = target.ref || repository.name;
     const items: GitMenuItem[] = [];
     const action = (title: string, value: ProjectGitAction, confirmation?: string, danger = false, disabled = false) =>
       items.push({
@@ -522,28 +527,32 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       });
     const newBranch = (baseRef: string) => form(label('新建分支…', 'New branch…'), label('分支名称', 'Branch name'), (branchName) => ({ type: 'create_branch', branchName, baseRef }));
     if (target.kind === 'file' || target.kind === 'directory' || target.kind === 'stage') {
+      const selectedPaths = target.kind === 'file' && target.paths ? new Set(target.paths) : null;
       const files = repository.snapshot.fileStatuses
         .filter((file) => !repository.snapshot.conflictFiles.includes(file.path))
         .filter((file) => !subtree || subtree.repositoryId !== repository.id || file.path === subtree.path || file.path.startsWith(`${subtree.path}/`))
         .filter(
           (file) =>
-            (target.kind === 'stage' || file.path === target.ref || (target.kind === 'directory' && file.path.startsWith(`${target.ref}/`))) &&
+            (target.kind === 'stage' || (selectedPaths ? selectedPaths.has(file.path) && file.path.toLocaleLowerCase().includes(fileQuery.trim().toLocaleLowerCase()) : file.path === target.ref) || (target.kind === 'directory' && file.path.startsWith(`${target.ref}/`))) &&
             (target.stage === 'staged' ? file.indexStatus !== ' ' && file.indexStatus !== '?' : file.workingTreeStatus !== ' ' || file.indexStatus === '?'),
         );
-      const paths = files.map((file) => file.path);
-      action(target.stage === 'staged' ? label('取消暂存', 'Unstage') : label('暂存', 'Stage'), { type: target.stage === 'staged' ? 'unstage' : 'stage', paths }, undefined, false, !paths.length);
-      if (target.kind === 'file') items.push({ label: label('查看差异', 'View diff'), run: () => openDiffWindow(repository, target.ref, { stage: target.stage }) });
+      const paths = selectedPaths ? pruneGitFileSelection(files.map((file) => file.path), target.paths!) : files.map((file) => file.path);
+      const multiple = target.kind === 'file' && paths.length > 1;
+      if (multiple) menuTitle = label(`已选择 ${paths.length} 个文件`, `${paths.length} files selected`);
+      const stageLabel = target.stage === 'staged' ? label('取消暂存', 'Unstage') : label('暂存', 'Stage');
+      action(multiple ? label(`${stageLabel}所选文件 (${paths.length})`, `${stageLabel} selected files (${paths.length})`) : stageLabel, { type: target.stage === 'staged' ? 'unstage' : 'stage', paths }, undefined, false, !paths.length);
+      if (target.kind === 'file') items.push({ label: multiple ? label('查看当前文件差异', 'View current file diff') : label('查看差异', 'View diff'), run: () => openDiffWindow(repository, target.ref, { stage: target.stage }) });
       if (target.stage !== 'staged') {
-        const tracked = files.filter((file) => file.indexStatus !== '?').map((file) => file.path);
+        const tracked = paths.filter((path) => files.some((file) => file.path === path && file.indexStatus !== '?'));
         action(
-          label('丢弃未暂存修改…', 'Discard unstaged changes…'),
+          multiple ? label(`丢弃所选未暂存修改 (${tracked.length})…`, `Discard selected unstaged changes (${tracked.length})…`) : label('丢弃未暂存修改…', 'Discard unstaged changes…'),
           { type: 'discard', paths: tracked },
           label(`将 ${tracked.length} 个已跟踪文件恢复为暂存区内容。未跟踪文件不会被删除。此操作无法撤销。\n${tracked.join('\n')}`, `Restore ${tracked.length} tracked files from the index. Untracked files are kept. This cannot be undone.`),
           true,
           !tracked.length || repository.snapshot.conflictFiles.length > 0,
         );
       }
-      if (target.kind !== 'stage') items.push({ label: label('复制相对路径', 'Copy relative path'), run: () => copy(target.ref) });
+      if (target.kind !== 'stage') items.push({ label: multiple ? label('复制所选相对路径', 'Copy selected relative paths') : label('复制相对路径', 'Copy relative path'), run: () => copy(target.kind === 'file' ? paths.join('\n') : target.ref) });
     } else if (target.kind === 'local' || target.kind === 'remote') {
       const current = target.kind === 'local' && !repository.snapshot.detached && repository.snapshot.branch === target.ref;
       if (target.kind === 'local') action(label('切换到此分支', 'Checkout branch'), { type: 'checkout', branchName: target.ref }, undefined, false, current);
@@ -694,7 +703,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       });
       items.push({ label: label('复制仓库名称', 'Copy repository name'), run: () => copy(repository.name) });
     }
-    setContextMenu({ ...position, title: target.ref || repository.name, items, target });
+    setContextMenu({ ...position, title: menuTitle, items, target });
   }
 
   /** 提交、分支和标签入口共用显式选择，后台刷新不再自动选中首条提交。 */
@@ -1883,7 +1892,7 @@ function LocalChangesSurface(props: {
   onSelectFile: (path: string, stage: ChangeStage) => void;
   onOpenDiff: (repository: ProjectGitRepositoryWorkbenchItem, filePath: string, options?: { stage?: 'combined' | ChangeStage; commitHash?: string; comparisonRef?: string; comparisonMode?: 'current' | 'working-tree' }) => void;
   activeFileMenu: GitContextTarget | null;
-  onFileMenu: (event: ReactMouseEvent, target: GitContextTarget, position: { x: number; y: number }) => void;
+  onFileMenu: (event: GitContextEvent, target: GitContextTarget, position: { x: number; y: number }) => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
   onConflictSaved: (repositoryId: string, path: string, result: { resolved: boolean; snapshot?: ProjectGitRepositorySnapshot }) => Promise<void>;
   onConfirmAction: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, title: string, description: string, danger: boolean) => void;
@@ -1910,6 +1919,7 @@ function LocalChangesSurface(props: {
     }
   });
   const [editingRepository, setEditingRepository] = useState<string | null>(null);
+  const [fileSelection, setFileSelection] = useState<(GitFileSelection & { repositoryId: string; stage: ChangeStage }) | null>(null);
   const commitInputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (props.commitRequest && props.selectedRepository) setEditingRepository(props.selectedRepository.id);
@@ -1948,6 +1958,47 @@ function LocalChangesSurface(props: {
     staged: visibleFileStatuses.filter((file) => file.indexStatus !== ' ' && file.indexStatus !== '?').map((file) => file.path),
     unstaged: visibleFileStatuses.filter((file) => file.workingTreeStatus !== ' ' || file.indexStatus === '?').map((file) => file.path),
   };
+  const selectedRows = fileSelection?.repositoryId === repository?.id ? pruneGitFileSelection(fileSelection?.selectedPaths ?? [], fileSelection ? visibleStageFiles[fileSelection.stage] : []) : [];
+  const visibleFilesKey = JSON.stringify(visibleStageFiles);
+  useEffect(() => {
+    // Filtering, refreshing or changing repositories must not leave hidden write targets selected.
+    setFileSelection((current) => {
+      if (!current || current.repositoryId !== repository?.id) return null;
+      const paths = visibleStageFiles[current.stage];
+      const selectedPaths = pruneGitFileSelection(current.selectedPaths, paths);
+      const anchor = current.anchor && paths.includes(current.anchor) ? current.anchor : null;
+      return selectedPaths.join('\0') === current.selectedPaths.join('\0') && anchor === current.anchor ? current : { ...current, selectedPaths, anchor };
+    });
+  }, [repository?.id, visibleFilesKey]);
+  function selectFileRows(event: ReactMouseEvent, path: string, stage: ChangeStage, orderedPaths: string[]): void {
+    if (!repository) return;
+    const current = fileSelection?.repositoryId === repository.id && fileSelection.stage === stage ? fileSelection : null;
+    const next = selectGitFilePaths({ orderedPaths, selectedPaths: current?.selectedPaths ?? [], anchor: current?.anchor ?? null, clickedPath: path, range: event.shiftKey, additive: event.ctrlKey || event.metaKey });
+    setFileSelection({ ...next, repositoryId: repository.id, stage });
+    props.onSelectRepository(repository.id);
+    props.onSelectFile(path, stage);
+  }
+  function showFileMenu(event: GitContextEvent, path: string, stage: ChangeStage, orderedPaths: string[], position: { x: number; y: number }): void {
+    if (!repository || !orderedPaths.includes(path)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    const current = fileSelection?.repositoryId === repository.id && fileSelection.stage === stage ? fileSelection : null;
+    const selectedPaths = pruneGitFileSelection(current?.selectedPaths ?? [], orderedPaths);
+    // Compute the menu target synchronously: setState does not update this event's closure.
+    const paths = selectedPaths.includes(path) ? selectedPaths : [path];
+    setFileSelection({ repositoryId: repository.id, stage, selectedPaths: paths, anchor: paths.length > 1 ? current?.anchor ?? path : path });
+    props.onFileMenu(event, { kind: 'file', repositoryId: repository.id, ref: path, stage, paths }, position);
+  }
+  function pruneVisibleFileRows(stage: ChangeStage, orderedPaths: string[]): void {
+    setFileSelection((current) => {
+      if (!current || current.repositoryId !== repository?.id || current.stage !== stage) return current;
+      const selectedPaths = pruneGitFileSelection(current.selectedPaths, orderedPaths);
+      const anchor = current.anchor && orderedPaths.includes(current.anchor) ? current.anchor : null;
+      return selectedPaths.join('\0') === current.selectedPaths.join('\0') && anchor === current.anchor ? current : { ...current, selectedPaths, anchor };
+    });
+  }
   const stageDiff = props.selectedFileStage === 'staged' ? props.selectedRepository?.snapshot.stagedDiff : props.selectedRepository?.snapshot.unstagedDiff;
   const selectedDiff = stageDiff?.fileDiffs.find((file) => (file.newPath === props.selectedFilePath || file.oldPath === props.selectedFilePath) && matchesSubtree(file.newPath || file.oldPath)) ?? null;
   return (
@@ -1997,6 +2048,9 @@ function LocalChangesSurface(props: {
             </button>
           ) : null}
         </header>
+        <p className="project-git-file-selection-status" role="status" aria-live="polite">
+          {selectedRows.length ? (props.zh ? `已选择 ${selectedRows.length} 个文件 · 右键批量操作` : `${selectedRows.length} files selected · Right-click for actions`) : props.zh ? 'Shift 连选 · Ctrl / ⌘ 多选' : 'Shift for range · Ctrl / ⌘ to select multiple'}
+        </p>
         {emptyVisibleChanges ? (
           <div className="project-git-clean-state" role="status">
             <span className="project-git-empty-symbol">
@@ -2047,11 +2101,12 @@ function LocalChangesSurface(props: {
                           selectedFileStage={props.selectedFileStage}
                           busy={props.busy}
                           zh={props.zh}
-                          onSelectRepository={props.onSelectRepository}
-                          onSelectFile={props.onSelectFile}
+                          selectedPaths={fileSelection?.stage === stage ? selectedRows : []}
+                          onSelectRows={selectFileRows}
+                          onVisiblePathsChange={pruneVisibleFileRows}
                           onOpenDiff={props.onOpenDiff}
                           activeFileMenu={props.activeFileMenu}
-                          onFileMenu={props.onFileMenu}
+                          onFileMenu={showFileMenu}
                           onExecute={props.onExecute}
                         />
                       ) : (
@@ -2264,31 +2319,36 @@ function ChangeDirectoryTree(props: {
   selectedFileStage: ChangeStage;
   busy: BusyState;
   zh: boolean;
-  onSelectRepository: (repositoryId: string) => void;
-  onSelectFile: (path: string, stage: ChangeStage) => void;
+  selectedPaths: string[];
+  onSelectRows: (event: ReactMouseEvent, path: string, stage: ChangeStage, orderedPaths: string[]) => void;
+  onVisiblePathsChange: (stage: ChangeStage, orderedPaths: string[]) => void;
   onOpenDiff: (repository: ProjectGitRepositoryWorkbenchItem, filePath: string, options?: { stage?: 'combined' | ChangeStage }) => void;
   activeFileMenu: GitContextTarget | null;
-  onFileMenu: (event: ReactMouseEvent, target: GitContextTarget, position: { x: number; y: number }) => void;
+  onFileMenu: (event: GitContextEvent, path: string, stage: ChangeStage, orderedPaths: string[], position: { x: number; y: number }) => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
 }) {
+  const root = useRef<HTMLDivElement>(null);
+  function visiblePaths(): string[] {
+    return [...(root.current?.querySelectorAll<HTMLElement>('[data-git-file-path]') ?? [])].filter((element) => !element.closest('details:not([open])') && element.checkVisibility()).map((element) => element.dataset.gitFilePath!);
+  }
   const nodes = useMemo(
     () => (props.view === 'flat' ? [...props.files].sort((a, b) => a.localeCompare(b)).map((path): ChangeTreeNode => ({ name: path, path, file: true, children: new Map() })) : [...buildChangeTree(props.files).children.values()]),
     [props.files.join('\0'), props.view],
   );
   if (props.files.length === 0) return null;
   return (
-    <div className="project-git-change-directory-tree">
+    <div ref={root} className="project-git-change-directory-tree" role="group" aria-label={props.zh ? '更改文件多选列表' : 'Changed file selection'}>
       {nodes.map((node) => (
-        <ChangeTreeEntry key={node.path} node={node} depth={0} {...props} />
+        <ChangeTreeEntry key={node.path} node={node} depth={0} {...props} visiblePaths={visiblePaths} onTreeToggle={() => props.onVisiblePathsChange(props.stage, visiblePaths())} />
       ))}
     </div>
   );
 }
 
-function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { node: ChangeTreeNode; depth: number }) {
+function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { node: ChangeTreeNode; depth: number; visiblePaths: () => string[]; onTreeToggle: () => void }) {
   if (!props.node.file) {
     return (
-      <details className="project-git-change-folder" open>
+      <details className="project-git-change-folder" open onToggle={props.onTreeToggle}>
         <summary data-git-context={JSON.stringify({ kind: 'directory', repositoryId: props.repository.id, ref: props.node.path, stage: props.stage })} style={{ paddingLeft: `${props.depth * 13 + 6}px` }}>
           <CaretRight aria-hidden="true" />
           <Folder aria-hidden="true" />
@@ -2300,7 +2360,8 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
       </details>
     );
   }
-  const selected = props.repository.id === props.selectedRepositoryId && props.node.path === props.selectedFilePath && props.stage === props.selectedFileStage;
+  const current = props.repository.id === props.selectedRepositoryId && props.node.path === props.selectedFilePath && props.stage === props.selectedFileStage;
+  const selected = props.selectedPaths.includes(props.node.path);
   const checked = props.stage === 'staged';
   const status = props.repository.snapshot.fileStatuses.find((file) => file.path === props.node.path);
   const category = gitFileStatusCategory(status, props.stage);
@@ -2308,7 +2369,18 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
   const menuOpen = Boolean(props.activeFileMenu?.kind === 'file' && props.activeFileMenu.repositoryId === props.repository.id && props.activeFileMenu.ref === props.node.path && props.activeFileMenu.stage === props.stage);
   const menuLabel = props.zh ? `${props.node.path} · ${checked ? '已暂存' : '未暂存'}文件操作` : `${props.node.path} · ${checked ? 'Staged' : 'Unstaged'} file actions`;
   return (
-    <div data-git-context={JSON.stringify({ kind: 'file', repositoryId: props.repository.id, ref: props.node.path, stage: props.stage })} className={`project-git-change-file-row${selected ? ' is-current' : ''}`}>
+    <div data-git-file-path={props.node.path} data-git-context={JSON.stringify({ kind: 'file', repositoryId: props.repository.id, ref: props.node.path, stage: props.stage })} className={`project-git-change-file-row${selected ? ' is-selected' : ''}${current && selected ? ' is-current' : ''}`}
+      onContextMenu={(event) => {
+        // macOS emits contextmenu instead of click for Control-click on a file name.
+        if (event.ctrlKey && (event.target as Element).closest('[data-git-file-select]')) {
+          event.preventDefault();
+          event.stopPropagation();
+          props.onSelectRows(event, props.node.path, props.stage, props.visiblePaths());
+          return;
+        }
+        const rect = event.currentTarget.getBoundingClientRect();
+        props.onFileMenu(event, props.node.path, props.stage, props.visiblePaths(), { x: event.clientX || rect.left, y: event.clientY || rect.bottom + 4 });
+      }}>
       <input
         type="checkbox"
         checked={checked}
@@ -2324,13 +2396,17 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
       />
       <button
         type="button"
+        data-git-file-select
         style={{ marginLeft: `${props.depth * 13}px` }}
         title={`${props.node.path} · ${gitFileStatusLabel(category, props.zh)}`}
-        onClick={() => {
-          props.onSelectRepository(props.repository.id);
-          props.onSelectFile(props.node.path, props.stage);
+        aria-pressed={selected}
+        onClick={(event) => props.onSelectRows(event, props.node.path, props.stage, props.visiblePaths())}
+        onKeyDown={(event) => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          props.onFileMenu(event, props.node.path, props.stage, props.visiblePaths(), { x: rect.left, y: rect.bottom + 4 });
         }}
-        onDoubleClick={() => props.onOpenDiff(props.repository, props.node.path, { stage: props.stage })}
+        onDoubleClick={(event) => { if (!event.shiftKey && !event.ctrlKey && !event.metaKey) props.onOpenDiff(props.repository, props.node.path, { stage: props.stage }); }}
       >
         {submodule ? <Folder aria-hidden="true" /> : <GitFileStatusIcon category={category} zh={props.zh} />}
         <span>{props.node.name}</span>
@@ -2344,7 +2420,7 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
         aria-expanded={menuOpen}
         onClick={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
-          props.onFileMenu(event, { kind: 'file', repositoryId: props.repository.id, ref: props.node.path, stage: props.stage }, { x: rect.left, y: rect.bottom + 4 });
+          props.onFileMenu(event, props.node.path, props.stage, props.visiblePaths(), { x: rect.left, y: rect.bottom + 4 });
         }}
       >
         <DotsThree aria-hidden="true" />
