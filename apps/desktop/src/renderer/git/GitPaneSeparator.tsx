@@ -1,22 +1,25 @@
-import { useLayoutEffect, useRef, type PointerEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type PointerEvent } from 'react';
 
 /** 尺寸按比例保存；窗口缩放后仍保留可用的内容区域。 */
 export function GitPaneSeparator(props: { name: string; label: string; axis?: 'x' | 'y'; initial: number; min?: number; max?: number; target?: string }) {
   const element = useRef<HTMLDivElement>(null);
   const value = useRef(props.initial);
-  const start = useRef<{ coordinate: number; value: number; size: number } | null>(null);
+  const preferred = useRef(props.initial);
+  const [displayedValue, setDisplayedValue] = useState(props.initial);
+  const start = useRef<{ pointerId: number; coordinate: number; value: number; preferred: number; size: number; moved: boolean } | null>(null);
   const axis = props.axis ?? 'x';
   const minimum = props.min ?? 15;
   const maximum = props.max ?? 65;
   const storageKey = `astragit.git.panes.v1.${props.name}`;
   const container = () => (props.target ? element.current?.closest<HTMLElement>(props.target) : element.current?.parentElement);
-  const apply = (next: number, save = false) => {
+  const apply = (next: number, save = false, preservePreference = false) => {
     value.current = Math.max(minimum, Math.min(maximum, next));
+    if (!preservePreference) preferred.current = value.current;
     container()?.style.setProperty(`--git-${props.name}`, `${value.current}%`);
-    element.current?.setAttribute('aria-valuenow', String(Math.round(value.current)));
+    setDisplayedValue(value.current);
     if (save) {
       try {
-        localStorage.setItem(storageKey, String(value.current));
+        localStorage.setItem(storageKey, String(preferred.current));
       } catch {
         /* 偏好存储不可用时继续允许拖拽。 */
       }
@@ -30,14 +33,43 @@ export function GitPaneSeparator(props: { name: string; label: string; axis?: 'x
     } catch {
       /* 使用默认尺寸。 */
     }
-    apply(restored);
-  }, [storageKey, props.initial, minimum, maximum, props.target]);
+    preferred.current = restored;
+    apply(restored, false, true);
+  }, [storageKey, props.initial, props.target]);
+  useLayoutEffect(() => {
+    // Responsive limits may change while dragging or hiding a pane. Keep its
+    // current preference instead of restoring the previous saved drag position.
+    apply(preferred.current, false, true);
+  }, [minimum, maximum]);
   const end = (event: PointerEvent<HTMLDivElement>) => {
-    if (!start.current) return;
+    if (!start.current || event.pointerId !== start.current.pointerId) return;
+    const { pointerId, value: initialValue, preferred: initialPreference, moved } = start.current;
     start.current = null;
     element.current?.removeAttribute('data-dragging');
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    apply(value.current, true);
+    if (element.current?.hasPointerCapture(pointerId)) element.current.releasePointerCapture(pointerId);
+    // A click, or a drag back to its starting point, must not replace a saved
+    // preference with the temporary size imposed by a smaller window.
+    if (!moved || Math.abs(value.current - initialValue) < 0.0001) {
+      preferred.current = initialPreference;
+      apply(initialPreference, false, true);
+    } else {
+      apply(value.current, true);
+    }
+  };
+  const cancel = (event?: PointerEvent<HTMLDivElement>) => {
+    if (!start.current || (event && event.pointerId !== start.current.pointerId)) return;
+    const { pointerId, preferred: previous } = start.current;
+    start.current = null;
+    element.current?.removeAttribute('data-dragging');
+    if (element.current?.hasPointerCapture(pointerId)) element.current.releasePointerCapture(pointerId);
+    preferred.current = previous;
+    apply(previous, false, true);
+  };
+  const reset = () => {
+    if (start.current) cancel();
+    // Reset the preference itself; a small window only limits its current display.
+    preferred.current = props.initial;
+    apply(props.initial, true, true);
   };
   return (
     <div
@@ -49,28 +81,39 @@ export function GitPaneSeparator(props: { name: string; label: string; axis?: 'x
       aria-orientation={axis === 'x' ? 'vertical' : 'horizontal'}
       aria-valuemin={minimum}
       aria-valuemax={maximum}
-      aria-valuenow={props.initial}
+      aria-valuenow={displayedValue}
+      aria-valuetext={`${Math.round(displayedValue)}%`}
+      aria-disabled={minimum === maximum || undefined}
       title={`${props.label} · 双击恢复默认`}
-      onDoubleClick={() => apply(props.initial, true)}
+      onDoubleClick={reset}
       onPointerDown={(event) => {
-        if (event.button !== 0) return;
+        if (event.button !== 0 || start.current) return;
         const bounds = container()?.getBoundingClientRect();
-        if (!bounds) return;
+        if (!bounds || minimum === maximum || bounds.width <= 0 || bounds.height <= 0) return;
         event.preventDefault();
-        event.currentTarget.focus();
+        event.currentTarget.focus({ preventScroll: true });
         event.currentTarget.setPointerCapture(event.pointerId);
         element.current?.setAttribute('data-dragging', 'true');
-        start.current = { coordinate: axis === 'x' ? event.clientX : event.clientY, value: value.current, size: axis === 'x' ? bounds.width : bounds.height };
+        start.current = { pointerId: event.pointerId, coordinate: axis === 'x' ? event.clientX : event.clientY, value: value.current, preferred: preferred.current, size: axis === 'x' ? bounds.width : bounds.height, moved: false };
       }}
       onPointerMove={(event) => {
-        if (!start.current) return;
+        if (!start.current || event.pointerId !== start.current.pointerId) return;
         const delta = (axis === 'x' ? event.clientX : event.clientY) - start.current.coordinate;
+        if (!start.current.moved && delta === 0) return;
+        start.current.moved = true;
         apply(start.current.value + (delta / Math.max(1, start.current.size)) * 100);
       }}
       onPointerUp={end}
-      onPointerCancel={end}
+      onPointerCancel={cancel}
       onLostPointerCapture={end}
       onKeyDown={(event) => {
+        if (event.key === 'Escape' && start.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          cancel();
+          return;
+        }
+        if (start.current) return;
         const previous = axis === 'x' ? 'ArrowLeft' : 'ArrowUp';
         const next = axis === 'x' ? 'ArrowRight' : 'ArrowDown';
         if (event.key === previous || event.key === next) {
@@ -78,7 +121,7 @@ export function GitPaneSeparator(props: { name: string; label: string; axis?: 'x
           apply(value.current + (event.key === previous ? -2 : 2), true);
         } else if (event.key === 'Home' || event.key === 'Enter') {
           event.preventDefault();
-          apply(props.initial, true);
+          reset();
         }
       }}
     />

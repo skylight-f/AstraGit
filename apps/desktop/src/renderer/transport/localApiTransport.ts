@@ -1,7 +1,7 @@
 /** 本机 API 传输端口：只负责 token、JSON 请求与 NDJSON 流，不承载会话导航追踪。 */
 export interface LocalApiTransport {
   readonly protocol: 'astragit-local-api-v1';
-  request<T>(path: string, init?: RequestInit): Promise<T>;
+  request<T>(path: string, init?: RequestInit, options?: { readOnly?: boolean }): Promise<T>;
   requestStream<T>(path: string, init: RequestInit, onEvent: (event: T) => void): Promise<void>;
 }
 
@@ -31,9 +31,11 @@ export class AstraGitApiError extends Error {
   readonly operationStage?: string;
   readonly operationStatus?: string;
   readonly blockedBy?: 'tracked' | 'untracked' | 'both';
+  readonly affectedFiles?: string[];
+  readonly affectedFileCount?: number;
   override readonly cause?: unknown;
 
-  constructor(input: { status: number; error?: string | null; message: string; recoveryRequired?: boolean; cause?: unknown; retryAfterMs?: number; details?: string; operationStage?: string; operationStatus?: string; blockedBy?: 'tracked' | 'untracked' | 'both' }) {
+  constructor(input: { status: number; error?: string | null; message: string; recoveryRequired?: boolean; cause?: unknown; retryAfterMs?: number; details?: string; operationStage?: string; operationStatus?: string; blockedBy?: 'tracked' | 'untracked' | 'both'; affectedFiles?: string[]; affectedFileCount?: number }) {
     super(input.message);
     this.name = 'AstraGitApiError';
     this.status = input.status;
@@ -43,6 +45,8 @@ export class AstraGitApiError extends Error {
     if (input.operationStage !== undefined) this.operationStage = input.operationStage;
     if (input.operationStatus !== undefined) this.operationStatus = input.operationStatus;
     if (input.blockedBy !== undefined) this.blockedBy = input.blockedBy;
+    if (input.affectedFiles !== undefined) this.affectedFiles = input.affectedFiles;
+    if (input.affectedFileCount !== undefined) this.affectedFileCount = input.affectedFileCount;
     if (input.cause !== undefined) this.cause = input.cause;
     if (input.retryAfterMs !== undefined) this.retryAfterMs = input.retryAfterMs;
   }
@@ -58,16 +62,18 @@ export function isLikelyLocalServerConnectionError(error: unknown): boolean {
 }
 
 export function createLocalApiTransport(options: { getConnection(): LocalApiConnection; refreshConnection?: () => Promise<LocalApiConnection>; onPerformanceSpan?: (span: AstraGitClientPerformanceSpan) => void }): LocalApiTransport {
-  const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
+  const request = async <T>(path: string, init?: RequestInit, requestOptions?: { readOnly?: boolean }): Promise<T> => {
+    const method = (init?.method ?? 'GET').toUpperCase();
+    if (requestOptions?.readOnly && (method !== 'POST' || !/^\/api\/projects\/[^/]+\/git\/workbench\/repositories\/[^/]+\/(?:stop-tracking-preview|interactive-rebase-preview|patch-preview|patch-export|archive-preview|replay-preview|replay-series-preview|mailbox-preview|submodule-preview|external-tool-preview|lfs-preview|flow-preview|stage-preview|line-diff)$/u.test(path))) throw new Error('Invalid read-only API route.');
+    const reading = requestOptions?.readOnly === true || method === 'GET' || method === 'HEAD';
     const traceId = createClientTraceId(path);
     try {
-      return await requestOnce<T>(options.getConnection(), path, init, traceId, 1, options.onPerformanceSpan);
+      return await requestOnce<T>(options.getConnection(), path, init, traceId, 1, options.onPerformanceSpan, reading);
     } catch (error) {
-      const method = (init?.method ?? 'GET').toUpperCase();
-      const replayable = method === 'GET' || method === 'HEAD' || new Headers(init?.headers).has('idempotency-key');
+      const replayable = reading || new Headers(init?.headers).has('idempotency-key');
       if (!replayable || !isLikelyLocalServerConnectionError(error) || !options.refreshConnection) throw error;
       const refreshed = await options.refreshConnection();
-      return await requestOnce<T>(refreshed, path, init, traceId, 2, options.onPerformanceSpan);
+      return await requestOnce<T>(refreshed, path, init, traceId, 2, options.onPerformanceSpan, reading);
     }
   };
 
@@ -111,7 +117,7 @@ export function jsonRequest(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body: u
   return { method, body: JSON.stringify(body) };
 }
 
-async function requestOnce<T>(connection: LocalApiConnection, path: string, init: RequestInit | undefined, traceId: string, attempt: number, observer?: (span: AstraGitClientPerformanceSpan) => void): Promise<T> {
+async function requestOnce<T>(connection: LocalApiConnection, path: string, init: RequestInit | undefined, traceId: string, attempt: number, observer?: (span: AstraGitClientPerformanceSpan) => void, reading = false): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('authorization', `Bearer ${connection.apiToken}`);
   headers.set('x-astragit-api-token', connection.apiToken);
@@ -119,14 +125,16 @@ async function requestOnce<T>(connection: LocalApiConnection, path: string, init
   const startedAt = performance.now();
   let status: number | null = null;
   try {
-    const timeoutMs = (init?.method ?? 'GET').toUpperCase() === 'GET' ? localApiReadTimeoutMs : localApiMutationTimeoutMs;
+    const rebase = (init?.method ?? 'GET').toUpperCase() === 'POST' && /^\/api\/projects\/[^/]+\/git\/workbench\/repositories\/[^/]+\/(?:interactive-rebase|lfs)$/u.test(path);
+    const externalTool = (init?.method ?? 'GET').toUpperCase() === 'POST' && /^\/api\/projects\/[^/]+\/git\/workbench\/repositories\/[^/]+\/external-tool$/u.test(path);
+    const timeoutMs = reading ? localApiReadTimeoutMs : externalTool ? 4 * 60 * 60_000 : rebase ? 30 * 60_000 : localApiMutationTimeoutMs;
     const result = await runWithReadTimeout({ ...init, headers }, path, timeoutMs, async (timedInit) => {
       const response = await fetch(`${connection.baseUrl}${path}`, timedInit);
       status = response.status;
       if (!response.ok) throw await responseError(response, path);
       if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T;
       return (await response.json()) as T;
-    });
+    }, reading);
     observer?.({
       traceId,
       attempt,
@@ -155,7 +163,7 @@ async function requestOnce<T>(connection: LocalApiConnection, path: string, init
   }
 }
 
-async function runWithReadTimeout<T>(init: RequestInit, path: string, timeoutMs: number, run: (init: RequestInit) => Promise<T>): Promise<T> {
+async function runWithReadTimeout<T>(init: RequestInit, path: string, timeoutMs: number, run: (init: RequestInit) => Promise<T>, reading: boolean): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -163,7 +171,6 @@ async function runWithReadTimeout<T>(init: RequestInit, path: string, timeoutMs:
     return await run({ ...init, signal });
   } catch (error) {
     if (controller.signal.aborted && !(init.signal && init.signal.aborted)) {
-      const reading = ['GET', 'HEAD'].includes((init.method ?? 'GET').toUpperCase());
       throw new AstraGitApiError({ status: 0, message: reading ? `本机 API 读取超时：${path}` : `本机 API 操作请求超时，尚无法确认执行结果：${path}`, error: reading ? 'ASTRAGIT_LOCAL_API_READ_TIMEOUT' : 'ASTRAGIT_LOCAL_API_MUTATION_OUTCOME_UNKNOWN' });
     }
     throw error;
@@ -190,6 +197,8 @@ async function responseError(response: Response, path: string): Promise<AstraGit
     ...(typeof payload?.operationStage === 'string' ? { operationStage: payload.operationStage } : {}),
     ...(typeof payload?.operationStatus === 'string' ? { operationStatus: payload.operationStatus } : {}),
     ...(['tracked', 'untracked', 'both'].includes(String(payload?.blockedBy)) ? { blockedBy: payload!.blockedBy as 'tracked' | 'untracked' | 'both' } : {}),
+    ...(Array.isArray(payload?.affectedFiles) ? { affectedFiles: payload.affectedFiles.filter((path): path is string => typeof path === 'string').slice(0, 200).map(path => path.slice(0, 4096)) } : {}),
+    ...(typeof payload?.affectedFileCount === 'number' && Number.isSafeInteger(payload.affectedFileCount) && payload.affectedFileCount >= 0 ? { affectedFileCount: payload.affectedFileCount } : {}),
     ...(payload?.cause && typeof payload.cause === 'object' ? { cause: payload.cause } : {}),
     ...(retryAfter ? { retryAfterMs: Number(retryAfter) * 1000 } : {}),
   });

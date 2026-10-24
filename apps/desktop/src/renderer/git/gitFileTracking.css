@@ -1,0 +1,80 @@
+.git-ignored-surface {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.git-ignored-surface > header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--zeus-product-line);
+}
+.git-ignored-surface > header strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.git-ignored-surface > header small {
+  margin-right: auto;
+  color: var(--zeus-product-muted);
+}
+.git-ignored-layout {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: minmax(0, var(--git-ignored-list, 76%)) 6px minmax(0, 1fr);
+}
+.git-ignored-list, .git-ignored-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 14px;
+}
+.git-ignored-select-all, .git-tracking-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-block: 6px 12px;
+}
+.git-ignored-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 2px 5px;
+  border-radius: 5px;
+}
+.git-ignored-row.is-selected {
+  background: var(--zeus-source-list-selected, #eee7ff);
+}
+.git-ignored-row > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.git-ignored-row .git-ignored-file { flex: 1; text-align: left; }
+.git-ignored-row > code { flex: 0 1 25%; color: var(--zeus-product-muted); }
+.git-ignored-row > code, .git-ignored-file > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.git-ignored-row svg { width: 16px; height: 16px; flex-shrink: 0; }
+.git-ignored-detail { background: var(--zeus-product-panel-muted); overflow-wrap: anywhere; }
+.git-ignored-detail dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 12px; margin: 10px 0; }
+.git-ignored-detail dt { color: var(--zeus-product-muted); }
+.git-ignored-detail dd { margin: 0; white-space: pre-wrap; }
+.git-ignored-detail > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.git-ignored-error { flex-shrink: 0; max-height: 100px; overflow: auto; padding: 8px 14px; }
+.git-stop-tracking-dialog ul, .git-force-ignored-dialog ul { max-height: 220px; overflow: auto; padding-inline-start: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.git-stop-tracking-dialog .git-tracking-confirm { display: flex; }
+.git-tracking-confirm input, .git-ignored-row input, .git-ignored-select-all input { flex-shrink: 0; accent-color: var(--zeus-control-accent); }

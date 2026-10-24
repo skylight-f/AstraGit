@@ -7,6 +7,8 @@ export interface InlineDiffChange {
 }
 
 export interface DiffCell {
+  /** Stable index in the native hunk, including metadata rows. */
+  lineIndex?: number;
   content: string;
   number: number | null;
   kind: GitDiffLine['type'] | 'empty';
@@ -26,17 +28,17 @@ export function alignedDiffRows(hunk: GitDiffHunk): AlignedDiffRow[] {
   for (let index = 0; index < hunk.lines.length;) {
     const line = hunk.lines[index]!;
     if (line.type === 'addition' || line.type === 'deletion') {
-      const deleted: GitDiffLine[] = [];
-      const added: GitDiffLine[] = [];
+      const deleted: Array<GitDiffLine & { lineIndex: number }> = [];
+      const added: Array<GitDiffLine & { lineIndex: number }> = [];
       while (index < hunk.lines.length && (hunk.lines[index]!.type === 'addition' || hunk.lines[index]!.type === 'deletion')) {
-        const changed = hunk.lines[index++]!;
+        const changed = { ...hunk.lines[index]!, lineIndex: index++ };
         (changed.type === 'deletion' ? deleted : added).push(changed);
       }
       for (let offset = 0; offset < Math.max(deleted.length, added.length); offset++) {
         const oldLine = deleted[offset];
         const newLine = added[offset];
-        const left: DiffCell = oldLine ? { content: oldLine.content, number: oldLine.oldLineNumber, kind: 'deletion' } : emptyCell();
-        const right: DiffCell = newLine ? { content: newLine.content, number: newLine.newLineNumber, kind: 'addition' } : emptyCell();
+        const left: DiffCell = oldLine ? { lineIndex: oldLine.lineIndex, content: oldLine.content, number: oldLine.oldLineNumber, kind: 'deletion' } : emptyCell();
+        const right: DiffCell = newLine ? { lineIndex: newLine.lineIndex, content: newLine.content, number: newLine.newLineNumber, kind: 'addition' } : emptyCell();
         if (oldLine && newLine && oldLine.content !== newLine.content) {
           const change = replacementHighlight(oldLine.content, newLine.content);
           left.highlight = change.left;
@@ -46,8 +48,8 @@ export function alignedDiffRows(hunk: GitDiffHunk): AlignedDiffRow[] {
       }
     } else {
       rows.push({
-        left: { content: line.content, number: line.oldLineNumber, kind: line.type },
-        right: { content: line.content, number: line.newLineNumber, kind: line.type },
+        left: { lineIndex: index, content: line.content, number: line.oldLineNumber, kind: line.type },
+        right: { lineIndex: index, content: line.content, number: line.newLineNumber, kind: line.type },
       });
       index++;
     }

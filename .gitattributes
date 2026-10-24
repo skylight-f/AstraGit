@@ -1,0 +1,2 @@
+# Preserve the vendored upstream source and its verified manifest bytes.
+vendor/git-flow-avh/** -whitespace

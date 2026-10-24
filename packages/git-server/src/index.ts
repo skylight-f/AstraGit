@@ -11,11 +11,12 @@ import {
   type AppendAuditLogInput,
 } from '@astragit/storage';
 import { createCodexAppServerManager, modelConnectionTemplates, type CodexAppServerManager, type CodexModelCapability, type SelectableConnectionModel } from '@astragit/ai-runtime';
-import { GitCommandApplication } from './gitCommandApplication.js';
+import { GitCommandApplication, gitCommandHttpError } from './gitCommandApplication.js';
 import { registerGitCommandRoutes } from './gitCommandRoutes.js';
+import { executeWorkbenchCommand } from './workbenchCommandApplication.js';
 import { createManualModel, createModelConnectionService } from './modelConnectionService.js';
 import { createApplicationSecretStore, type SecretStore } from './securityCore.js';
-import { ProjectStore, type GitAppProject } from './projectStore.js';
+import { ProjectStore, projectError, type GitAppProject } from './projectStore.js';
 import { ProjectGitWorkbenchService, gitFailureDiagnostics, stableRepositoryId, type ProjectGitActionResponse, type ProjectGitWorkbenchSnapshot } from './projectGitWorkbenchService.js';
 import { generateGitCommitMessage, type GitCommitMessageInput } from './gitCommitMessageGeneration.js';
 import { createCommitCodexPool } from './gitCommitCodexGeneration.js';
@@ -23,6 +24,7 @@ import { readGitCommitContext, readCommitFingerprint } from './gitCommitContext.
 import { sendNativeQueryRouteError } from './nativeQueryRouteError.js';
 import { OperationHistoryStore } from './operationHistoryStore.js';
 import { registerCommitSelectionRoutes } from './gitCommitSelectionRoutes.js';
+import { RepositorySetupService } from './repositorySetupService.js';
 
 
 export interface StartGitServerOptions {
@@ -46,6 +48,10 @@ export interface RunningGitServer {
   baseUrl: string;
   apiToken: string;
   projects: ProjectStore;
+  hasActiveRepositorySetup(): boolean;
+  resolveGitFileLocation(projectId: string, repositoryId: string, path: string, intent: import('@astragit/git-core').GitFileIntent): Promise<import('@astragit/git-core').GitFileLocation>;
+  writeGitArchive(projectId: string, repositoryId: string, input: import('@astragit/git-core').GitArchiveInput, output: import('node:stream').Writable, signal?: AbortSignal): Promise<import('@astragit/git-core').GitArchiveResult>;
+  previewGitArchive(projectId: string, repositoryId: string, input: import('@astragit/git-core').GitArchiveInput, signal?: AbortSignal): Promise<import('@astragit/git-core').GitArchivePreview>;
   close(): Promise<void>;
 }
 
@@ -53,6 +59,7 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
   const dataDirectory = options.dataDirectory;
   const secretStore = options.secretStore ?? await createApplicationSecretStore(dataDirectory);
   const projects = new ProjectStore(dataDirectory);
+  const repositorySetup = new RepositorySetupService(dataDirectory, projects);
   const db = await createAstraGitDatabase(join(dataDirectory, 'git-app.db'));
   const settings = new SettingRepository(db);
   const auditLogs = new AuditLogRepository(db);
@@ -134,17 +141,31 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
       await reply.code(401).send({ error: 'ASTRAGIT_UNAUTHORIZED', message: '本机 API 令牌无效。' });
     }
   });
+  let closing = false;
   server.addHook('onSend', async (request, reply, payload) => {
     if (request.url.startsWith('/api/')) applyCors(request, reply);
+    // Drain in-flight replies without keeping their HTTP sockets alive during shutdown.
+    if (closing) reply.header('connection', 'close');
     return payload;
   });
+  server.addHook('preClose', async () => { closing = true; workbench.cancelReadQueries(); });
   server.addHook('onClose', async () => {
-    const results = await Promise.allSettled([commitCodexPool.close(), codexAppServerManager?.close()]);
+    const results = await Promise.allSettled([commitCodexPool.close(), codexAppServerManager?.close(), repositorySetup.close()]);
     const errors = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : []);
     if (errors.length) throw new AggregateError(errors, 'AstraGit AI 服务关闭失败。');
   });
 
   // —— 项目 CRUD ——
+  server.get('/api/repository-setup', async () => repositorySetup.list());
+  server.get('/api/repository-setup/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    try { return repositorySetup.get(request.params.id); } catch (error) { return sendError(reply, error); }
+  });
+  server.post('/api/repository-setup', async (request, reply) => {
+    try { return reply.code(202).send(repositorySetup.start(request.body)); } catch (error) { return sendError(reply, error); }
+  });
+  server.post('/api/repository-setup/:id/cancel', async (request: FastifyRequest<{ Params: { id: string } }>, reply) => {
+    try { return repositorySetup.cancel(request.params.id); } catch (error) { return sendError(reply, error); }
+  });
   server.get('/api/projects', async (): Promise<GitAppProject[]> => projects.list());
 
   server.post('/api/projects', async (request: FastifyRequest<{ Body: { name?: unknown; localPath?: unknown } }>, reply) => {
@@ -174,13 +195,226 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     return { ok: true };
   });
 
+  const runWorkbenchCommand = (projectId: string, repositoryId: string, body: unknown) => executeWorkbenchCommand({
+    application: gitCommands, workbench, projectId, repositoryId, body,
+    onSettled: (action, outcome) => appendAuditLog({ actorType: 'local_api', action: 'git.workbench.action.settled', resourceType: 'git_repository', resourceId: repositoryId, payload: { projectId, action, outcome } }),
+  });
+
   // —— 工作台查询 ——
+
+  const fileHistoryBoolean = (value: unknown): boolean | undefined => {
+    if (value === undefined) return undefined;
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    throw projectError('ASTRAGIT_GIT_FILE_HISTORY_INVALID', '文件历史布尔参数无效。');
+  };
+
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/tracked-files', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: Record<string, string | undefined> }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { const q = request.query; return await workbench.loadTrackedFiles(request.params.projectId, request.params.repositoryId, { ref: q.ref, search: q.search, offset: q.offset === undefined ? undefined : Number(q.offset), limit: q.limit === undefined ? undefined : Number(q.limit), expectedFingerprint: q.expectedFingerprint }, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/file-history', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: Record<string, string | undefined> }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { const q = request.query; return await workbench.loadFileHistory(request.params.projectId, request.params.repositoryId, { path: q.path ?? '', ref: q.ref, offset: q.offset === undefined ? undefined : Number(q.offset), limit: q.limit === undefined ? undefined : Number(q.limit), followRenames: fileHistoryBoolean(q.followRenames) }, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/file-revision', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: Record<string, string | undefined> }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { const q = request.query; return await workbench.loadFileRevision(request.params.projectId, request.params.repositoryId, { path: q.path ?? '', ref: q.ref, workingTree: fileHistoryBoolean(q.workingTree), withBlame: fileHistoryBoolean(q.withBlame), includeDiff: fileHistoryBoolean(q.includeDiff), previousPath: q.previousPath, expectedFingerprint: q.expectedFingerprint }, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/interactive-rebase-preview', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: { baseRef?: unknown; ontoRef?: unknown } }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try {
+      if (typeof request.body?.baseRef !== 'string' || (request.body.ontoRef !== undefined && typeof request.body.ontoRef !== 'string')) throw projectError('ASTRAGIT_GIT_REBASE_RANGE_INVALID', '请选择有效的变基基点。');
+      return await workbench.loadInteractiveRebasePreview(request.params.projectId, request.params.repositoryId, request.body.baseRef, request.body.ontoRef as string | undefined, controller.signal);
+    } catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+  // Scope the larger message budget to the interactive rebase workflow only.
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/interactive-rebase', { bodyLimit: 40 * 1024 * 1024 }, async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    try {
+      const body = request.body as { input?: unknown } | undefined;
+      const input = body && typeof body === 'object' && 'input' in body ? body.input : body;
+      const value = input as { type?: unknown; kind?: unknown } | undefined;
+      if (!value || (value.type !== 'interactive_rebase' && value.type !== 'amend_rebase_step' && !(value.kind === 'rebase' && ['continue_integration', 'abort_integration', 'skip_integration'].includes(String(value.type))))) throw projectError('ASTRAGIT_ACTION_UNSUPPORTED', '此接口只接受交互变基及其恢复操作。');
+      if (!body || typeof body !== 'object' || !('command' in body)) throw projectError('ASTRAGIT_COMMAND_INVALID', '交互变基需要带有命令身份的请求。');
+      return await runWorkbenchCommand(request.params.projectId, request.params.repositoryId, request.body);
+    } catch (error) {
+      const commandError = gitCommandHttpError(error);
+      return commandError ? reply.code(commandError.statusCode).send(commandError.payload) : sendError(reply, error);
+    }
+  });
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/stop-tracking-preview', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: { paths?: unknown } }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try {
+      const paths = request.body?.paths;
+      if (!Array.isArray(paths) || !paths.every(path => typeof path === 'string')) throw projectError('ASTRAGIT_GIT_TRACKING_PATH_INVALID', '请选择有效路径。');
+      return await workbench.loadStopTrackingPreview(request.params.projectId, request.params.repositoryId, paths, controller.signal);
+    } catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/ignored-files', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: { prefix?: string; search?: string; offset?: string; limit?: string; expectedFingerprint?: string } }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try {
+      const query = request.query;
+      return await workbench.loadIgnoredFiles(request.params.projectId, request.params.repositoryId, { prefix: query.prefix, search: query.search, offset: query.offset === undefined ? undefined : Number(query.offset), limit: query.limit === undefined ? undefined : Number(query.limit), expectedFingerprint: query.expectedFingerprint }, controller.signal);
+    } catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/ignore-preview', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: { scope?: string } }>, reply) => {
+    const controller = new AbortController();
+    const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.on('close', disconnected);
+    try {
+      const scope = request.query.scope;
+      if (scope !== 'repository' && scope !== 'local' && scope !== 'global') throw projectError('ASTRAGIT_GIT_IGNORE_INVALID', '忽略范围无效。');
+      return await workbench.loadIgnorePreview(request.params.projectId, request.params.repositoryId, scope, controller.signal);
+    } catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/reset-preview', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: { revision?: string; mode?: string } }>, reply) => {
+    const controller = new AbortController();
+    const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.on('close', disconnected);
+    try {
+      const mode = request.query.mode;
+      if (mode !== 'soft' && mode !== 'mixed' && mode !== 'hard') throw projectError('ASTRAGIT_GIT_RESET_MODE_INVALID', '重置方式无效。');
+      return await workbench.loadResetPreview(request.params.projectId, request.params.repositoryId, request.query.revision ?? '', mode, controller.signal);
+    } catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/skip-preview', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: { kind?: string } }>, reply) => {
+    const controller = new AbortController();
+    const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.on('close', disconnected);
+    try {
+      const kind = request.query.kind;
+      if (kind !== 'rebase' && kind !== 'cherry_pick' && kind !== 'revert' && kind !== 'am') throw projectError('ASTRAGIT_GIT_INTEGRATION_CHANGED', '当前整合不能跳过。');
+      return await workbench.loadSkipPreview(request.params.projectId, request.params.repositoryId, kind, controller.signal);
+    } catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/settings', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string } }>, reply) => {
+    try { return await workbench.loadSettings(request.params.projectId, request.params.repositoryId); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); }
+  });
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/commit-template', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string } }>, reply) => {
+    const controller = new AbortController();
+    const disconnected = () => { if (!reply.raw.writableFinished) controller.abort(); };
+    reply.raw.once('close', disconnected);
+    try { return await workbench.loadCommitTemplate(request.params.projectId, request.params.repositoryId, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
   server.get('/api/projects/:projectId/git/workbench', async (request: FastifyRequest<{ Params: { projectId: string } }>, reply) => {
     try {
       return await workbench.loadWorkbench(request.params.projectId);
     } catch (error) {
       return sendNativeQueryRouteError(reply, error);
     }
+  });
+
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/line-diff', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.lineDiff(request.params.projectId, request.params.repositoryId, request.body, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/stage-preview', { bodyLimit: 4 * 1024 * 1024 }, async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.previewStage(request.params.projectId, request.params.repositoryId, request.body, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/flow', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string } }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.loadFlow(request.params.projectId, request.params.repositoryId, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/flow-preview', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.previewFlow(request.params.projectId, request.params.repositoryId, request.body, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/flow', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    try {
+      const body = request.body as { input?: { type?: unknown }; command?: unknown } | undefined;
+      if (!body || typeof body !== 'object' || !body.command || body.input?.type !== 'manage_flow') throw projectError('ASTRAGIT_COMMAND_INVALID', 'Git Flow 需要带命令身份的专用请求。');
+      return await runWorkbenchCommand(request.params.projectId, request.params.repositoryId, body);
+    } catch (error) { const result = gitCommandHttpError(error); return result ? reply.code(result.statusCode).send(result.payload) : sendError(reply, error); }
+  });
+
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/lfs', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string } }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.loadLfs(request.params.projectId, request.params.repositoryId, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/lfs-preview', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.previewLfs(request.params.projectId, request.params.repositoryId, request.body, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/lfs', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    try {
+      const body = request.body as { input?: { type?: unknown }; command?: unknown } | undefined;
+      if (!body || typeof body !== 'object' || !body.command || body.input?.type !== 'manage_lfs') throw projectError('ASTRAGIT_COMMAND_INVALID', 'Git LFS 需要带命令身份的专用请求。');
+      return await runWorkbenchCommand(request.params.projectId, request.params.repositoryId, body);
+    } catch (error) { const result = gitCommandHttpError(error); return result ? reply.code(result.statusCode).send(result.payload) : sendError(reply, error); }
+  });
+
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/external-tools', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string } }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.loadExternalToolSettings(request.params.projectId, request.params.repositoryId, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/external-tool-preview', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.previewExternalTool(request.params.projectId, request.params.repositoryId, request.body, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/external-tool', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    try {
+      const body = request.body as { input?: { type?: unknown }; command?: unknown } | undefined;
+      if (!body || typeof body !== 'object' || !body.command || body.input?.type !== 'external_tool') throw projectError('ASTRAGIT_COMMAND_INVALID', '外部工具需要带命令身份的专用请求。');
+      return await runWorkbenchCommand(request.params.projectId, request.params.repositoryId, body);
+    } catch (error) { const result = gitCommandHttpError(error); return result ? reply.code(result.statusCode).send(result.payload) : sendError(reply, error); }
+  });
+
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/submodules', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string } }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.loadSubmodules(request.params.projectId, request.params.repositoryId, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/submodule-preview', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.previewSubmodule(request.params.projectId, request.params.repositoryId, request.body, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/tags', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: Record<string, string | undefined> }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { const q = request.query; return await workbench.loadTags(request.params.projectId, request.params.repositoryId, { remote: q.remote, search: q.search, offset: q.offset === undefined ? undefined : Number(q.offset), limit: q.limit === undefined ? undefined : Number(q.limit), expectedFingerprint: q.expectedFingerprint }, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/tag-target', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: { revision?: string } }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.loadTagTarget(request.params.projectId, request.params.repositoryId, request.query.revision ?? 'HEAD', controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/history-query', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: Record<string, string | undefined> }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try {
+      const q = request.query;
+      return await workbench.searchHistory(request.params.projectId, request.params.repositoryId, { ref: q.ref, search: q.search, field: q.field as import('@astragit/git-core').GitHistorySearchField | undefined, order: q.order as 'topo' | 'date' | undefined, cursor: q.cursor, limit: q.limit === undefined ? undefined : Number(q.limit) }, controller.signal);
+    } catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
   });
 
   server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/history', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: { offset?: string; ref?: string } }>, reply) => {
@@ -205,6 +439,37 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     } catch (error) {
       return sendNativeQueryRouteError(reply, error);
     }
+  });
+
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/compare-revisions', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: Record<string, unknown> }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try {
+      const query = request.query;
+      if (Object.keys(query).some(key => key !== 'from' && key !== 'to') || typeof query.from !== 'string' || typeof query.to !== 'string') throw projectError('ASTRAGIT_GIT_COMPARISON_INVALID', '请选择两个有效提交进行比较。');
+      return await workbench.loadRevisionsComparison(request.params.projectId, request.params.repositoryId, [query.from, query.to], controller.signal);
+    } catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/archive-preview', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.loadArchivePreview(request.params.projectId, request.params.repositoryId, request.body, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/replay-preview', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.loadCommitReplayPreview(request.params.projectId, request.params.repositoryId, request.body, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/replay-series-preview', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.loadCommitReplaySeriesPreview(request.params.projectId, request.params.repositoryId, request.body, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
   });
 
   server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/conflict', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: { path?: string } }>, reply) => {
@@ -235,13 +500,34 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     }
   });
 
+  for (const kind of ['patch-preview', 'patch-export', 'mailbox-preview'] as const) {
+    server.post(`/api/projects/:projectId/git/workbench/repositories/:repositoryId/${kind}`, { bodyLimit: 16 * 1024 * 1024 }, async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+      const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+      try { return kind === 'patch-preview'
+        ? await workbench.loadPatchPreview(request.params.projectId, request.params.repositoryId, request.body as import('@astragit/git-core').GitPatchInput, controller.signal)
+        : kind === 'mailbox-preview' ? await workbench.loadMailboxPreview(request.params.projectId, request.params.repositoryId, request.body as import('@astragit/git-core').GitMailboxInput, controller.signal)
+        : await workbench.exportPatch(request.params.projectId, request.params.repositoryId, request.body as import('@astragit/git-core').GitPatchExportInput, controller.signal);
+      } catch (error) { return sendNativeQueryRouteError(reply, error); }
+      finally { reply.raw.off('close', disconnected); }
+    });
+  }
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/patch-import', { bodyLimit: 16 * 1024 * 1024 }, async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
+    try {
+      const body = request.body as { command?: unknown; input?: { type?: unknown } } | null;
+      if (!body?.command || !['import_patch', 'import_mailbox'].includes(String(body.input?.type))) throw projectError('ASTRAGIT_INVALID_ACTION', '补丁导入需使用有效命令身份。');
+      return await runWorkbenchCommand(request.params.projectId, request.params.repositoryId, request.body);
+    } catch (error) { const commandError = gitCommandHttpError(error); return commandError ? reply.code(commandError.statusCode).send(commandError.payload) : sendError(reply, error); }
+  });
+
   server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/actions', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
     try {
       const body = request.body as { input?: unknown } | undefined;
       const input = body && typeof body === 'object' && 'input' in body ? body.input : body;
-      return await workbench.execute(request.params.projectId, request.params.repositoryId, input);
+      if (input && typeof input === 'object' && 'type' in input && ['interactive_rebase', 'amend_rebase_step', 'import_patch', 'import_mailbox', 'external_tool', 'manage_lfs', 'manage_flow'].includes(String(input.type))) throw projectError('ASTRAGIT_ACTION_UNSUPPORTED', '此操作需使用带命令身份的专用接口。');
+      return await runWorkbenchCommand(request.params.projectId, request.params.repositoryId, request.body);
     } catch (error) {
-      return sendError(reply, error);
+      const commandError = gitCommandHttpError(error);
+      return commandError ? reply.code(commandError.statusCode).send(commandError.payload) : sendError(reply, error);
     }
   });
 
@@ -568,6 +854,10 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     baseUrl,
     apiToken: options.apiToken,
     projects,
+    hasActiveRepositorySetup: () => repositorySetup.isBusy(),
+    resolveGitFileLocation: (projectId, repositoryId, path, intent) => workbench.resolveFileLocation(projectId, repositoryId, path, intent),
+    writeGitArchive: (projectId, repositoryId, input, output, signal) => workbench.writeArchive(projectId, repositoryId, input, output, signal),
+    previewGitArchive: (projectId, repositoryId, input, signal) => workbench.loadArchivePreview(projectId, repositoryId, input, signal),
     async close() {
       try {
         await server.close();

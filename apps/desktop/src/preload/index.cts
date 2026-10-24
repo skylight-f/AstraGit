@@ -10,6 +10,11 @@ const bootstrap = {
 contextBridge.exposeInMainWorld('astraGit', {
   getBootstrap: bootstrap.getBootstrap,
   chooseDirectory: bootstrap.chooseDirectory,
+  choosePatchFile: () => ipcRenderer.invoke('astragit:patch-file-read'),
+  savePatchFile: (request: { data: string; sha256: string; suggestedName: string }) => ipcRenderer.invoke('astragit:patch-file-save', request),
+  saveSourceArchive: (request: unknown) => ipcRenderer.invoke('astragit:archive-file-save', request),
+  cancelSourceArchive: (id: string) => ipcRenderer.invoke('astragit:archive-file-cancel', id),
+  performFileAction: (request: { projectId: string; repositoryId: string; path: string; intent: 'open' | 'reveal' | 'edit-ignore-rule' }) => ipcRenderer.invoke('astragit:file-action', request),
   rendererReady: () => ipcRenderer.invoke('astragit:renderer-ready'),
   openUpdates: (language: 'zh-CN' | 'en-US') => ipcRenderer.invoke('astragit:update-open', language),
   performUpdateAction: (action: 'check' | 'prepare' | 'restart', language: 'zh-CN' | 'en-US') => ipcRenderer.invoke('astragit:update-action', action, language),

@@ -6,15 +6,17 @@ import { lstat, mkdtemp, readlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { parseGitPorcelainStatus } from './index.js';
+import { gitDisplayDiffConfig, gitDisplayDiffOptions, gitDisplayDiffMetadataOptions } from './gitDiffReader.js';
 
 export type GitCommitSelectionMode = 'worktree' | 'staged';
 
 const execute = promisify(execFile);
 async function git(cwd: string, args: string[], index?: string, allowDiff = false) {
   try {
-    return (await execute('git', args, { cwd, timeout: 15_000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', ...(index ? { GIT_INDEX_FILE: index } : {}) } })).stdout;
+    return (await execute('git', [...gitDisplayDiffConfig, ...args], { cwd, timeout: 15_000, maxBuffer: 32 * 1024 * 1024, env: { ...process.env, GIT_DIFF_OPTS: undefined, GIT_EXTERNAL_DIFF: undefined, GIT_OPTIONAL_LOCKS: '0', ...(index ? { GIT_INDEX_FILE: index } : {}) } })).stdout;
   } catch (error) {
     if (allowDiff && (error as { code?: unknown }).code === 1 && typeof (error as { stdout?: unknown }).stdout === 'string') return (error as { stdout: string }).stdout;
+    if ((error as { code?: unknown }).code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw Object.assign(new Error('所选差异超出读取范围，请减少选择的文件或使用外部工具。'), { code: 'ASTRAGIT_GIT_DIFF_TOO_LARGE', operationStage: 'read', cause: error });
     throw error;
   }
 }
@@ -93,8 +95,8 @@ export async function readSelectedGitCommitChanges(cwd: string, selected: string
   const before = await fingerprint(cwd, paths, mode);
   if (mode === 'staged') {
     const [diff, stat] = await Promise.all([
-      git(cwd, ['--literal-pathspecs', 'diff', '--cached', '--no-ext-diff', '--no-textconv', '--no-color', '--unified=3', '--', ...paths]),
-      git(cwd, ['--literal-pathspecs', 'diff', '--cached', '--no-ext-diff', '--no-textconv', '--numstat', '--', ...paths]),
+      git(cwd, ['--literal-pathspecs', 'diff', '--cached', ...gitDisplayDiffOptions, '--', ...paths]),
+      git(cwd, ['--literal-pathspecs', 'diff', '--cached', ...gitDisplayDiffMetadataOptions, '--numstat', '--', ...paths]),
     ]);
     if (before.fingerprint !== (await fingerprint(cwd, paths, mode)).fingerprint) throw new Error('读取期间暂存内容已变化，请重新生成。');
     if (!diff.trim()) throw new Error('所选文件没有已暂存的改动。');
@@ -106,9 +108,10 @@ export async function readSelectedGitCommitChanges(cwd: string, selected: string
     await git(cwd, ['read-tree', ...(before.head ? [before.head] : ['--empty'])], index);
     const tracked = new Set((await git(cwd, ['--literal-pathspecs', 'ls-files', '-z', '--', ...paths], index)).split('\0').filter(Boolean));
     const trackedPaths = paths.filter((path) => tracked.has(path));
-    const common = ['--no-ext-diff', '--no-textconv', '--no-color', '--ignore-submodules=dirty'];
+    const common = [...gitDisplayDiffOptions, '--ignore-submodules=dirty'];
+    const statOptions = [...gitDisplayDiffMetadataOptions, '--ignore-submodules=dirty'];
     const [trackedDiff, trackedStat] = trackedPaths.length
-      ? await Promise.all([git(cwd, ['--literal-pathspecs', 'diff', ...common, '--unified=3', '--', ...trackedPaths], index), git(cwd, ['--literal-pathspecs', 'diff', ...common, '--numstat', '--', ...trackedPaths], index)])
+      ? await Promise.all([git(cwd, ['--literal-pathspecs', 'diff', ...common, '--', ...trackedPaths], index), git(cwd, ['--literal-pathspecs', 'diff', ...statOptions, '--numstat', '--', ...trackedPaths], index)])
       : ['', ''];
     const diffs = [trackedDiff];
     const stats = [trackedStat];
@@ -121,7 +124,7 @@ export async function readSelectedGitCommitChanges(cwd: string, selected: string
       if (!exists.isFile() && !exists.isSymbolicLink()) throw new Error('嵌套仓库需在各自仓库中选择文件。');
       const [diff, stat] = await Promise.all([
         git(cwd, ['diff', '--no-index', ...common, '--unified=3', '--', '/dev/null', path], undefined, true),
-        git(cwd, ['diff', '--no-index', ...common, '--numstat', '--', '/dev/null', path], undefined, true),
+        git(cwd, ['diff', '--no-index', ...statOptions, '--numstat', '--', '/dev/null', path], undefined, true),
       ]);
       diffs.push(diff);
       stats.push(stat);

@@ -4,6 +4,40 @@ import { describeUserFacingError, redactUserFacingErrorDetails, userFacingErrorC
 
 const describe = (code, language = 'zh-CN', extra = {}) => describeUserFacingError({ code, message: 'Git command failed.', ...extra }, language);
 
+test('mailbox hints distinguish preflight blocks, merge export limits and partially completed imports', () => {
+  assert.match(describe('ASTRAGIT_GIT_PATCH_SERIES_MERGE').message, /不能保留合并提交.*普通差异/u); assert.match(describe('ASTRAGIT_GIT_PATCH_SERIES_MERGE', 'en-US').message, /cannot preserve merge commits/u);
+  assert.equal(describe('ASTRAGIT_GIT_MAILBOX_CHANGED').outcomeUnconfirmed, false); assert.match(describe('ASTRAGIT_GIT_MAILBOX_CHANGED').message, /未开始导入/u);
+  const paused = describe('ASTRAGIT_GIT_MAILBOX_PAUSED', 'en-US', { operationStatus: 'unknown_after_write' }); assert.equal(paused.outcomeUnconfirmed, true); assert.equal(paused.action, 'check'); assert.match(paused.message, /earlier commits.*continue, skip or abort.*Do not import/u);
+  assert.equal(describe('ASTRAGIT_GIT_IDENTITY_REQUIRED', 'en-US', { operationStatus: 'unknown_after_write' }).outcomeUnconfirmed, true);
+  assert.equal(describe('ASTRAGIT_GIT_CHECKOUT_BLOCKED', 'zh-CN', { operationStatus: 'failed_before_write', cause: { code: 'ASTRAGIT_GIT_COMMAND_FAILED', message: 'native error', operationStatus: 'unknown_after_write' } }).outcomeUnconfirmed, false);
+});
+
+test('tag errors distinguish moved objects, server refusals and uncertain partial deletions in both languages', () => {
+  assert.match(describe('ASTRAGIT_GIT_TAG_REMOTE_VERSION_CHANGED').message, /标签对象.*同一提交.*核对/u); assert.match(describe('ASTRAGIT_GIT_TAG_REMOTE_VERSION_CHANGED', 'en-US').message, /tag object changed.*same commit/u);
+  const unknown = describe('ASTRAGIT_GIT_TAG_REMOTE_OUTCOME_UNKNOWN', 'zh-CN', { operationStatus: 'unknown_after_write' }); assert.equal(unknown.outcomeUnconfirmed, true); assert.equal(unknown.action, 'check'); assert.match(unknown.message, /部分目标.*不要直接重复删除/u);
+  assert.equal(describe('ASTRAGIT_GIT_TAG_REMOTE_REJECTED').outcomeUnconfirmed, false); assert.match(describe('ASTRAGIT_GIT_TAG_REMOTE_REJECTED', 'en-US').message, /tag protection.*permissions/u); assert.match(describe('ASTRAGIT_GIT_TAG_LOCAL_CHANGED').message, /本地标签.*核对标签对象/u);
+});
+
+test('patch previews distinguish stale content, failed checks and invalid paths in both languages', () => {
+  assert.match(describe('ASTRAGIT_GIT_PATCH_CHECK_FAILED').message, /本次未应用.*前缀层数/u); assert.match(describe('ASTRAGIT_GIT_PATCH_CHECK_FAILED', 'en-US').message, /not applied.*strip count/u);
+  assert.equal(describe('ASTRAGIT_GIT_PATCH_PREVIEW_CHANGED').action, 'check'); assert.equal(describe('ASTRAGIT_GIT_PATCH_PREVIEW_CHANGED').outcomeUnconfirmed, false); assert.match(describe('ASTRAGIT_GIT_PATCH_PATH_INVALID').message, /Git 元数据.*符号链接/u);
+  assert.doesNotMatch(describe('ASTRAGIT_GIT_PATCH_READ_FAILED').message, /文件历史|自动应用|已回滚/u);
+});
+
+test('expired history cursors request a fresh read without suggesting replaying a Git write', () => {
+  const result = describe('ASTRAGIT_GIT_HISTORY_QUERY_EXPIRED'); assert.equal(result.outcomeUnconfirmed, false); assert.equal(result.action, 'retry'); assert.match(result.message, /重新载入历史/u); assert.match(describe('ASTRAGIT_GIT_HISTORY_QUERY_EXPIRED', 'en-US').message, /Reload history/u);
+  assert.match(describe('ASTRAGIT_GIT_HISTORY_QUERY_REVISION_INVALID').message, /不是提交.*重新选择/u); assert.doesNotMatch(result.message, /(?:强推|重新提交|结果未知|写入)/u);
+});
+
+test('file-history reads explain stale revisions and unsupported encodings without implying a failed write', () => {
+  const changed = describe('ASTRAGIT_GIT_FILE_HISTORY_CHANGED');
+  assert.match(changed.message, /重新载入.*旧归属/u); assert.equal(changed.action, 'check'); assert.equal(changed.outcomeUnconfirmed, false);
+  assert.match(describe('ASTRAGIT_GIT_FILE_HISTORY_CHANGED', 'en-US').message, /old attribution.*new contents/u);
+  assert.match(describe('ASTRAGIT_GIT_FILE_HISTORY_ENCODING').message, /UTF-8.*外部工具/u);
+  assert.match(describe('ASTRAGIT_GIT_FILE_HISTORY_REVISION_INVALID', 'en-US').message, /not a commit/u);
+  assert.doesNotMatch(changed.message, /(?:未提交|已回滚|未执行重置|写入结果)/u);
+});
+
 test('checkout protection is distinguished from conflicts that already existed', () => {
   const protectedCheckout = describe('ASTRAGIT_GIT_CHECKOUT_BLOCKED');
   const existingConflicts = describe('ASTRAGIT_GIT_CHECKOUT_CONFLICTED');
@@ -27,9 +61,9 @@ test('checkout protection is distinguished from conflicts that already existed',
   assert.equal(userFacingErrorCause({ code: 'ASTRAGIT_GIT_CHECKOUT_BLOCKED', blockedBy: 'secret-not-an-enum' }).blockedBy, undefined);
 });
 
-test('Git commit failures give distinct bilingual next steps without a nonexistent settings entry', () => {
+test('Git commit failures give distinct bilingual next steps including repository identity settings', () => {
   const cases = [
-    ['ASTRAGIT_GIT_IDENTITY_REQUIRED', /user\.name.*user\.email/u, /user\.name.*user\.email/u],
+    ['ASTRAGIT_GIT_IDENTITY_REQUIRED', /仓库设置.*姓名和邮箱/u, /repository settings.*name and email/u],
     ['ASTRAGIT_GIT_NOTHING_TO_COMMIT', /没有可提交.*提交范围/u, /no changes to commit.*scope/u],
     ['ASTRAGIT_GIT_INDEX_LOCKED', /其他 Git 操作已结束.*核查锁文件/u, /other Git operations have ended.*lock file/u],
     ['ASTRAGIT_GIT_HOOK_REJECTED', /钩子检查未通过.*修正检查错误/u, /Git hook check failed.*Fix the check/u],
@@ -218,7 +252,7 @@ test('a generic child command error does not replace a classified root reason', 
   }
   // The deepest specific cause still wins when the root is only a wrapper.
   const wrapped = describe('ASTRAGIT_GIT_ACTION_FAILED', 'en-US', { cause: { code: 'ASTRAGIT_GIT_COMMAND_FAILED', message: 'command failed', cause: { code: 'ASTRAGIT_GIT_IDENTITY_REQUIRED', message: 'Author identity unknown' } } });
-  assert.match(wrapped.message, /user\.name.*user\.email/u);
+  assert.match(wrapped.message, /repository settings.*name and email/u);
   // Outcome uncertainty still has higher priority than both specific and generic causes.
   const uncertain = describe('ASTRAGIT_LOCAL_API_MUTATION_OUTCOME_UNKNOWN', 'zh-CN', { cause: { code: 'ASTRAGIT_GIT_CHECKOUT_BLOCKED', message: 'switch refused', cause: { code: 'ASTRAGIT_GIT_COMMAND_FAILED', message: 'command failed' } } });
   assert.match(uncertain.message, /执行结果尚未确认/u);
@@ -250,5 +284,64 @@ test('conflict editor failures explain current state without promising that part
     assert.doesNotMatch(partial.message, /草稿未写入|已回滚|自动重试/u, code);
     assert.equal(partial.outcomeUnconfirmed, true, code);
     assert.equal(partial.action, 'check', code);
+  }
+});
+
+
+test('submodule management explains protected content, stale review and uncertain partial changes in both languages', () => {
+  for (const suffix of ['INVALID', 'PATH', 'URL', 'CONFIG', 'NOT_FOUND', 'CHANGED', 'DIRTY', 'CONFIG_DIRTY', 'BLOCKED', 'ADOPT_REQUIRED', 'READ']) {
+    const code = `ASTRAGIT_GIT_SUBMODULE_${suffix}`; assert.match(describe(code).message, /子模块|父仓库|本地修改|Git 仓库/u); assert.match(describe(code, 'en-US').message, /submodule|parent repository|Local changes|Git repository/iu);
+  }
+  for (const language of ['zh-CN', 'en-US']) {
+    const result = describe('ASTRAGIT_GIT_SUBMODULE_OUTCOME_UNKNOWN', language, { operationStatus: 'unknown_after_write' }); assert.equal(result.outcomeUnconfirmed, true); assert.equal(result.action, 'check'); assert.doesNotMatch(result.message, /本次未开始|已回滚|was not started|rolled back/u);
+  }
+});
+
+
+test('external tool hints distinguish setup, changed previews, unresolved output and uncertain tool results', () => {
+  assert.equal(describe('ASTRAGIT_GIT_EXTERNAL_TOOL_REQUIRED').action, 'settings');
+  assert.match(describe('ASTRAGIT_GIT_EXTERNAL_TOOL_CHANGED').message, /已变化.*重新读取/u);
+  assert.match(describe('ASTRAGIT_GIT_EXTERNAL_TOOL_MARKERS_REMAIN', 'en-US').message, /conflict markers.*built-in editor/iu);
+  for (const language of ['zh-CN', 'en-US']) { const result = describe('ASTRAGIT_GIT_EXTERNAL_TOOL_OUTCOME_UNKNOWN', language, { operationStatus: 'unknown_after_write' }); assert.equal(result.outcomeUnconfirmed, true); assert.equal(result.action, 'check'); assert.doesNotMatch(result.message, /已回滚|本次未启动|rolled back|was not started/u); }
+});
+
+test('LFS hints require explicit initialization and never claim failed transfers or configuration writes were rolled back', () => {
+  assert.equal(describe('ASTRAGIT_GIT_LFS_UNAVAILABLE').action, 'settings');
+  assert.match(describe('ASTRAGIT_GIT_LFS_INIT_REQUIRED').message, /明确初始化.*不会自动修改/u);
+  assert.match(describe('ASTRAGIT_GIT_LFS_CHANGED', 'en-US').message, /was not started.*Reload/u);
+  for (const language of ['zh-CN', 'en-US']) {
+    const result = describe('ASTRAGIT_GIT_LFS_OUTCOME_UNKNOWN', language, { operationStatus: 'unknown_after_write' });
+    assert.equal(result.outcomeUnconfirmed, true); assert.equal(result.action, 'check'); assert.doesNotMatch(result.message, /已回滚|未开始|rolled back|not started/u);
+  }
+});
+
+
+test('large-file staging messages distinguish advisory, missing filters and changed review in both languages', () => {
+  for (const language of ['zh-CN', 'en-US']) {
+    for (const code of ['ASTRAGIT_GIT_STAGE_LARGE_FILES', 'ASTRAGIT_GIT_STAGE_LFS_SETUP', 'ASTRAGIT_GIT_STAGE_CHANGED']) {
+      const result = describe(code, language, { operationStatus: 'failed_before_write' });
+      assert.equal(result.outcomeUnconfirmed, false);
+      assert.match(result.message, language === 'zh-CN' ? /本次未暂存/u : /Nothing was staged/u);
+    }
+    assert.match(describe('ASTRAGIT_GIT_STAGE_LARGE_FILES', language).message, /LFS/u);
+    assert.match(describe('ASTRAGIT_GIT_STAGE_LFS_SETUP', language).message, /clean\/process/u);
+  }
+});
+
+
+test('selected-line hints explain changed review, read limits and conflicts without promising rollback after a write', () => {
+  for (const language of ['zh-CN', 'en-US']) {
+    for (const code of ['ASTRAGIT_GIT_LINES_CHANGED', 'ASTRAGIT_GIT_LINES_TOO_LARGE', 'ASTRAGIT_GIT_LINES_CHECK_FAILED', 'ASTRAGIT_GIT_LINES_CONFLICT']) {
+      const value = describe(code, language, { operationStatus: 'failed_before_write' }); assert.equal(value.outcomeUnconfirmed, false); assert.match(value.message, language === 'zh-CN' ? /本次未应用/u : /not applied|Nothing was applied/u);
+    }
+    assert.match(describe('ASTRAGIT_GIT_LINES_UNSUPPORTED', language).message, /filter/u);
+  }
+});
+
+test('Git Flow hints distinguish before-write review, paused multi-step integration and unconfirmed results', () => {
+  for (const language of ['zh-CN', 'en-US']) {
+    const changed = describe('ASTRAGIT_GIT_FLOW_CHANGED', language, { operationStatus: 'failed_before_write' }); assert.equal(changed.outcomeUnconfirmed, false); assert.match(changed.message, language === 'zh-CN' ? /本次未开始/u : /not started/u);
+    const paused = describe('ASTRAGIT_GIT_FLOW_PAUSED', language, { operationStatus: 'conflict' }); assert.match(paused.message, language === 'zh-CN' ? /不会撤销先前/u : /does not undo earlier/u);
+    const unknown = describe('ASTRAGIT_GIT_FLOW_OUTCOME_UNKNOWN', language, { operationStatus: 'unknown_after_write' }); assert.equal(unknown.outcomeUnconfirmed, true);
   }
 });

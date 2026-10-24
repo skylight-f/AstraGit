@@ -20,6 +20,7 @@ import { SourceCommitReview } from './SourceCommitReview.js';
 import { SourceCommitOptions } from './SourceCommitOptions.js';
 import { SourceRepositoryControls } from './SourceRepositoryControls.js';
 import { GitPaneSeparator } from './GitPaneSeparator.js';
+import { GitCommitTemplateControl } from './GitCommitTemplateControl.js';
 import type { BusyState, ExecutionOutcome } from './gitWorkbenchTypes.js';
 import { ModalPortal } from '../ui/ModalPortal.js';
 import { formatVisibleApplicationError, reportApplicationError, VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
@@ -48,6 +49,10 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
   const commitLayout = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLElement>(null);
   const [paneBounds, setPaneBounds] = useState({ min: 10, max: 88 });
+  const shell = useRef<HTMLElement>(null);
+  const detail = useRef<HTMLElement>(null);
+  const [sidebarBounds, setSidebarBounds] = useState({ min: 20, max: 65 });
+  const [resultsBounds, setResultsBounds] = useState({ min: 25, max: 85 });
   const [stashPreview, setStashPreview] = useState<{ repositoryId: string; commitHash: string } | null>(null);
   const [error, setError] = useState<unknown>(null);
   const operationErrors = useRef<Record<string, string>>({});
@@ -63,6 +68,7 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
   const [modelWarning, setModelWarning] = useState('');
   const updateParents = state.updateParents;
   const [draftRepository, setDraftRepository] = useState('');
+  const [templateSource, setTemplateSource] = useState('');
   const [review, setReview] = useState<{ rows: SourceReviewRow[]; push: boolean } | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewError, setReviewError] = useState('');
@@ -91,7 +97,7 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
   useEffect(() => {
     if (!active) return;
     // 原生下拉菜单与草稿编辑期间不重绘列表；提交前仍重新读取并核对指纹。
-    const load = () => { if (!busyRef.current && !generation.current && !document.querySelector('dialog[open]') && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')) void refresh().catch(reason => setError(gitFailureText(reason))); };
+    const load = () => { if (!busyRef.current && !generation.current && !document.querySelector('dialog[open], .git-pane-separator[data-dragging]') && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')) void refresh().catch(reason => setError(gitFailureText(reason))); };
     load(); const unsubscribe = subscribeProjectGitRefresh(project.id, load);
     const timer = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 5000);
     return () => { clearInterval(timer); unsubscribe(); };
@@ -107,8 +113,34 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
   const filesCount = units.reduce((sum, unit) => sum + unit.paths.length, 0);
   const editorRepository = units.find(unit => unit.repository.id === draftRepository)?.repository.id ?? units[0]?.repository.id ?? '';
   const selectedMessage = state.messageMode === 'shared' ? state.sharedMessage : state.drafts[editorRepository] ?? '';
+  const templateRepositories = units.length ? units.map(unit => unit.repository) : repositories;
+  const templateRepositoryId = state.messageMode === 'individual' ? editorRepository : templateRepositories.length === 1 ? templateRepositories[0]!.id : templateRepositories.find(repository => repository.id === templateSource)?.id ?? '';
   const locked = busy || generating || reviewBusy || operation !== null;
   const hasFeedback = Boolean(feedback || (!model && modelWarning));
+  useLayoutEffect(() => {
+    const root = shell.current;
+    const right = detail.current;
+    if (!root || !right) return;
+    const measure = () => {
+      const width = root.getBoundingClientRect().width;
+      if (width > 0) {
+        const min = Math.min(45, 270 / width * 100);
+        const max = Math.max(min, Math.min(70, (width - 280 - 6) / width * 100));
+        setSidebarBounds(current => Math.abs(current.min - min) < 0.1 && Math.abs(current.max - max) < 0.1 ? current : { min, max });
+      }
+      const height = right.getBoundingClientRect().height;
+      if (height > 0) {
+        const min = Math.min(45, 150 / height * 100);
+        const max = Math.max(min, Math.min(90, (height - 90 - 6) / height * 100));
+        setResultsBounds(current => Math.abs(current.min - min) < 0.1 && Math.abs(current.max - max) < 0.1 ? current : { min, max });
+      }
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    observer.observe(right);
+    measure();
+    return () => observer.disconnect();
+  }, []);
   useLayoutEffect(() => {
     const layout = commitLayout.current;
     const editor = composer.current;
@@ -140,10 +172,10 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
   useEffect(() => {
     if (!active || !focusedId || !focusedPath) return;
     const repository = snapshot?.repositories.find(repo => repo.id === focusedId);
-    setDiffTarget(currentDiffTarget);
-    if (!repository || repository.snapshot.conflictFiles.includes(focusedPath) || !sourceRepositoryFiles(repository, snapshot!.repositories, state.selectionMode).some(file => file.path === focusedPath)) { setDiff(null); setDiffError(''); setDiffLoading(false); return; }
-    const controller = new AbortController(); setDiffLoading(true); setDiffError(''); setDiff(null);
-    void client.previewGitCommitSelection(project.id, [{ repositoryId: repository.id, relativePath: repository.relativePath, paths: [focusedPath] }], state.selectionMode, controller.signal).then(value => { if (!controller.signal.aborted) setDiff(value.repositories[0]?.diff ?? null); }).catch(reason => { if (!controller.signal.aborted) setDiffError(gitFailureText(reason)); }).finally(() => { if (!controller.signal.aborted) setDiffLoading(false); });
+    if (!repository || repository.snapshot.conflictFiles.includes(focusedPath) || !sourceRepositoryFiles(repository, snapshot!.repositories, state.selectionMode).some(file => file.path === focusedPath)) { setDiffTarget(currentDiffTarget); setDiff(null); setDiffError(''); setDiffLoading(false); return; }
+    // Refresh the same file without unmounting its panes, scroll position or layout mode.
+    const controller = new AbortController(); setDiffLoading(true); setDiffError('');
+    void client.previewGitCommitSelection(project.id, [{ repositoryId: repository.id, relativePath: repository.relativePath, paths: [focusedPath] }], state.selectionMode, controller.signal).then(value => { if (!controller.signal.aborted) { setDiffTarget(currentDiffTarget); setDiff(value.repositories[0]?.diff ?? null); } }).catch(reason => { if (!controller.signal.aborted) { setDiffTarget(currentDiffTarget); setDiff(null); setDiffError(gitFailureText(reason)); } }).finally(() => { if (!controller.signal.aborted) setDiffLoading(false); });
     return () => controller.abort();
   }, [active, client, focusedId, focusedPath, project.id, snapshot, state.selectionMode, currentDiffTarget]);
   const toggle = (id: string, paths: string[], checked: boolean) => update(current => { const selected = new Set(current.selected[id]); for (const path of paths) { if (checked) selected.add(path); else selected.delete(path); } return { ...current, selected: { ...current.selected, [id]: [...selected] } }; });
@@ -324,7 +356,7 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
   const collapse = (key: string) => update(current => ({ ...current, collapsed: current.collapsed.includes(key) ? current.collapsed.filter(item => item !== key) : [...current.collapsed, key] }));
   const selectRepository = (repositoryId: string) => update({ focus: { repositoryId, path: '' } });
   const statuses = zh ? { queued: '等待提交', committing: '提交中', committed: '已提交', commit_failed: '提交失败', blocked: '未提交', pushing: '推送中', done: '已推送', push_failed: '推送失败', push_blocked: '待推送', unknown: '请核对结果' } : { queued: 'Queued', committing: 'Committing', committed: 'Committed', commit_failed: 'Commit failed', blocked: 'Blocked', pushing: 'Pushing', done: 'Pushed', push_failed: 'Push failed', push_blocked: 'Push pending', unknown: 'Check outcome' };
-  return <main className="source-git-shell">
+  return <main ref={shell} className="source-git-shell">
     <aside className="source-git-sidebar">
       <header className="source-git-heading"><strong>{label('更改', 'Changes')} <small>{allPaths.length}</small></strong></header>
       <div className="source-git-tabs" role="tablist" aria-label={label('更改工具窗口', 'Changes tool window')}>
@@ -353,6 +385,10 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
         <GitPaneSeparator name="source-files" label={label('调整文件列表与提交说明区域高度', 'Resize file list and commit message')} axis="y" initial={82} min={paneBounds.min} max={paneBounds.max} />
         <section ref={composer} className="source-git-composer">
           {state.messageMode === 'individual' ? <div className="source-git-draft-repository"><label>{label('仓库说明', 'Repository draft')} <select aria-label={label('编辑仓库说明', 'Repository draft')} value={editorRepository} disabled={locked} onChange={event => setDraftRepository(event.target.value)}>{units.map(unit => <option key={unit.repository.id} value={unit.repository.id}>{unit.repository.name}</option>)}</select></label></div> : null}
+          <div className="source-git-template">
+            {state.messageMode === 'shared' && templateRepositories.length > 1 ? <select aria-label={label('提交模板来源仓库', 'Commit template source repository')} value={templateRepositoryId} disabled={locked} onChange={event => setTemplateSource(event.target.value)}><option value="">{label('选择模板来源仓库', 'Choose a template repository')}</option>{templateRepositories.map(repository => <option key={repository.id} value={repository.id}>{repository.name}</option>)}</select> : null}
+            <GitCommitTemplateControl key={`${project.id}:${state.messageMode}:${templateRepositoryId}`} client={client} projectId={project.id} repositoryId={templateRepositoryId} repositoryName={templateRepositories.find(repository => repository.id === templateRepositoryId)?.name} value={selectedMessage} zh={zh} disabled={locked} active={active && tab === 'commit'} autoFill={state.messageMode === 'individual' || templateRepositories.length === 1} onApply={(message, expected) => update(current => current.messageMode !== state.messageMode ? current : current.messageMode === 'shared' ? current.sharedMessage === expected ? { ...current, sharedMessage: message } : current : (current.drafts[templateRepositoryId] ?? '') === expected ? { ...current, drafts: { ...current.drafts, [templateRepositoryId]: message } } : current)} />
+          </div>
           <div className="source-git-message">
             <textarea ref={messageInput} rows={3} aria-label={label('项目提交说明', 'Project commit message')} value={selectedMessage} disabled={locked || (state.messageMode === 'individual' && !editorRepository)} onChange={event => setMessage(event.target.value)} placeholder={label('提交说明', 'Commit message')} />
             <button type="button" className="source-git-icon source-git-generate" aria-label={generating ? label('停止生成', 'Stop generation') : label('AI 填写', 'AI draft')} title={generating ? label('停止生成', 'Stop generation') : !units.length ? label('请先勾选要提交的文件', 'Select files to commit first') : `${label('根据勾选内容生成提交说明', 'Generate from selected content')} · ${models.find(item => item.id === model)?.label ?? model}`} disabled={busy || reviewBusy || operation !== null || (!generating && (!model || !units.length))} data-generating={generating} onClick={() => generating ? generation.current?.abort() : void generate()}>{generating ? <Stop weight="fill" /> : <Sparkle />}</button>
@@ -377,8 +413,9 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
       </div>}
       {error ? <p className="source-git-error" role="alert"><VisibleApplicationError error={error} language={zh ? 'zh-CN' : 'en'} /></p> : null}
     </aside>
-    <section className="source-git-detail"><div className="source-git-diff">{focusedConflict && focusedId && focusedPath ? <GitConflictEditor client={client} projectId={project.id} repositoryId={focusedId} filePath={focusedPath} zh={zh} disabled={locked} onSaved={result => conflictSaved(focusedId, focusedPath, result)} /> : focusedPath && (diffTarget !== currentDiffTarget || diffLoading) ? <p className="source-git-empty">{label('正在读取实际提交差异…', 'Loading selected commit diff…')}</p> : diffError && diffTarget === currentDiffTarget ? <p className="source-git-error" role="alert"><VisibleApplicationError error={diffError} language={zh ? 'zh-CN' : 'en'} /></p> : focusedPath && diff && diffTarget === currentDiffTarget ? <SideBySideDiff diff={diff} zh={zh} title={`${focusedRepository?.name ?? ''} / ${focusedPath}`} fill /> : <div className="source-git-empty"><h3>{label('选择文件查看差异', 'Select a file to see its diff')}</h3><p>{label('左侧按仓库分组勾选，查看文件不会改变勾选范围。', 'Select files by repository. Previewing a file preserves your selection.')}</p></div>}</div>
-      {state.lastResults.length ? <section className="source-git-results" aria-label={label('批次结果', 'Batch results')}><header><strong>{label('最近一次批次', 'Last batch')}</strong>{state.lastResults.some(result => ['push_failed', 'push_blocked'].includes(result.status) && result.commitSha) ? <button type="button" disabled={locked} onClick={() => void retryPush()}>{label('重试失败的推送', 'Retry failed pushes')}</button> : null}</header>{state.lastResults.map(result => <div key={result.repositoryId}><strong>{result.repositoryName}</strong><span>{statuses[result.status]}</span>{result.commitSha ? <code title={result.commitSha}>{result.commitSha.slice(0, 8)}</code> : null}{result.error ? <p><VisibleApplicationError error={result.error} language={zh ? 'zh-CN' : 'en'} /></p> : null}</div>)}</section> : null}
+    <GitPaneSeparator name="source-sidebar" label={label('调整项目更改列表宽度', 'Resize project changes sidebar')} initial={32} min={sidebarBounds.min} max={sidebarBounds.max} />
+    <section ref={detail} className={`source-git-detail${state.lastResults.length ? ' has-results' : ''}`}><div className="source-git-diff">{focusedConflict && focusedId && focusedPath ? <GitConflictEditor client={client} projectId={project.id} repositoryId={focusedId} filePath={focusedPath} zh={zh} disabled={locked} onSaved={result => conflictSaved(focusedId, focusedPath, result)} /> : focusedPath && (diffTarget !== currentDiffTarget || (diffLoading && !diff)) ? <p className="source-git-empty">{label('正在读取实际提交差异…', 'Loading selected commit diff…')}</p> : diffError && diffTarget === currentDiffTarget ? <p className="source-git-error" role="alert"><VisibleApplicationError error={diffError} language={zh ? 'zh-CN' : 'en'} /></p> : focusedPath && diff && diffTarget === currentDiffTarget ? <SideBySideDiff diff={diff} zh={zh} title={`${focusedRepository?.name ?? ''} / ${focusedPath}`} fill /> : <div className="source-git-empty"><h3>{label('选择文件查看差异', 'Select a file to see its diff')}</h3><p>{label('左侧按仓库分组勾选，查看文件不会改变勾选范围。', 'Select files by repository. Previewing a file preserves your selection.')}</p></div>}</div>
+      {state.lastResults.length ? <><GitPaneSeparator name="source-results" label={label('调整差异与批次结果区域高度', 'Resize diff and batch results')} axis="y" initial={78} min={resultsBounds.min} max={resultsBounds.max} /><section className="source-git-results" aria-label={label('批次结果', 'Batch results')}><header><strong>{label('最近一次批次', 'Last batch')}</strong>{state.lastResults.some(result => ['push_failed', 'push_blocked'].includes(result.status) && result.commitSha) ? <button type="button" disabled={locked} onClick={() => void retryPush()}>{label('重试失败的推送', 'Retry failed pushes')}</button> : null}</header>{state.lastResults.map(result => <div key={result.repositoryId}><strong>{result.repositoryName}</strong><span>{statuses[result.status]}</span>{result.commitSha ? <code title={result.commitSha}>{result.commitSha.slice(0, 8)}</code> : null}{result.error ? <p><VisibleApplicationError error={result.error} language={zh ? 'zh-CN' : 'en'} /></p> : null}</div>)}</section></> : null}
     </section>
     {stashPreview ? <ModalPortal role="dialog" aria-label={label('贮藏差异', 'Stash diff')} rootClassName="gitapp-diff-root" onDismiss={() => setStashPreview(null)}><div className="gitapp-diff-dialog" data-modal-surface="dialog"><header><strong>{label('贮藏差异', 'Stash diff')}</strong><button type="button" onClick={() => setStashPreview(null)}>{label('关闭', 'Close')}</button></header><ProjectGitDiffWindow client={client} projectId={project.id} {...stashPreview} filePath="" stage="combined" language={props.language} appearance="light" /></div></ModalPortal> : null}
     {review ? <SourceCommitReview rows={review.rows} push={review.push} zh={zh} busy={reviewBusy} error={reviewError} onChange={rows => setReview({ ...review, rows })} onClose={() => setReview(null)} onConfirm={() => void confirm()} /> : null}

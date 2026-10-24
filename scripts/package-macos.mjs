@@ -7,10 +7,11 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build, Platform } from 'electron-builder';
 import { verifyMachOArchitecture } from './macos-architecture.mjs';
+import { verifyGitFlowResources } from './check-git-flow.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const desktop = join(root, 'apps/desktop');
-const output = join(root, 'release');
+const output = process.env.ASTRAGIT_BUILD_OUTPUT_DIR ? resolve(process.env.ASTRAGIT_BUILD_OUTPUT_DIR) : join(root, 'release');
 const appId = 'com.astragit.desktop';
 const productName = 'AstraGit';
 // Actions 未设置的 Secret 会成为空字符串；构建器必须收到未定义值，而非空证书路径。
@@ -50,6 +51,7 @@ async function assertInternalLinks(directory) {
 }
 
 try {
+  const gitFlow = await verifyGitFlowResources();
   // 使用共享锁文件生成部署锁文件；无需重新解析 semver 或依赖机器上的元数据缓存。
   const deployArgs = ['--filter', '@astragit/desktop', 'deploy', '--prod', '--offline', appDirectory];
   if (process.env.npm_execpath) await run(process.execPath, [process.env.npm_execpath, ...deployArgs]);
@@ -84,7 +86,7 @@ try {
       electronDist: join(dirname(electronManifest), 'dist'),
       directories: { app: appDirectory, output, buildResources: join(desktop, 'build') },
       files: ['dist/**', 'package.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', '!**/*.map', '!**/*.d.ts'],
-      extraResources: [{ from: join(desktop, 'build/icon.png'), to: 'branding/icon.png' }],
+      extraResources: [{ from: join(desktop, 'build/icon.png'), to: 'branding/icon.png' }, { from: gitFlow.directory, to: 'git-flow-avh' }],
       asar: true,
       asarUnpack: ['dist/native/**'],
       npmRebuild: false,
@@ -104,6 +106,8 @@ try {
   const requireBuilder = createRequire(createRequire(import.meta.url).resolve('electron-builder'));
   const asar = requireBuilder('@electron/asar');
   const archive = join(appPath, 'Contents/Resources/app.asar');
+  const packagedGitFlow = await verifyGitFlowResources(join(appPath, 'Contents/Resources/git-flow-avh'));
+  if (packagedGitFlow.fingerprint !== gitFlow.fingerprint) throw new Error('Packaged Git Flow differs from the verified source resources.');
   const packagedIcon = await readFile(join(appPath, 'Contents/Resources/branding/icon.png'));
   if (!packagedIcon.equals(await readFile(join(desktop, 'build/icon.png')))) throw new Error('Packaged Dock icon does not match the AstraGit icon source.');
   const packagedIcns = await readFile(join(appPath, 'Contents/Resources/icon.icns'));
@@ -138,6 +142,7 @@ try {
     electronVersion, application: appPath, signing: signed ? 'Developer ID' : 'ad-hoc', notarized,
     archiveSha256: createHash('sha256').update(await readFile(archive)).digest('hex'),
     archiveEntries: archiveFiles.size, builtAt: new Date().toISOString(),
+    gitFlow: { version: packagedGitFlow.version, manifestSha256: packagedGitFlow.fingerprint, files: packagedGitFlow.files },
   }, null, 2)}\n`);
   if (releaseBuild) {
     const fileName = `AstraGit-${manifest.version}-${process.arch}.dmg`;

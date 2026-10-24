@@ -1,0 +1,30 @@
+.git-patch-dialog { width:min(1100px,96vw); height:min(800px,92vh); display:flex; flex-direction:column; min-width:0; min-height:0; border:1px solid var(--zeus-product-line); border-radius:12px; background:var(--zeus-product-panel,#fff); color:var(--zeus-product-text); overflow:hidden; box-shadow:0 20px 70px #18203b33; }
+.git-patch-dialog > header { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--zeus-product-line); }
+.git-patch-dialog > header > span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; color:var(--zeus-product-muted); }
+.git-patch-dialog-body { display:grid; grid-template-columns:minmax(0,var(--git-patch-options,36%)) 6px minmax(0,1fr); min-height:0; flex:1; }
+.git-patch-options { display:flex; flex-direction:column; gap:10px; padding:14px; overflow:auto; min-width:0; min-height:0; font-size:12px; }
+.git-patch-options > label { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.git-patch-options select,.git-patch-options input:not([type=checkbox]),.git-patch-options textarea { box-sizing:border-box; width:100%; min-width:0; padding:7px; border:1px solid var(--zeus-control-border); border-radius:5px; color:inherit; background:var(--zeus-control-bg); font:inherit; }
+.git-patch-options textarea { min-height:150px; resize:vertical; white-space:pre; font:11px/19px ui-monospace,SFMono-Regular,Menlo,monospace; }
+.git-patch-options > .git-patch-check { flex-direction:row; align-items:center; }
+.git-patch-options small,.git-patch-dialog p { font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.git-patch-options p { margin:0; color:var(--zeus-product-muted); }
+.git-patch-options ul { max-height:130px; overflow:auto; padding-inline-start:20px; overflow-wrap:anywhere; }
+.git-patch-preview { min-width:0; min-height:0; overflow:auto; padding:12px; display:flex; flex-direction:column; gap:9px; }
+.git-patch-preview p { margin:0; }
+.git-patch-preview details { flex-shrink:0; }
+.git-patch-preview details > ul { max-height:160px; overflow:auto; padding:0; list-style:none; }
+.git-patch-preview li { display:flex; justify-content:space-between; gap:12px; margin-block:5px; font-size:12px; }
+.git-patch-preview li > span { overflow-wrap:anywhere; min-width:0; white-space:pre-wrap; }
+.git-patch-preview small { color:var(--zeus-product-muted); white-space:pre-wrap; overflow-wrap:anywhere; }
+.git-patch-preview li small { flex-shrink:0; }
+.git-patch-raw { margin:0; flex:1 0 160px; overflow:auto; white-space:pre; font:11px/19px ui-monospace,SFMono-Regular,Menlo,monospace; user-select:text; }
+.git-patch-diagnostics { font-size:11px; line-height:1.6; white-space:pre-wrap; overflow-wrap:anywhere; padding:9px; background:#fff1ed; color:#9d4b3a; }
+.git-patch-dialog .is-error { color:#a84436; }
+.git-patch-dialog .is-success { color:var(--zeus-code-addition-text,#38845a); }
+.git-patch-dialog > footer { display:flex; justify-content:flex-end; gap:8px; padding:12px 16px; border-top:1px solid var(--zeus-product-line); flex-shrink:0; }
+.git-patch-dialog > p { margin:6px 16px; }
+.git-patch-commits { display:grid; gap:7px; flex-shrink:0; }
+.git-patch-commits details { border:1px solid var(--zeus-product-line); border-radius:5px; padding:7px; }
+.git-patch-commits summary { cursor:pointer; overflow-wrap:anywhere; }
+.git-patch-commits pre { max-height:200px; overflow:auto; white-space:pre-wrap; font:11px/19px ui-monospace,SFMono-Regular,Menlo,monospace; }

@@ -5059,6 +5059,12 @@ a {
   user-select: none;
   outline: none;
 }
+.git-pane-separator::before {
+  content: '';
+  position: absolute;
+  /* A larger hit area without changing the size of either pane. */
+  inset: -3px;
+}
 .git-pane-separator.is-x {
   width: 6px;
   min-height: 0;
@@ -5073,15 +5079,16 @@ a {
   content: '';
   position: absolute;
   border-radius: 3px;
-  background: transparent;
+  background: color-mix(in srgb, var(--zeus-product-muted, #7a8495) 35%, transparent);
   transition: background 120ms;
 }
 .git-pane-separator.is-x::after {
-  inset: 0 2px;
+  inset: calc(50% - 14px) 2px;
 }
 .git-pane-separator.is-y::after {
-  inset: 2px 0;
+  inset: 2px calc(50% - 14px);
 }
+.git-pane-separator[aria-disabled='true'] { cursor: default; }
 .git-pane-separator:hover:not(:disabled):not([aria-disabled='true'])::after,
 .git-pane-separator:focus-visible::after,
 .git-pane-separator[data-dragging]::after {
@@ -5092,7 +5099,7 @@ a {
   border-bottom: 0;
   display: grid;
   flex: 0 0 30px;
-  grid-template-columns: minmax(0, var(--git-diff, 50%)) 6px minmax(0, 1fr);
+  grid-template-columns: minmax(0, var(--git-diff-columns, 50%)) 6px minmax(0, 1fr);
 }
 .project-git-diff-side-head span {
   align-items: center;
@@ -5203,7 +5210,8 @@ body[data-surface='project-git-diff'] #root {
 }
 body[data-surface='project-git-diff'] .macos-ai-app.zeus-shell.project-git-diff-window {
   /* 独立差异窗口共用主题，不采用主窗口的侧栏双列结构。 */
-  display: block;
+  display: flex;
+  flex-direction: column;
   /* 独立窗口没有主工作区底层，必须覆盖壳层透明材质。 */
   background: var(--zeus-page-background) !important;
   color: var(--zeus-product-text);
@@ -5218,9 +5226,12 @@ body[data-surface='project-git-diff'] .macos-ai-app.zeus-shell.project-git-diff-
 }
 .project-git-diff-window-layout {
   display: grid;
+  flex: 1 1 0;
   grid-template-columns: minmax(220px, 18vw) minmax(0, 1fr);
-  height: calc(100vh - 42px);
+  grid-template-rows: minmax(0, 1fr);
+  height: auto;
   min-height: 0;
+  min-width: 0;
 }
 .project-git-diff-window-files {
   border-right: 0;
@@ -5296,7 +5307,7 @@ body[data-surface='project-git-diff'] .macos-ai-app.zeus-shell.project-git-diff-
   color: var(--zeus-control-danger-text);
 }
 .project-git-diff-window-layout > .project-git-diff-preview {
-  height: calc(100vh - 42px);
+  height: 100%;
 }
 
 @media (max-width: 1180px) {

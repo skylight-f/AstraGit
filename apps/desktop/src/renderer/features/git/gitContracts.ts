@@ -1,6 +1,29 @@
+export type { GitFlowKind, GitFlowConfiguration, GitFlowChange, GitFlowState, GitFlowBranch, GitFlowPreview, GitFlowOutcome, GitFlowRefChange } from '@astragit/git-core';
+import type { GitFlowChange, GitFlowOutcome } from '@astragit/git-core';
+export type { GitLineDiffInput, GitLineDiffPreview, GitLineChange, GitLineSelection } from '@astragit/git-core';
+export type { GitStagePreview, GitStagePreviewInput, GitLargeFileReview } from '@astragit/git-core';
+import type { GitLargeFileReview } from '@astragit/git-core';
+export type { GitLfsChange, GitLfsState, GitLfsPattern, GitLfsFile, GitLfsPreview } from '@astragit/git-core';
+import type { GitLfsChange } from '@astragit/git-core';
+export type { GitExternalToolKind, GitExternalToolInput, GitExternalToolConfiguration, GitExternalToolSettings, GitExternalToolPreview } from '@astragit/git-core';
+import type { GitExternalToolInput, GitExternalToolConfiguration } from '@astragit/git-core';
+export type { GitSubmoduleChange, GitSubmoduleState, GitSubmoduleItem, GitSubmodulePreview } from '@astragit/git-core';
+import type { GitSubmoduleChange } from '@astragit/git-core';
+export type { GitMailboxInput, GitMailboxPreview, GitMailboxCommit } from '@astragit/git-core';
+import type { GitMailboxInput } from '@astragit/git-core';
+export type { GitTagQuery, GitTagPage, GitTagItem, GitTagLocalInfo, GitTagTarget } from '@astragit/git-core';
+export type { GitPatchSeriesCommit, GitPatchInput, GitPatchPreview, GitPatchExportInput, GitRepositoryPatchExport, GitPatchFile } from '@astragit/git-core';
+export type { GitTrackedFileQuery, GitTrackedFilePage, GitFileHistoryQuery, GitFileHistoryEntry, GitFileHistoryPage, GitFileRevisionQuery, GitFileRevision, GitFileOriginLine } from '@astragit/git-core';
+export type { GitHistorySearchQuery, GitHistorySearchPage, GitHistorySearchCommit, GitHistorySearchField } from '@astragit/git-core';
 /** Git blame 公共契约由 Git Core 统一定义，渲染层只消费只读数据。 */
 export type { GitBlameLine, GitFileBlame } from '@astragit/git-core';
 export type { ProjectGitConflictFile, ProjectGitConflictIndexStage, SaveProjectGitConflictInput } from '@astragit/git-core';
+export type { ProjectGitRepositorySettings } from '@astragit/git-core';
+export type { GitCommitTemplate } from '@astragit/git-core';
+export type { GitResetMode, GitWritePreview } from '@astragit/git-core';
+export type { GitIgnoreInput, GitIgnorePreview, GitIgnoreScope } from '@astragit/git-core';
+export type { GitStopTrackingPreview, GitIgnoredItem, GitIgnoredPage, GitIgnoredQuery } from '@astragit/git-core';
+export type { GitInteractiveRebaseInput, GitInteractiveRebasePreview, GitRebasePlanStep, GitRebasePlanAction, GitRebaseEditState } from '@astragit/git-core';
 import type { ProjectGitConflictWriteResult } from '@astragit/git-core';
 
 export interface ProjectGitConflictSaveResponse extends ProjectGitConflictWriteResult {
@@ -12,6 +35,9 @@ export interface GitDiffSummary {
   files: string[];
   diffText: string;
   fileDiffs: GitFileDiff[];
+  unavailableReason?: import('@astragit/git-core').GitDiffUnavailableReason;
+  comparisonParent?: string;
+  readError?: import('@astragit/git-core').GitDiffSummary['readError'];
 }
 
 export type GitDiffFileChangeType = 'added' | 'deleted' | 'modified' | 'renamed' | 'copied';
@@ -35,6 +61,8 @@ export interface GitDiffHunk {
 }
 
 export interface GitFileDiff {
+  stage?: 'staged' | 'unstaged' | 'untracked';
+  isBinary?: boolean;
   oldPath: string;
   newPath: string;
   changeType: GitDiffFileChangeType;
@@ -102,13 +130,16 @@ export interface ProjectGitRecentRef {
 }
 
 export interface ProjectGitRepositorySnapshot {
+  rebaseEdit?: import('@astragit/git-core').GitRebaseEditState | null;
+  indexFingerprint?: string;
   submodules?: { path: string; initialized: boolean }[];
   branch: string;
   detached: boolean;
   headTags: string[];
   headSha: string;
   upstream: string | null;
-  integrationState?: 'merge' | 'rebase' | null;
+  integrationState?: 'merge' | 'rebase' | 'cherry_pick' | 'revert' | 'am' | null;
+  integrationNoCommit?: boolean;
   ahead: number;
   behind: number;
   clean: boolean;
@@ -117,7 +148,10 @@ export interface ProjectGitRepositorySnapshot {
   localBranches: string[];
   /** 同一 Git 仓库中已经由任一 worktree 检出的本地分支；混合版本宿主缺失时按空集合降级。 */
   checkedOutBranches?: string[];
-  remoteDetails?: Array<{ name: string; fetchUrl: string; pushUrl: string }>;
+  remoteDetails?: Array<{ name: string; fetchUrl: string; pushUrl: string; pushUrls?: string[]; pushFingerprint?: string }>;
+  localBranchHeads?: Record<string, string>;
+  remoteBranchHeads?: Record<string, string>;
+  branchUpstreamRefs?: Record<string, string>;
   branchUpstreams?: Record<string, string>;
   /** 混合版本宿主缺失时仅降级为不显示非当前分支的差异标识。 */
   branchDivergences?: Record<string, { ahead: number; behind: number }>;
@@ -163,33 +197,55 @@ export interface GitCommitSelectionPreview {
 }
 
 export type ProjectGitAction =
+  | { type: 'cherry_pick_series'; input: import('@astragit/git-core').GitCommitReplaySeriesInput; expectedFingerprint: string }
+  | ({ type: 'interactive_rebase' } & import('@astragit/git-core').GitInteractiveRebaseInput)
+  | { type: 'amend_rebase_step'; message: string; expectedHeadSha: string; expectedIndexFingerprint: string; expectedStepFingerprint: string }
+  | { type: 'stop_tracking'; paths: string[]; force?: boolean; expectedFingerprint: string }
+  | { type: 'stage_ignored'; paths: string[]; largeFileReview?: GitLargeFileReview }
+  | { type: 'ignore'; scope: import('@astragit/git-core').GitIgnoreScope; patterns: string[]; expectedFingerprint: string }
+  | { type: 'reset_revision'; targetSha: string; mode: import('@astragit/git-core').GitResetMode; expectedFingerprint: string; discardNestedRepositories?: boolean }
+  | { type: 'skip_integration'; kind: 'rebase' | 'cherry_pick' | 'revert' | 'am'; expectedFingerprint: string; discardNestedRepositories?: boolean }
+  | import('@astragit/git-core').RepositorySettingsAction
+  | import('@astragit/git-core').GitCommitTemplateChange
+  | { type: 'amend_commit'; message: string; expectedHeadSha: string; expectedBranch: string; expectedIndexFingerprint: string }
   | { type: 'discard'; paths: string[] }
   | { type: 'rename_branch'; branchName: string; newName: string }
-  | { type: 'create_tag'; tagName: string; revision: string; message?: string }
-  | { type: 'push_tag'; tagName: string; remote: string }
-  | { type: 'delete_tag'; tagName: string }
+  | { type: 'create_tag'; tagName: string; revision: string; message?: string; annotated?: boolean; expectedTargetSha?: string }
+  | { type: 'push_tag'; tagName: string; remote: string; expectedTagObjectSha?: string; expectedRemotePushFingerprint?: string }
+  | { type: 'delete_tag'; tagName: string; expectedTagObjectSha?: string }
+  | { type: 'delete_remote_tag'; tagName: string; remote: string; expectedRemotePushFingerprint: string; expectedTargets: Array<string | null> }
   | { type: 'subtree'; operation: 'add' | 'pull' | 'push'; path: string; remote: string; branch: string }
+  | { type: 'external_tool'; input: GitExternalToolInput; expectedFingerprint: string }
+  | { type: 'manage_lfs'; change: GitLfsChange; expectedFingerprint: string }
+  | { type: 'manage_flow'; change: GitFlowChange; expectedFingerprint: string }
+  | { type: 'configure_external_tool'; configuration: GitExternalToolConfiguration; expectedFingerprint: string }
+  | { type: 'manage_submodule'; change: GitSubmoduleChange; expectedFingerprint: string }
   | { type: 'submodule_update'; path: string }
   | { type: 'fetch'; remote?: string }
-  | { type: 'stage'; paths: string[] }
+  | { type: 'stage'; paths: string[]; largeFileReview?: GitLargeFileReview }
   | { type: 'unstage'; paths: string[] }
+  | { type: 'import_mailbox'; mailbox: GitMailboxInput; expectedFingerprint: string }
+  | { type: 'import_patch'; patch: import('@astragit/git-core').GitPatchInput; expectedFingerprint: string }
+  | { type: 'apply_line_changes'; input: import('@astragit/git-core').GitLineChange; largeFileReview?: GitLargeFileReview }
   | { type: 'apply_patch'; patch: string; reverse?: boolean; target?: 'index' | 'worktree' }
   | { type: 'commit'; message: string; paths?: string[]; selectionMode?: 'worktree' | 'staged'; expectedFingerprint?: string; expectedHeadSha?: string; expectedBranch?: string }
   | { type: 'push'; remote?: string; sourceBranch?: string; targetBranch?: string; setUpstream?: boolean; forceWithLease?: boolean; pushTags?: boolean; pushAllTags?: boolean; expectedHeadSha?: string; expectedBranch?: string }
   | { type: 'pull'; remote?: string; targetBranch?: string; strategy: 'rebase' | 'merge'; commitMerge?: boolean; includeMergeLog?: boolean; noFastForward?: boolean }
   | { type: 'update'; strategy: 'merge' | 'rebase' | 'reset'; smart?: boolean }
-  | { type: 'checkout'; branchName: string; smart?: boolean }
-  | { type: 'checkout_revision'; revision: string; smart?: boolean }
-  | { type: 'create_branch'; branchName: string; baseRef?: string; trackRemote?: boolean; smart?: boolean }
-  | { type: 'delete_branch'; branchName: string }
-  | { type: 'revert'; revision: string }
-  | { type: 'cherry_pick'; revision: string }
-  | { type: 'merge'; branchName: string }
+  | { type: 'checkout'; branchName: string; smart?: boolean; stashBeforeCheckout?: boolean }
+  | { type: 'checkout_revision'; revision: string; smart?: boolean; stashBeforeCheckout?: boolean }
+  | { type: 'create_branch'; branchName: string; baseRef?: string; trackRemote?: boolean; smart?: boolean; stashBeforeCheckout?: boolean }
+  | { type: 'delete_branch'; branchName: string; force?: boolean; expectedTargetHeadSha?: string }
+  | { type: 'delete_remote_branch'; remote: string; branchName: string; expectedTargetHeadSha: string; expectedRemotePushFingerprint: string }
+  | { type: 'set_upstream'; branchName: string; upstreamRef: string | null; expectedUpstreamRef: string | null; expectedTargetHeadSha: string }
+  | { type: 'revert'; revision: string; mainline?: number; commit?: boolean; includeSourceId?: boolean; expectedFingerprint?: string }
+  | { type: 'cherry_pick'; revision: string; mainline?: number; commit?: boolean; includeSourceId?: boolean; expectedFingerprint?: string }
+  | { type: 'merge'; branchName: string; commitMerge?: boolean; includeMergeLog?: boolean; noFastForward?: boolean; expectedHeadSha?: string; expectedBranch?: string; expectedSourceHeadSha?: string }
   | { type: 'rebase'; branchName: string }
   | { type: 'stash'; message?: string; includeUntracked?: boolean; keepIndex?: boolean }
   | { type: 'apply_stash'; stashRef: string; pop?: boolean }
   | { type: 'drop_stash'; stashRef: string }
-  | { type: 'continue_integration' | 'abort_integration'; kind: 'merge' | 'rebase' };
+  | { type: 'continue_integration' | 'abort_integration'; kind: 'merge' | 'rebase' | 'cherry_pick' | 'revert' | 'am' };
 
 export interface ProjectGitActionResponse {
   projectId: string;
@@ -201,6 +257,7 @@ export interface ProjectGitActionResponse {
     branch: string;
     headSha: string;
     conflictFiles: string[];
+    flow?: GitFlowOutcome;
     operationStage?: 'integration' | 'restore';
     savedStash?: string;
     stdout: string;
@@ -212,8 +269,15 @@ export interface ProjectGitActionResponse {
 export interface ProjectGitCommitDetail {
   commit: NonNullable<GitStatusSummary['recentCommits']>[number];
   body: string;
+  fullMessage?: string;
   parentHashes: string[];
-  files: Array<{ path: string; additions: number; deletions: number }>;
+  files: Array<{ path: string; originalPath?: string; additions: number; deletions: number }>;
+  diff: GitDiffSummary;
+}
+
+export interface GitRevisionComparison {
+  revisions: [string, string];
+  files: ProjectGitCommitDetail['files'];
   diff: GitDiffSummary;
 }
 
@@ -259,3 +323,5 @@ export interface ExecutedGitOperationResult {
   stdout: string;
   stderr: string;
 }
+export type { GitArchiveFormat, GitArchiveInput, GitArchivePreview, GitArchiveResult } from '@astragit/git-core';
+export type { GitCommitReplayInput, GitCommitReplayPreview, GitCommitReplaySeriesInput, GitCommitReplaySeriesPreview } from '@astragit/git-core';

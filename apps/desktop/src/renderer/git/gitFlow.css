@@ -1,0 +1,21 @@
+.git-flow-dialog { width:min(980px,94vw); height:min(760px,88vh); display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; border:1px solid var(--zeus-product-line); border-radius:12px; background:var(--zeus-product-panel); color:var(--zeus-product-text); font-size:12px; }
+.git-flow-dialog>header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:14px 18px; border-bottom:1px solid var(--zeus-product-line); }
+.git-flow-dialog small { display:block; color:var(--zeus-product-muted); margin-top:5px; overflow-wrap:anywhere; }
+.git-flow-dialog>p,.git-flow-notice { padding:10px 18px; margin:0; line-height:1.6; flex:none; }
+.git-flow-notice { background:var(--zeus-product-panel-muted); border-bottom:1px solid var(--zeus-product-line); max-height:25vh; overflow:auto; }
+.git-flow-layout { display:grid; grid-template-columns:minmax(0,var(--git-flow-list,32%)) 6px minmax(0,1fr); flex:1; min-width:0; min-height:0; }
+.git-flow-layout>aside,.git-flow-form { min-width:0; padding:12px; overflow:auto; }
+.git-flow-layout>aside>button { display:block; width:100%; box-sizing:border-box; padding:9px 6px; text-align:left; overflow-wrap:anywhere; font:inherit; color:inherit; background:transparent; border:0; border-bottom:1px solid var(--zeus-product-line); cursor:pointer; }
+.git-flow-layout>aside>button[aria-pressed=true] { background:var(--zeus-source-list-selected); }
+.git-flow-dialog input:not([type=checkbox]),.git-flow-dialog select,.git-flow-dialog textarea { font:inherit; color:inherit; background:var(--zeus-control-bg); width:100%; min-width:0; box-sizing:border-box; border:1px solid var(--zeus-control-border); border-radius:5px; padding:7px 8px; }
+.git-flow-dialog textarea { resize:vertical; min-height:70px; }
+.git-flow-form fieldset { border:0; margin:0; padding:0; display:grid; gap:12px; min-width:0; }
+.git-flow-form label:not(.git-flow-check) { display:grid; gap:5px; }
+.git-flow-config { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr)); gap:10px; }
+.git-flow-check { display:flex; align-items:flex-start; gap:6px; line-height:1.6; }
+.git-flow-check input { flex:none; margin-top:3px; }
+.git-flow-form p { overflow-wrap:anywhere; line-height:1.6; }
+.git-flow-preview { margin-top:14px; padding:12px; border:1px solid var(--zeus-product-line); border-radius:7px; }
+.git-flow-preview dl { display:grid; grid-template-columns:auto minmax(0,1fr); gap:7px 12px; }
+.git-flow-preview dd { margin:0; overflow-wrap:anywhere; }
+.git-flow-dialog>footer { display:flex; justify-content:flex-end; gap:8px; padding:10px 16px; border-top:1px solid var(--zeus-product-line); }

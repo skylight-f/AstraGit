@@ -1,20 +1,83 @@
+import { parseGitUnifiedDiff } from './gitUnifiedDiff.js';
+import { readRepositoryContext, readRepositoryStatus, readRepositoryClean } from './gitRepositoryState.js';
+import { gitDiffReader, gitDisplayDiffOptions, gitDisplayDiffMetadataOptions, readGitDiffMetadata, readGitDisplayDiff, readWorkspaceGitDiffs, type GitDiffUnavailableReason } from './gitDiffReader.js';
+import { readGitArchivePreview, writeGitArchive } from './gitArchive.js';
+export { parseGitArchiveInput } from './gitArchive.js';
+export type { GitArchiveInput, GitArchiveFormat, GitArchivePreview, GitArchiveResult } from './gitArchive.js';
+export type { GitDiffUnavailableReason } from './gitDiffReader.js';
+export { parseGitUnifiedDiff };
+import { readGitLineDiff, prepareGitLineChanges, parseGitLineDiffInput, parseGitLineChange, type GitLineDiffInput, type GitLineChange } from './gitLineOperations.js';
+export { parseGitLineDiffInput, parseGitLineChange };
+export type { GitLineDiffInput, GitLineDiffPreview, GitLineChange, GitLineSelection } from './gitLineOperations.js';
+import { readGitStagePreview, validateGitStageReview, parseGitStagePreviewInput, parseGitLargeFileReview, type GitLargeFileReview, type GitStagePreviewInput } from './gitStageReview.js';
+export { parseGitStagePreviewInput, parseGitLargeFileReview };
+export type { GitStagePreview, GitStagePreviewInput, GitLargeFileReview } from './gitStageReview.js';
+import { readGitLfsState, previewGitLfs, executeGitLfs, parseGitLfsChange, type GitLfsChange } from './gitLfsOperations.js';
+import { readGitFlowState, previewGitFlow, executeGitFlow, parseGitFlowChange, type GitFlowChange, type GitFlowOutcome } from './gitFlowOperations.js';
+export { parseGitFlowChange };
+export type { GitFlowKind, GitFlowConfiguration, GitFlowChange, GitFlowState, GitFlowBranch, GitFlowPreview, GitFlowOutcome, GitFlowRefChange } from './gitFlowOperations.js';
+export { parseGitLfsChange };
+export type { GitLfsChange, GitLfsState, GitLfsPattern, GitLfsFile, GitLfsPreview } from './gitLfsOperations.js';
+import { configureGitExternalTool, readGitExternalToolSettings, previewGitExternalTool, executeGitExternalTool, parseGitExternalToolInput, parseGitExternalToolConfiguration, type GitExternalToolInput, type GitExternalToolConfiguration } from './gitExternalTools.js';
+export { parseGitExternalToolInput, parseGitExternalToolConfiguration };
+export type { GitExternalToolKind, GitExternalToolInput, GitExternalToolConfiguration, GitExternalToolSettings, GitExternalToolPreview } from './gitExternalTools.js';
+import { readGitSubmodules, previewGitSubmodule, executeGitSubmodule, parseGitSubmoduleChange, type GitSubmoduleChange } from './gitSubmoduleOperations.js';
+export { parseGitSubmoduleChange };
+export type { GitSubmoduleChange, GitSubmoduleState, GitSubmoduleItem, GitSubmodulePreview } from './gitSubmoduleOperations.js';
+import { readMailboxPreview, prepareMailboxImport, type GitMailboxInput } from './gitMailboxOperations.js';
+export type { GitMailboxInput, GitMailboxPreview, GitMailboxCommit } from './gitMailboxOperations.js';
 // Extracted from Zeus for AstraGit on 2026-10-09; package scope and app identity adapted locally.
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { decodeGitQuotedPath as decodeGitDiagnosticPath } from './gitQuotedPath.js';
+import { readTrackedFiles, readFileHistory, readFileRevision, type GitTrackedFileQuery, type GitFileHistoryQuery, type GitFileRevisionQuery } from './gitFileHistory.js';
+import { captureHistorySearchScope, searchHistoryScope, type GitHistorySearchScope, type GitHistorySearchQuery } from './gitHistorySearch.js';
+import { readPatchPreview, preparePatchImport, exportGitPatch, type GitPatchInput, type GitPatchExportInput } from './gitPatchOperations.js';
+import { assertGitTagRef, localGitTags, readGitTagPage, deleteGitRemoteTag, type GitTagQuery } from './gitTagOperations.js';
+import { gitCommandConfig } from './gitRemoteEndpoint.js';
+export type { GitTagQuery, GitTagPage, GitTagItem, GitTagLocalInfo, GitTagTarget, DeleteRemoteTagInput } from './gitTagOperations.js';
+export type { GitPatchSeriesCommit, GitPatchInput, GitPatchPreview, GitPatchExportInput, GitRepositoryPatchExport, GitPatchFile } from './gitPatchOperations.js';
+export { validateHistorySearch } from './gitHistorySearch.js';
+export type { GitHistorySearchScope, GitHistorySearchQuery, GitHistorySearchPage, GitHistorySearchCommit, GitHistorySearchField } from './gitHistorySearch.js';
+export type { GitTrackedFileQuery, GitTrackedFilePage, GitFileHistoryQuery, GitFileHistoryEntry, GitFileHistoryPage, GitFileRevisionQuery, GitFileRevision, GitFileOriginLine } from './gitFileHistory.js';
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { constants, realpathSync } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
-import { defaultTaskBranchPrefix, normalizeTaskBranchPrefix, hasUnresolvedGitConflictMarkers } from '@astragit/shared';
+import { defaultTaskBranchPrefix, normalizeTaskBranchPrefix, hasUnresolvedGitConflictMarkers, gitRemoteAddressIssue, splitGitRemoteBranch, type RepositorySetupInput, type UserFacingErrorCause } from '@astragit/shared';
 import { commitSelectedPaths } from './gitSelectedCommit.js';
+import { executeRepositorySettings, readRepositorySettings, type RepositorySettingsAction } from './gitRepositorySettings.js';
+import { configureCommitTemplate, readCommitTemplate, type GitCommitTemplateChange } from './gitCommitTemplate.js';
+import { readGitWritePreview, type GitResetMode, type GitWritePreview } from './gitDestructivePreview.js';
+import { readGitCommitReplayPreview, parseGitCommitReplayInput, gitCommitReplayArguments, gitCommitReplayFailure, type GitCommitReplayInput } from './gitCommitReplay.js';
+export { parseGitCommitReplayInput } from './gitCommitReplay.js';
+export type { GitCommitReplayInput, GitCommitReplayPreview } from './gitCommitReplay.js';
+import { readGitCommitReplaySeriesPreview, gitCommitReplaySeriesArguments, type GitCommitReplaySeriesInput } from './gitCommitReplaySeries.js';
+export { parseGitCommitReplaySeriesInput } from './gitCommitReplaySeries.js';
+export type { GitCommitReplaySeriesInput, GitCommitReplaySeriesPreview } from './gitCommitReplaySeries.js';
+import { resolveGitFileLocation, type GitFileIntent } from './gitFileLocation.js';
+import { appendGitIgnore, readGitIgnorePreview, type GitIgnoreInput, type GitIgnoreScope } from './gitIgnore.js';
+import { readGitHiddenChanges, readInteractiveRebasePreview, executeInteractiveRebase, prepareInteractiveRebaseControl, readRebaseEditState, type GitInteractiveRebaseInput, type GitRebaseEditState } from './gitInteractiveRebase.js';
+export type { GitInteractiveRebaseInput, GitInteractiveRebasePreview, GitRebasePlanStep, GitRebasePlanAction, GitRebaseEditState } from './gitInteractiveRebase.js';
+import { readStopTracking, gitFileSelection } from './gitFileTracking.js';
+import { readIgnoredFiles, requireIgnoredSelection, gitIgnoreMatches, type GitIgnoredQuery } from './gitIgnoredFiles.js';
+export type { GitIgnoreMatch, GitIgnoredItem, GitIgnoredPage, GitIgnoredQuery } from './gitIgnoredFiles.js';
+export type { GitStopTrackingPreview } from './gitFileTracking.js';
+export type { GitIgnoreInput, GitIgnorePreview, GitIgnoreScope } from './gitIgnore.js';
+export type { GitFileIntent, GitFileLocation } from './gitFileLocation.js';
+export type { GitResetMode, GitWritePreview } from './gitDestructivePreview.js';
+export type { ProjectGitRepositorySettings, RepositorySettingsAction } from './gitRepositorySettings.js';
+export { parseGitCommitTemplateChange } from './gitCommitTemplate.js';
+export type { GitCommitTemplate, GitCommitTemplateChange } from './gitCommitTemplate.js';
 import { readProjectConflict, saveProjectConflict, type ProjectGitConflictFile, type ProjectGitConflictWriteResult, type SaveProjectGitConflictInput } from './gitProjectConflict.js';
 export type { ProjectGitConflictFile, ProjectGitConflictIndexStage, ProjectGitConflictWriteResult, SaveProjectGitConflictInput } from './gitProjectConflict.js';
 export { readSelectedCommitFingerprint, readSelectedGitCommitChanges, type GitCommitSelectionMode } from './gitCommitSelectionContext.js';
 
 const execFileAsync = promisify(execFile);
 /** 当前工作台操作的取消、凭据环境和命令记录回调，彼此隔离。 */
-const projectGitExecution = new AsyncLocalStorage<{ signal?: AbortSignal; env?: NodeJS.ProcessEnv; onCommand?: (command: string) => Promise<void> }>();
+const projectGitExecution = new AsyncLocalStorage<{ signal?: AbortSignal; env?: NodeJS.ProcessEnv; onCommand?: (command: string) => Promise<void>; onOutput?: (text: string) => void; timeoutMs?: number }>();
+const gitDirectoryEnvironment = { GIT_DIR: undefined, GIT_COMMON_DIR: undefined, GIT_WORK_TREE: undefined, GIT_INDEX_FILE: undefined, GIT_NAMESPACE: undefined, GIT_OBJECT_DIRECTORY: undefined, GIT_ALTERNATE_OBJECT_DIRECTORIES: undefined, GIT_PREFIX: undefined };
 
 /**
  * Git Core 对外暴露的真实 mutation capability 单一来源。
@@ -45,6 +108,7 @@ export const gitMutatingCapabilityNames = [
   'executeHighRiskGitOperation',
   'executeProjectGitAction',
   'saveProjectGitConflict',
+  'setupGitRepository',
 ] as const;
 
 export interface GitStatusSummary {
@@ -380,8 +444,13 @@ export interface ProjectGitRecentRef {
 }
 
 export interface ProjectGitRepositorySnapshot {
+  rebaseEdit?: GitRebaseEditState | null;
+  /** Identifies the index shown for an explicit amend confirmation. */
+  indexFingerprint?: string;
   submodules?: { path: string; initialized: boolean }[];
-  integrationState?: 'merge' | 'rebase' | null;
+  integrationState?: 'merge' | 'rebase' | 'cherry_pick' | 'revert' | 'am' | null;
+  /** Native sequencer is applying changes without automatic commits. */
+  integrationNoCommit?: boolean;
   branch: string;
   detached: boolean;
   headTags: string[];
@@ -395,7 +464,10 @@ export interface ProjectGitRepositorySnapshot {
   localBranches: string[];
   checkedOutBranches: string[];
   /** 仅用于展示的脱敏远端地址与各本地分支的跟踪关系。 */
-  remoteDetails?: Array<{ name: string; fetchUrl: string; pushUrl: string }>;
+  remoteDetails?: Array<{ name: string; fetchUrl: string; pushUrl: string; pushUrls?: string[]; pushFingerprint?: string }>;
+  localBranchHeads?: Record<string, string>;
+  remoteBranchHeads?: Record<string, string>;
+  branchUpstreamRefs?: Record<string, string>;
   branchUpstreams?: Record<string, string>;
   /** 每个已设置上游的本地分支，相对其远端跟踪分支的提交差异。 */
   branchDivergences?: Record<string, { ahead: number; behind: number }>;
@@ -412,33 +484,55 @@ export interface ProjectGitRepositorySnapshot {
 }
 
 export type ProjectGitAction =
+  | { type: 'cherry_pick_series'; input: GitCommitReplaySeriesInput; expectedFingerprint: string }
+  | ({ type: 'interactive_rebase' } & GitInteractiveRebaseInput)
+  | { type: 'amend_rebase_step'; message: string; expectedHeadSha: string; expectedIndexFingerprint: string; expectedStepFingerprint: string }
+  | { type: 'stage_ignored'; paths: string[]; largeFileReview?: GitLargeFileReview }
+  | { type: 'stop_tracking'; paths: string[]; force?: boolean; expectedFingerprint: string }
+  | ({ type: 'ignore'; expectedFingerprint: string } & GitIgnoreInput)
+  | { type: 'reset_revision'; targetSha: string; mode: GitResetMode; expectedFingerprint: string; discardNestedRepositories?: boolean }
+  | { type: 'skip_integration'; kind: 'rebase' | 'cherry_pick' | 'revert' | 'am'; expectedFingerprint: string; discardNestedRepositories?: boolean }
+  | RepositorySettingsAction
+  | GitCommitTemplateChange
+  | { type: 'amend_commit'; message: string; expectedHeadSha: string; expectedBranch: string; expectedIndexFingerprint: string }
   | { type: 'discard'; paths: string[] }
   | { type: 'rename_branch'; branchName: string; newName: string }
-  | { type: 'create_tag'; tagName: string; revision: string; message?: string }
-  | { type: 'push_tag'; tagName: string; remote: string }
-  | { type: 'delete_tag'; tagName: string }
+  | { type: 'create_tag'; tagName: string; revision: string; message?: string; annotated?: boolean; expectedTargetSha?: string }
+  | { type: 'push_tag'; tagName: string; remote: string; expectedTagObjectSha?: string; expectedRemotePushFingerprint?: string }
+  | { type: 'delete_tag'; tagName: string; expectedTagObjectSha?: string }
+  | { type: 'delete_remote_tag'; tagName: string; remote: string; expectedRemotePushFingerprint: string; expectedTargets: Array<string | null> }
   | { type: 'subtree'; operation: 'add' | 'pull' | 'push'; path: string; remote: string; branch: string }
+  | { type: 'external_tool'; input: GitExternalToolInput; expectedFingerprint: string }
+  | { type: 'manage_lfs'; change: GitLfsChange; expectedFingerprint: string }
+  | { type: 'manage_flow'; change: GitFlowChange; expectedFingerprint: string }
+  | { type: 'configure_external_tool'; configuration: GitExternalToolConfiguration; expectedFingerprint: string }
+  | { type: 'manage_submodule'; change: GitSubmoduleChange; expectedFingerprint: string }
   | { type: 'submodule_update'; path: string }
   | { type: 'fetch'; remote?: string }
-  | { type: 'stage'; paths: string[] }
+  | { type: 'stage'; paths: string[]; largeFileReview?: GitLargeFileReview }
   | { type: 'unstage'; paths: string[] }
+  | { type: 'import_mailbox'; mailbox: GitMailboxInput; expectedFingerprint: string }
+  | { type: 'import_patch'; patch: GitPatchInput; expectedFingerprint: string }
+  | { type: 'apply_line_changes'; input: GitLineChange; largeFileReview?: GitLargeFileReview }
   | { type: 'apply_patch'; patch: string; reverse?: boolean; target?: 'index' | 'worktree' }
   | { type: 'commit'; message: string; paths?: string[]; selectionMode?: 'worktree' | 'staged'; expectedFingerprint?: string; expectedHeadSha?: string; expectedBranch?: string }
   | { type: 'push'; remote?: string; sourceBranch?: string; targetBranch?: string; setUpstream?: boolean; forceWithLease?: boolean; pushTags?: boolean; pushAllTags?: boolean; expectedHeadSha?: string; expectedBranch?: string }
   | { type: 'pull'; remote?: string; targetBranch?: string; strategy: 'rebase' | 'merge'; commitMerge?: boolean; includeMergeLog?: boolean; noFastForward?: boolean }
   | { type: 'update'; strategy: 'merge' | 'rebase' | 'reset'; smart?: boolean }
-  | { type: 'checkout'; branchName: string; smart?: boolean }
-  | { type: 'checkout_revision'; revision: string; smart?: boolean }
-  | { type: 'create_branch'; branchName: string; baseRef?: string; trackRemote?: boolean; smart?: boolean }
-  | { type: 'delete_branch'; branchName: string }
-  | { type: 'revert'; revision: string }
-  | { type: 'cherry_pick'; revision: string }
-  | { type: 'merge'; branchName: string }
+  | { type: 'checkout'; branchName: string; smart?: boolean; stashBeforeCheckout?: boolean }
+  | { type: 'checkout_revision'; revision: string; smart?: boolean; stashBeforeCheckout?: boolean }
+  | { type: 'create_branch'; branchName: string; baseRef?: string; trackRemote?: boolean; smart?: boolean; stashBeforeCheckout?: boolean }
+  | { type: 'delete_branch'; branchName: string; force?: boolean; expectedTargetHeadSha?: string }
+  | { type: 'delete_remote_branch'; remote: string; branchName: string; expectedTargetHeadSha: string; expectedRemotePushFingerprint: string }
+  | { type: 'set_upstream'; branchName: string; upstreamRef: string | null; expectedUpstreamRef: string | null; expectedTargetHeadSha: string }
+  | { type: 'revert'; revision: string; mainline?: number; commit?: boolean; includeSourceId?: boolean; expectedFingerprint?: string }
+  | { type: 'cherry_pick'; revision: string; mainline?: number; commit?: boolean; includeSourceId?: boolean; expectedFingerprint?: string }
+  | { type: 'merge'; branchName: string; commitMerge?: boolean; includeMergeLog?: boolean; noFastForward?: boolean; expectedHeadSha?: string; expectedBranch?: string; expectedSourceHeadSha?: string }
   | { type: 'rebase'; branchName: string }
   | { type: 'stash'; message?: string; includeUntracked?: boolean; keepIndex?: boolean }
   | { type: 'apply_stash'; stashRef: string; pop?: boolean }
   | { type: 'drop_stash'; stashRef: string }
-  | { type: 'continue_integration' | 'abort_integration'; kind: 'merge' | 'rebase' };
+  | { type: 'continue_integration' | 'abort_integration'; kind: 'merge' | 'rebase' | 'cherry_pick' | 'revert' | 'am' };
 
 export interface ProjectGitActionResult extends GitRunnerResult {
   action: ProjectGitAction['type'];
@@ -446,6 +540,7 @@ export interface ProjectGitActionResult extends GitRunnerResult {
   branch: string;
   headSha: string;
   conflictFiles: string[];
+  flow?: GitFlowOutcome;
 }
 
 /** 桌面控制台只接收操作展示信息，不携带完整仓库快照。 */
@@ -485,8 +580,17 @@ export interface ProjectGitOperationPage {
 export interface ProjectGitCommitDetail {
   commit: GitRecentCommit;
   body: string;
+  /** Exact Git message, including intentional leading/trailing whitespace. */
+  fullMessage?: string;
   parentHashes: string[];
-  files: Array<{ path: string; additions: number; deletions: number }>;
+  files: Array<{ path: string; originalPath?: string; additions: number; deletions: number }>;
+  diff: GitDiffSummary;
+}
+
+export interface GitRevisionComparison {
+  /** Immutable before/after commits, in the direction selected by the user. */
+  revisions: [string, string];
+  files: ProjectGitCommitDetail['files'];
   diff: GitDiffSummary;
 }
 
@@ -495,6 +599,11 @@ export interface GitDiffSummary {
   files: string[];
   diffText: string;
   fileDiffs: GitFileDiff[];
+  /** The file list is intact, but no complete patch was returned. Never export it as an empty patch. */
+  unavailableReason?: GitDiffUnavailableReason;
+  /** Merge commit previews explicitly identify the comparison parent. */
+  comparisonParent?: string;
+  readError?: UserFacingErrorCause;
 }
 
 export type GitDiffFileChangeType = 'added' | 'deleted' | 'modified' | 'renamed' | 'copied';
@@ -517,11 +626,14 @@ export interface GitDiffHunk {
 }
 
 export interface GitFileDiff {
+  /** Aggregate workspace reads preserve each index/worktree version separately. */
+  stage?: 'staged' | 'unstaged' | 'untracked';
   oldPath: string;
   newPath: string;
   changeType: GitDiffFileChangeType;
   /** Gitlink 子模块的差异应展示提交指针行，不应作为普通目录预览。 */
   isSubmodule?: boolean;
+  isBinary?: boolean;
   addedLines: number;
   deletedLines: number;
   hunks: GitDiffHunk[];
@@ -536,27 +648,8 @@ export interface GitPatchExport {
 }
 
 /** 读取仓库、分支和 worktree 身份；该快照不修改 refs 或工作区。 */
-export async function getGitRepositoryContext(cwd: string): Promise<GitRepositoryContext> {
-  try {
-    const topLevel = await requireGitStdout(cwd, ['rev-parse', '--show-toplevel']);
-    const [rawBranch, headSha, rawLocalBranches, rawRemoteBranches, rawRemotes, rawWorktrees] = await Promise.all([
-      requireGitStdout(topLevel, ['branch', '--show-current']),
-      readGitStdout(topLevel, ['rev-parse', '--verify', 'HEAD']),
-      readGitStdout(topLevel, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']),
-      readGitStdout(topLevel, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes']),
-      readGitStdout(topLevel, ['remote']),
-      requireGitStdout(topLevel, ['worktree', 'list', '--porcelain']),
-    ]);
-    const detached = rawBranch.length === 0;
-    const branch = rawBranch || 'detached';
-    const localBranches = splitLines(rawLocalBranches);
-    const remoteBranches = splitLines(rawRemoteBranches).filter((ref) => !ref.endsWith('/HEAD'));
-    const remotes = splitLines(rawRemotes);
-    const worktrees = parseGitWorktreeList(rawWorktrees);
-    return { isRepository: true, topLevel, branch, detached, headSha, localBranches, remoteBranches, remotes, worktrees };
-  } catch {
-    return { isRepository: false, topLevel: '', branch: '', detached: false, headSha: '', localBranches: [], remoteBranches: [], remotes: [], worktrees: [] };
-  }
+export async function getGitRepositoryContext(cwd: string, signal?: AbortSignal): Promise<GitRepositoryContext> {
+  return readRepositoryContext(cwd, fileHistoryRuntime(signal));
 }
 
 /**
@@ -565,6 +658,12 @@ export async function getGitRepositoryContext(cwd: string): Promise<GitRepositor
  * 目录或仓库不可读时抛出错误，禁止把不完整扫描伪装成空清单；退出可中止遍历。
  */
 export async function discoverGitRepositories(containerPath: string, maxDepth = 6, signal?: AbortSignal): Promise<DiscoveredGitRepository[]> {
+  const execution = projectGitExecution.getStore();
+  const combined = signal && execution?.signal ? AbortSignal.any([signal, execution.signal]) : signal ?? execution?.signal;
+  return projectGitExecution.run({ ...execution, signal: combined, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' } }, () => discoverGitRepositoriesInternal(containerPath, maxDepth, combined));
+}
+
+async function discoverGitRepositoriesInternal(containerPath: string, maxDepth: number, signal?: AbortSignal): Promise<DiscoveredGitRepository[]> {
   /** 拒绝把文件系统根目录作为项目递归发现范围。 */
   const containerRoot = canonicalFilesystemPath(containerPath);
   if (dirname(containerRoot) === containerRoot) throw new Error('请选择实际项目目录，不能在文件系统根目录发现仓库。');
@@ -951,9 +1050,7 @@ export async function getTaskWorkspaceReview(cwd: string, ignoredPaths: string[]
 /** 只读取工作区是否干净，避免为能力列表生成完整差异。 */
 export async function getGitWorktreeClean(cwd: string, ignoredPaths: string[] = []): Promise<boolean> {
   const ignored = ignoredPaths.map((path) => requireSafeWorkspacePath(path));
-  const pathspec = ['.', ...ignored.flatMap((path) => [`:(exclude)${path}`, `:(exclude)${path}/**`])];
-  // 能力读取和后台发现不得让 Git 顺便刷新索引文件。
-  return (await runGit(cwd, ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '-uall', '--', ...pathspec])).stdout.length === 0;
+  return readRepositoryClean(cwd, ignored, fileHistoryRuntime());
 }
 
 function gitDiffStatSummary(stdout: string, statuses: GitFileStatus[]): GitDiffSummary {
@@ -974,7 +1071,9 @@ function gitDiffStatSummary(stdout: string, statuses: GitFileStatus[]): GitDiffS
   return { isRepository: true, files: fileDiffs.map((file) => file.newPath || file.oldPath), diffText: '', fileDiffs };
 }
 
-function parseGitNumStat(stdout: string): Array<{ path: string; originalPath?: string; additions: number; deletions: number }> {
+function parseGitNumStat(stdout: string, strict = false): Array<{ path: string; originalPath?: string; additions: number; deletions: number }> {
+  const invalid = () => gitCoreError('ASTRAGIT_GIT_DIFF_READ_FAILED', 'Git 返回的变更文件统计不完整，请重新载入。');
+  if (strict && stdout && !stdout.endsWith('\0')) throw invalid();
   const records = stdout.split('\0');
   const entries: Array<{ path: string; originalPath?: string; additions: number; deletions: number }> = [];
   for (let index = 0; index < records.length; index += 1) {
@@ -982,7 +1081,8 @@ function parseGitNumStat(stdout: string): Array<{ path: string; originalPath?: s
     if (!record) continue;
     const firstTab = record.indexOf('\t');
     const secondTab = firstTab >= 0 ? record.indexOf('\t', firstTab + 1) : -1;
-    if (firstTab < 0 || secondTab < 0) continue;
+    if (firstTab < 0 || secondTab < 0) { if (strict) throw invalid(); continue; }
+    if (strict && (!/^(?:[0-9]+|-)$/u.test(record.slice(0, firstTab)) || !/^(?:[0-9]+|-)$/u.test(record.slice(firstTab + 1, secondTab)))) throw invalid();
     const additions = Number.parseInt(record.slice(0, firstTab), 10);
     const deletions = Number.parseInt(record.slice(firstTab + 1, secondTab), 10);
     const inlinePath = record.slice(secondTab + 1);
@@ -992,6 +1092,7 @@ function parseGitNumStat(stdout: string): Array<{ path: string; originalPath?: s
     }
     const originalPath = records[++index] ?? '';
     const path = records[++index] ?? originalPath;
+    if (strict && (!originalPath || !path)) throw invalid();
     if (path) entries.push({ path, ...(originalPath && originalPath !== path ? { originalPath } : {}), additions: Number.isFinite(additions) ? additions : 0, deletions: Number.isFinite(deletions) ? deletions : 0 });
   }
   return entries;
@@ -2325,7 +2426,7 @@ async function createUnbornTaskWorktree(repositoryPath: string, worktreePath: st
   }
 }
 
-async function defaultGitCommandRunner(cwd: string, args: string[], input?: string): Promise<GitRunnerResult> {
+async function defaultGitCommandRunner(cwd: string, args: string[], input?: string | Uint8Array): Promise<GitRunnerResult> {
   const execution = projectGitExecution.getStore();
   execution?.signal?.throwIfAborted();
   // 由实际参数生成命令；先耐久记录调用，再启动 Git，失败和中断也能追溯。
@@ -2336,7 +2437,7 @@ async function defaultGitCommandRunner(cwd: string, args: string[], input?: stri
       cwd,
       detached: process.platform !== 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...execution?.env, LANG: 'C', LC_ALL: 'C' },
+      env: { ...process.env, ...gitDirectoryEnvironment, GIT_TERMINAL_PROMPT: '0', ...execution?.env, LANG: 'C', LC_ALL: 'C' },
     });
     let stdout = '';
     let stderr = '';
@@ -2353,7 +2454,7 @@ async function defaultGitCommandRunner(cwd: string, args: string[], input?: stri
       }
     };
     const cancel = () => stop('Git 操作已中止。');
-    const timer = setTimeout(() => stop('ETIMEDOUT: Git 操作超过两分钟。'), 120_000);
+    const timer = setTimeout(() => stop('ETIMEDOUT: Git 操作超时。'), execution?.timeoutMs ?? 120_000);
     execution?.signal?.addEventListener('abort', cancel, { once: true });
     if (execution?.signal?.aborted) cancel();
     const cleanup = () => {
@@ -2370,12 +2471,16 @@ async function defaultGitCommandRunner(cwd: string, args: string[], input?: stri
     }
     const append = (text: string, error: boolean) => {
       bytes += Buffer.byteLength(text);
-      if (bytes > 10 * 1024 * 1024) {
+      if (!execution?.onOutput && bytes > 10 * 1024 * 1024) {
         stop('Git 输出超过 10 MB 上限。');
         return;
       }
-      if (error) stderr += text;
-      else stdout += text;
+      if (error) stderr = (stderr + text).slice(execution?.onOutput ? -65_536 : 0);
+      else stdout = (stdout + text).slice(execution?.onOutput ? -65_536 : 0);
+      if (execution?.onOutput) {
+        try { execution.onOutput(redactGitOutput(text)); }
+        catch { stop('无法记录 Git 操作进度，请检查本地存储。'); }
+      }
     };
     child.stdout.on('data', (text: string) => append(text, false));
     child.stderr.on('data', (text: string) => append(text, true));
@@ -2420,17 +2525,23 @@ function classifyGitCommandFailure(args: string[], error: unknown): Error & { co
   else if (candidate.code === 'EACCES' || candidate.code === 'EPERM') { code = candidate.code; summary = '系统拒绝执行 Git，请检查 Git 程序和仓库访问权限。'; operationStatus = 'failed_before_write'; }
   else if (/ETIMEDOUT:/u.test(message)) { code = 'ASTRAGIT_GIT_TIMEOUT'; summary = 'Git 操作超时，尚未确认执行结果，请刷新状态后检查。'; }
   else if (/Unable to create [^\n]*\.lock[^\n]*File exists|Another git process seems to be running/iu.test(output)) { code = 'ASTRAGIT_GIT_INDEX_LOCKED'; summary = '仓库存在 Git 锁，请确认其他 Git 操作已结束后再重试。'; operationStatus = 'failed_before_write'; }
+  else if (/index file (?:smaller than expected|corrupt)|(?:bad|invalid) (?:index|signature)|index.*signature/iu.test(output)) { code = 'ASTRAGIT_GIT_INDEX_CORRUPT'; summary = 'Git 暂存区索引无法读取，请保留工作区文件并核对索引和操作结果。'; }
+  else if (args.includes('rm') && args.includes('--cached') && /staged content different from both|changes staged in the index/iu.test(output)) { code = 'ASTRAGIT_GIT_STOP_TRACKING_STAGED'; summary = '所选文件的暂存版本与磁盘及 HEAD 不同，请核对后决定是否强制移除索引；磁盘文件保留。'; operationStatus = 'failed_before_write'; }
+  else if (args[0] === 'merge' && /^fatal: Not possible to fast-forward, aborting\.?$/imu.test(stderr)) { code = 'ASTRAGIT_GIT_MERGE_FF_ONLY'; summary = '当前分支已经分叉，Git 的仅快进配置拒绝了合并。请查看历史并在合并选项中确认是否允许创建合并提交。'; operationStatus = 'failed_before_write'; }
   else if (/Author identity unknown|Committer identity unknown|unable to auto-detect email address|empty ident name/iu.test(output)) { code = 'ASTRAGIT_GIT_IDENTITY_REQUIRED'; summary = 'Git 提交身份未配置，请设置用户名和邮箱后重试。'; operationStatus = 'failed_before_write'; }
   else if (/nothing to commit|no changes added to commit|nothing added to commit/iu.test(output)) { code = 'ASTRAGIT_GIT_NOTHING_TO_COMMIT'; summary = '没有可提交的暂存内容，请先选择并暂存需要提交的更改。'; operationStatus = 'failed_before_write'; }
+  else if (args[0] === 'branch' && /^error: the branch [^\n]+ is not fully merged\.?$/imu.test(stderr)) { code = 'ASTRAGIT_GIT_BRANCH_NOT_MERGED'; summary = '分支尚未合入，普通删除已被阻止。请先核对提交，确认舍弃后可选择强制删除。'; operationStatus = 'failed_before_write'; }
+  else if (args[0] === 'branch' && /^error: cannot delete branch [^\n]+(?:used by worktree|checked out)/imu.test(stderr)) { code = 'ASTRAGIT_GIT_BRANCH_IN_USE'; summary = '分支正在工作区中使用，请先到对应工作区切换分支。'; operationStatus = 'failed_before_write'; }
   else if (/unmerged files|you need to resolve your current index first|needs merge|Committing is not possible because you have unmerged files/iu.test(output)) { code = 'ASTRAGIT_GIT_UNMERGED_FILES'; summary = '仓库还有未解决的冲突，请处理冲突并暂存解决结果后再继续。'; operationStatus = 'failed_before_write'; }
   else if (/You have not concluded your merge|rebase-merge directory|rebase-apply directory|cannot (?:merge|pull).*MERGE_HEAD/iu.test(output)) { code = 'ASTRAGIT_GIT_INTEGRATION_ACTIVE'; summary = '上一次合并或变基尚未结束，请先继续或中止该操作。'; operationStatus = 'failed_before_write'; }
+  else if (/Entry [\s\S]*not uptodate\. Cannot merge\./u.test(output)) { code = 'ASTRAGIT_GIT_INDEX_ENTRY_NOT_UPTODATE'; summary = 'Git 拒绝更新某些暂存条目，请检查文件状态及 assume-unchanged/skip-worktree 标记，并刷新核对执行结果。'; }
   else if (/local changes[\s\S]*would be overwritten|untracked working tree files would be overwritten|cannot (?:pull|rebase)[^\n]*unstaged changes|index contains uncommitted changes|Please commit or stash them/iu.test(output)) { code = 'ASTRAGIT_GIT_LOCAL_CHANGES_BLOCKED'; summary = '本地更改阻止了操作，请先提交或贮藏相关更改，再重试。'; operationStatus = 'failed_before_write'; }
   else if (/Authentication failed|Permission denied \(publickey|could not read (?:Username|Password)|terminal prompts disabled|HTTP Basic: Access denied/iu.test(output)) { code = 'ASTRAGIT_GIT_AUTH_REQUIRED'; summary = '远程仓库未接受当前凭据，请检查账号、SSH 密钥或访问权限。'; }
   else if (/Could not resolve host|Could not resolve hostname|Failed to connect to|Connection (?:timed out|refused|reset)|network is unreachable/iu.test(output)) { code = 'ASTRAGIT_GIT_NETWORK_FAILED'; summary = '无法连接远程仓库，请检查远程地址和网络后重试。'; }
   else if (args.includes('push') && /\[rejected\][^\n]*\((?:non-fast-forward|fetch first|stale info)\)/iu.test(output)) { code = 'ASTRAGIT_GIT_PUSH_NON_FAST_FORWARD'; summary = '远程分支已有不同的提交，推送被拒绝。请先抓取并核对差异。'; }
   else if (args.includes('push') && /\[remote rejected\]/iu.test(output)) { code = 'ASTRAGIT_GIT_REMOTE_REJECTED'; summary = '远程仓库拒绝了推送，请查看服务器返回的原因。'; }
   else if (/gpg failed to sign|Couldn't load public key|signing failed/iu.test(output)) { code = 'ASTRAGIT_GIT_SIGNING_FAILED'; summary = '提交签名失败，请检查 Git 签名工具和密钥配置。'; }
-  else if (/(?:hooks\/[^\n]+|husky[^\n]*|(?:pre-commit|commit-msg) hook)[^\n]*(?:failed|not found|exit(?:ed)?[^\n]*[1-9]|declined)/iu.test(output)) { code = 'ASTRAGIT_GIT_HOOK_REJECTED'; summary = 'Git Hook 检查未通过，请查看详情并修复检查结果。'; }
+  else if (/(?:hooks\/[^\n]+|husky[^\n]*|(?:pre-commit|pre-merge-commit|pre-rebase|commit-msg) hook)[^\n]*(?:failed|not found|exit(?:ed)?[^\n]*[1-9]|declined|refused)/iu.test(output)) { code = 'ASTRAGIT_GIT_HOOK_REJECTED'; summary = 'Git Hook 检查未通过，请查看详情并修复检查结果。'; }
   const command = formatGitCommand(args, false);
   return Object.assign(gitCoreError(code, summary, [`$ ${command}`, output].join('\n')), {
     command, stdout, stderr, operationStage: 'command', operationStatus,
@@ -2439,7 +2550,7 @@ function classifyGitCommandFailure(args: string[], error: unknown): Error & { co
   });
 }
 
-async function runGit(cwd: string, args: string[], input?: string): Promise<GitRunnerResult> {
+async function runGit(cwd: string, args: string[], input?: string | Uint8Array): Promise<GitRunnerResult> {
   return defaultGitCommandRunner(cwd, args, input);
 }
 
@@ -2455,18 +2566,32 @@ async function gitCommitIsAncestor(cwd: string, ancestor: string, descendant: st
 }
 
 /** 合并类命令遇到真实冲突时保留现场并返回输出；其他失败仍按错误处理。 */
-async function runGitPreservingConflict(cwd: string, args: string[]): Promise<GitRunnerResult> {
+async function runGitPreservingConflict(cwd: string, args: string[], skippedStep?: GitWritePreview, input?: string | Uint8Array): Promise<GitRunnerResult> {
   const before = await getGitStatus(cwd);
-  if (before.conflictFiles.length) throw Object.assign(gitCoreError('ASTRAGIT_GIT_UNMERGED_FILES', '仓库还有未解决的冲突，请先处理并暂存冲突文件后再继续。', before.conflictFiles.join('\n')), { operationStage: 'preflight', operationStatus: 'failed_before_write' });
+  if (before.conflictFiles.length && !skippedStep) throw Object.assign(gitCoreError('ASTRAGIT_GIT_UNMERGED_FILES', '仓库还有未解决的冲突，请先处理并暂存冲突文件后再继续。', before.conflictFiles.join('\n')), { operationStage: 'preflight', operationStatus: 'failed_before_write', affectedFiles: before.conflictFiles.slice(0, 200), affectedFileCount: before.conflictFiles.length });
   try {
-    return await defaultGitCommandRunner(cwd, args);
+    return await defaultGitCommandRunner(cwd, args, input);
   } catch (error) {
     if (projectGitExecution.getStore()?.signal?.aborted || (error as { interrupted?: boolean }).interrupted) throw error;
     const status = await getGitStatus(cwd).catch(() => emptyGitStatus());
     if (status.conflictFiles.length === 0) {
+      let commandIndex = 0; while (args[commandIndex] === '-c') commandIndex += 2;
+      if (args[commandIndex] === 'am' && await readIntegrationState(cwd).catch(() => null) === 'am') {
+        if (['ASTRAGIT_GIT_IDENTITY_REQUIRED', 'ASTRAGIT_GIT_HOOK_REJECTED'].includes((error as { code?: string }).code ?? '')) throw Object.assign(error as object, { operationStatus: 'unknown_after_write', operationStage: 'integration' });
+        throw Object.assign(gitCoreError('ASTRAGIT_GIT_MAILBOX_PAUSED', '邮件补丁导入已暂停，之前的提交可能已经完成。请核对当前状态并继续、跳过或终止。', gitErrorOutput(error)), { cause: error, operationStatus: 'unknown_after_write', operationStage: 'integration' });
+      }
+      if ((error as { code?: string }).code === 'ASTRAGIT_GIT_LOCAL_CHANGES_BLOCKED') Object.assign(error as object, gitOverwriteFiles(gitErrorOutput(error), before.fileStatuses.flatMap(file => [file.path, ...(file.originalPath ? [file.originalPath] : [])])));
       throw error;
     }
     const candidate = error as { stdout?: unknown; stderr?: unknown; message?: unknown };
+    if (skippedStep) {
+      // Existing conflicts cannot prove that --skip reached the next step. A lock
+      // or precondition error must remain a failure, even if the old index is UU.
+      const kind = skippedStep.integrationState;
+      const next = kind && kind !== 'merge' ? await getProjectGitSkipPreview(cwd, kind).catch(() => null) : null;
+      const diagnostics = `${candidate.stdout ?? ''}\n${candidate.stderr ?? ''}`;
+      if (!next || next.integrationStepFingerprint === skippedStep.integrationStepFingerprint || !/^CONFLICT(?:\s*\(|:)|^error: could not (?:apply|revert) [a-f0-9]+/mu.test(diagnostics)) throw error;
+    }
     return {
       stdout: typeof candidate.stdout === 'string' ? candidate.stdout : '',
       stderr: typeof candidate.stderr === 'string' ? candidate.stderr : typeof candidate.message === 'string' ? candidate.message : 'Git operation stopped on conflicts.',
@@ -2498,10 +2623,10 @@ async function assertNamedBranchExists(cwd: string, branchName: string, label = 
 /** 校验一次远端刷新快照中的分支，并返回不含远端名前缀的业务分支名。 */
 async function assertRemoteBranchExists(cwd: string, remoteRef: string, expectedBranch?: string): Promise<string> {
   const normalized = remoteRef.trim();
-  const separator = normalized.indexOf('/');
-  if (separator <= 0) throw gitCoreError('ASTRAGIT_TASK_SOURCE_BRANCH_INVALID', `Remote source branch is invalid: ${normalized}`);
-  const remoteName = requireSafeGitRef(normalized.slice(0, separator), 'remote');
-  const branch = await assertGitBranchFormat(cwd, expectedBranch?.trim() || normalized.slice(separator + 1), 'source branch');
+  const parts = splitGitRemoteBranch(normalized, splitLines(await requireGitStdout(cwd, ['remote'])));
+  if (!parts) throw gitCoreError('ASTRAGIT_TASK_SOURCE_BRANCH_INVALID', `Remote source branch is invalid: ${normalized}`);
+  const remoteName = requireSafeGitRef(parts.remote, 'remote');
+  const branch = await assertGitBranchFormat(cwd, expectedBranch?.trim() || parts.branch, 'source branch');
   if (normalized !== `${remoteName}/${branch}`) throw gitCoreError('ASTRAGIT_TASK_SOURCE_BRANCH_INVALID', `Remote source branch does not match its selected remote: ${normalized}`);
   const exists = await readGitStdout(cwd, ['show-ref', '--verify', '--hash', `refs/remotes/${remoteName}/${branch}`]);
   if (!exists) throw gitCoreError('ASTRAGIT_GIT_BRANCH_NOT_FOUND', `Remote branch does not exist in the refreshed snapshot: ${normalized}`);
@@ -2526,41 +2651,6 @@ async function compareCommits(
     remoteOnly: Number.parseInt(remoteOnlyText, 10) || 0,
     localOnly: Number.parseInt(localOnlyText, 10) || 0,
   };
-}
-
-function parseGitWorktreeList(stdout: string): GitWorktreeEntry[] {
-  const entries: GitWorktreeEntry[] = [];
-  let current: GitWorktreeEntry | null = null;
-  for (const line of stdout.split('\n')) {
-    if (line.startsWith('worktree ')) {
-      if (current) entries.push(current);
-      current = {
-        path: line.slice('worktree '.length),
-        headSha: '',
-        branch: null,
-        bare: false,
-        detached: false,
-        locked: false,
-        prunable: false,
-      };
-    } else if (!current) {
-      continue;
-    } else if (line.startsWith('HEAD ')) {
-      current.headSha = line.slice('HEAD '.length);
-    } else if (line.startsWith('branch refs/heads/')) {
-      current.branch = line.slice('branch refs/heads/'.length);
-    } else if (line === 'bare') {
-      current.bare = true;
-    } else if (line === 'detached') {
-      current.detached = true;
-    } else if (line.startsWith('locked')) {
-      current.locked = true;
-    } else if (line.startsWith('prunable')) {
-      current.prunable = true;
-    }
-  }
-  if (current) entries.push(current);
-  return entries;
 }
 
 function buildTaskWorktreePath(topLevel: string, projectSlug: string, taskCode: string, workspaceId: string): string {
@@ -2737,7 +2827,9 @@ async function readGitDiffAllowChanges(cwd: string, args: string[]): Promise<str
     return (await execFileAsync('git', args, { cwd, maxBuffer: 20 * 1024 * 1024 })).stdout;
   } catch (error) {
     const output = (error as { stdout?: unknown }).stdout;
-    if (typeof output === 'string') return output;
+    // Only diff --no-index's expected difference exit may return usable stdout.
+    // A timeout or buffer overflow can contain a truncated, unsafe-to-apply patch.
+    if ((error as { code?: unknown }).code === 1 && typeof output === 'string') return output;
     throw error;
   }
 }
@@ -2791,35 +2883,356 @@ function gitCoreError(code: string, message: string, details?: string): Error & 
   return Object.assign(new Error(redactGitOutput(message.startsWith(`${code}:`) ? message : `${code}: ${message}`)), { code, ...(details ? { details: redactGitOutput(details) } : {}) });
 }
 
+/** Clone/init are explicit setup operations, isolated from existing workbench writes. */
+export async function setupGitRepository(input: RepositorySetupInput, signal?: AbortSignal, onOutput?: (text: string) => void): Promise<string> {
+  return projectGitExecution.run({ signal, onOutput, timeoutMs: 30 * 60_000, env: { GIT_DIR: undefined, GIT_COMMON_DIR: undefined, GIT_WORK_TREE: undefined, GIT_INDEX_FILE: undefined, GIT_OBJECT_DIRECTORY: undefined, GIT_ALTERNATE_OBJECT_DIRECTORIES: undefined, GIT_PREFIX: undefined, GIT_NAMESPACE: undefined } }, async () => {
+    signal?.throwIfAborted();
+    if (!isAbsolute(input.localPath) || input.localPath.includes('\0') || /[\r\n]/u.test(input.localPath)) throw gitCoreError('ASTRAGIT_REPOSITORY_SETUP_INVALID', '请选择有效的目标绝对目录。');
+    const destination = resolve(input.localPath);
+    if (destination === dirname(destination)) throw gitCoreError('ASTRAGIT_REPOSITORY_SETUP_INVALID', '请选择具体的仓库文件夹。');
+    if (input.kind !== 'clone' && input.kind !== 'init') throw gitCoreError('ASTRAGIT_REPOSITORY_SETUP_INVALID', '请选择克隆或初始化。');
+    if (input.kind === 'clone') {
+      const issue = gitRemoteAddressIssue(input.source ?? '');
+      if (issue) throw gitCoreError(issue === 'credentials' ? 'ASTRAGIT_GIT_REMOTE_CREDENTIALS_IN_URL' : 'ASTRAGIT_GIT_REMOTE_URL_INVALID', issue === 'credentials' ? '请使用不包含密码、令牌或查询参数的仓库地址，通过系统 Git 凭据助手认证。' : '仓库地址无效。');
+    }
+    if (input.depth !== undefined && (!Number.isSafeInteger(input.depth) || input.depth < 1 || input.depth > 1_000_000)) throw gitCoreError('ASTRAGIT_REPOSITORY_SETUP_INVALID', '浅克隆深度必须为正整数。');
+    let ancestor = dirname(destination);
+    while (!(await lstat(ancestor).catch(error => { if (error.code === 'ENOENT') return null; throw error; }))) {
+      const parent = dirname(ancestor); if (parent === ancestor) break; ancestor = parent;
+    }
+    if (!(await lstat(await realpath(ancestor))).isDirectory()) throw gitCoreError('ASTRAGIT_PROJECT_PATH_INVALID', '目标的父路径必须是文件夹。');
+    const branch = input.branch?.trim() || (input.kind === 'init' ? 'main' : '');
+    if (branch) await assertGitBranchFormat(ancestor, branch, 'initial branch');
+    const existing = await lstat(destination).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+    if (existing) {
+      const directory = await realpath(destination);
+      if (!(await lstat(directory)).isDirectory()) throw gitCoreError('ASTRAGIT_PROJECT_PATH_INVALID', '目标必须是文件夹。');
+      if (input.kind === 'clone' && (await readdir(directory)).length) throw gitCoreError('ASTRAGIT_CLONE_DESTINATION_NOT_EMPTY', '克隆目标目录不是空目录，请选择新目录或空目录。');
+      if (input.kind === 'init' && await lstat(join(directory, '.git')).catch(error => { if (error.code === 'ENOENT') return null; throw error; })) throw gitCoreError('ASTRAGIT_REPOSITORY_ALREADY_INITIALIZED', '该目录已包含 Git 仓库，请直接打开。');
+      if (input.kind === 'init' && await readGitStdout(directory, ['rev-parse', '--is-bare-repository']) === 'true') throw gitCoreError('ASTRAGIT_REPOSITORY_ALREADY_INITIALIZED', '该目录已经是裸仓库，请选择其他目录。');
+    }
+    signal?.throwIfAborted();
+    await mkdir(dirname(destination), { recursive: true });
+    const args = input.kind === 'clone'
+      ? ['clone', '--progress', ...(input.recursive ? ['--recurse-submodules'] : []), ...(input.depth ? ['--depth', String(input.depth)] : []), ...(branch ? ['--branch', branch] : []), '--', input.source!, destination]
+      : ['init', `--initial-branch=${branch}`, '--', destination];
+    await runGit(dirname(destination), args);
+    signal?.throwIfAborted();
+    const context = await getGitRepositoryContext(destination);
+    if (!context.isRepository || await realpath(context.topLevel) !== await realpath(destination)) throw gitCoreError('ASTRAGIT_REPOSITORY_SETUP_UNCONFIRMED', '命令已结束，但未能确认目标仓库，请检查目录后再打开。');
+    return await realpath(destination);
+  });
+}
+
 /** 只读获取 Git 状态，不执行提交、回退、合并等高风险写操作。 */
-export async function getGitStatus(cwd: string): Promise<GitStatusSummary> {
-  try {
-    const branch = (await execFileAsync('git', ['branch', '--show-current'], { cwd })).stdout.trim() || 'detached';
-    const porcelain = (await execFileAsync('git', ['status', '--porcelain', '-z', '--untracked-files=all'], { cwd })).stdout;
-    const parsedStatus = parseGitPorcelainStatus(porcelain);
-    const remoteBranches = splitLines(await readGitStdout(cwd, ['branch', '-r', '--format=%(refname:short)']));
-    const recentCommits = parseRecentCommits(await readGitStdout(cwd, ['-c', 'core.quotePath=false', 'log', '-n', '5', '--pretty=format:%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%P']));
-    return {
-      isRepository: true,
-      branch,
-      remoteBranches,
-      recentCommits,
-      ...parsedStatus,
-    };
-  } catch {
-    return emptyGitStatus();
+export async function getGitStatus(cwd: string, signal?: AbortSignal): Promise<GitStatusSummary> {
+  const state = await readRepositoryStatus(cwd, fileHistoryRuntime(signal));
+  if (!state) return emptyGitStatus();
+  return { isRepository: true, branch: state.branch, remoteBranches: state.remoteBranches, recentCommits: parseRecentCommits(state.recent), ...parseGitPorcelainStatus(state.porcelain) };
+}
+
+async function readProjectGitIndexFingerprint(cwd: string): Promise<string> {
+  // Stage entries include names, modes, blob identities and unresolved stages.
+  // Reading them does not create trees or alter the user's index.
+  return createHash('sha256').update(await requireGitStdout(cwd, ['ls-files', '--stage', '-z'])).digest('hex');
+}
+
+export async function getProjectGitRepositorySettings(cwd: string) {
+  const context = await getGitRepositoryContext(cwd);
+  if (!context.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是 Git 仓库。');
+  return readRepositorySettings(args => runGit(context.topLevel, args), redactGitOutput);
+}
+
+export async function getProjectGitCommitTemplate(cwd: string, signal?: AbortSignal) {
+  return projectGitExecution.run({ signal }, async () => {
+    const context = await getGitRepositoryContext(cwd);
+    if (!context.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是 Git 仓库。');
+    return readCommitTemplate(context.topLevel, (args, input) => runGit(context.topLevel, args, input), redactGitOutput);
+  });
+}
+
+export async function getProjectGitFileLocation(cwd: string, path: string, intent: GitFileIntent) {
+  const context = await getGitRepositoryContext(cwd);
+  if (!context.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是 Git 仓库。');
+  if (path) gitFileSelection([path]);
+  if (intent === 'edit-ignore-rule') {
+    await requireIgnoredSelection(context.topLevel, [path], (args, input) => runGit(context.topLevel, args, input));
+    const match = (await gitIgnoreMatches([path], (args, input) => runGit(context.topLevel, args, input))).get(path.replace(/\/$/u, ''));
+    if (!match) throw branchManagementFailure('ASTRAGIT_GIT_IGNORED_PATH_CHANGED', '忽略规则已变化，请刷新后重新选择。');
+    const target = await realpath(resolve(context.topLevel, match.source));
+    if (!(await lstat(target)).isFile()) throw gitCoreError('ASTRAGIT_GIT_IGNORE_FILE_INVALID', '匹配规则的来源不是普通文件。');
+    return { path: target, isDirectory: false, missingFile: false };
   }
+  const [entries, status] = await Promise.all([runGit(context.topLevel, ['ls-files', '--cached', '--others', '--exclude-standard', '-z']), getGitStatus(context.topLevel)]);
+  const known = [...entries.stdout.split('\0').filter(Boolean), ...status.fileStatuses.map(file => file.path)];
+  if (path && !known.some(entry => entry === path || entry.startsWith(`${path}/`)) && (await gitIgnoreMatches([path], (args, input) => runGit(context.topLevel, args, input))).has(path.replace(/\/$/u, ''))) known.push(path);
+  return resolveGitFileLocation(context.topLevel, path, intent, known);
+}
+
+export async function getProjectGitIgnorePreview(cwd: string, scope: GitIgnoreScope, signal?: AbortSignal, env?: NodeJS.ProcessEnv) {
+  const execution = projectGitExecution.getStore();
+  return projectGitExecution.run({ ...execution, env: { ...execution?.env, ...env, GIT_OPTIONAL_LOCKS: '0' }, signal: signal ?? execution?.signal }, async () => {
+    const context = await getGitRepositoryContext(cwd);
+    if (!context.isRepository) throw branchManagementFailure('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是 Git 仓库。');
+    return readGitIgnorePreview(context.topLevel, scope, args => runGit(context.topLevel, args), { ...process.env, ...execution?.env, ...env }, signal ?? execution?.signal);
+  });
+}
+
+function interactiveGitRun(cwd: string) {
+  const execution = projectGitExecution.getStore();
+  return (args: string[], input?: string, env?: NodeJS.ProcessEnv) => projectGitExecution.run({ ...execution, env: { ...execution?.env, ...env } }, () => runGit(cwd, args, input));
+}
+
+export async function getProjectGitInteractiveRebasePreview(cwd: string, baseRef: string, ontoRef?: string, signal?: AbortSignal) {
+  const execution = projectGitExecution.getStore();
+  return projectGitExecution.run({ ...execution, signal: signal ?? execution?.signal, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' } }, async () => {
+    const context = await getGitRepositoryContext(cwd);
+    if (!context.isRepository) throw branchManagementFailure('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是 Git 仓库。');
+    const preview = await readInteractiveRebasePreview(context.topLevel, { ...context, integrationState: await readIntegrationState(context.topLevel) }, baseRef, ontoRef, interactiveGitRun(context.topLevel), signal ?? execution?.signal);
+    const after = await getGitRepositoryContext(context.topLevel);
+    if (after.headSha !== context.headSha || after.branch !== context.branch || after.detached !== context.detached || await readIntegrationState(context.topLevel)) throw branchManagementFailure('ASTRAGIT_GIT_REBASE_PREVIEW_CHANGED', '读取期间分支或整合状态已变化，请重新载入。');
+    return preview;
+  });
+}
+
+async function runInteractiveRebaseControl(cwd: string, operation: 'continue' | 'skip' | 'abort', action: ProjectGitAction['type'], skippedStep?: GitWritePreview) {
+  const control = await prepareInteractiveRebaseControl(cwd, operation, interactiveGitRun(cwd));
+  const execution = projectGitExecution.getStore(); let output: GitRunnerResult;
+  try { output = await projectGitExecution.run({ ...execution, env: { ...execution?.env, ...control.env }, timeoutMs: 30 * 60_000 }, () => operation === 'abort' ? runGit(cwd, control.args) : runGitPreservingConflict(cwd, control.args, skippedStep)); }
+  finally { await control.cleanup?.().catch(() => undefined); }
+  return finishProjectGitAction(cwd, action, output);
+}
+
+function fileHistoryRuntime(signal?: AbortSignal) {
+  const execution = projectGitExecution.getStore();
+  return { env: execution?.env, signal: signal ?? execution?.signal, parseDiff: diffSummaryFromText };
+}
+export function getProjectGitArchivePreview(cwd: string, input: unknown, signal?: AbortSignal) { return readGitArchivePreview(cwd, input, fileHistoryRuntime(signal)); }
+export function getProjectGitCommitReplayPreview(cwd: string, input: GitCommitReplayInput, signal?: AbortSignal, includeAllFiles = false) {
+  const execution = projectGitExecution.getStore();
+  return projectGitExecution.run({ ...execution, signal: signal ?? execution?.signal }, async () => {
+    const context = await getGitRepositoryContext(cwd, signal);
+    if (!context.isRepository) throw gitCommitReplayFailure('INVALID', '所选位置不是可用的 Git 仓库。');
+    return readGitCommitReplayPreview(context.topLevel, input, context, await readIntegrationState(context.topLevel), { ...fileHistoryRuntime(signal), includeAllFiles });
+  });
+}
+export function getProjectGitCommitReplaySeriesPreview(cwd: string, input: GitCommitReplaySeriesInput, signal?: AbortSignal) {
+  const execution = projectGitExecution.getStore();
+  return projectGitExecution.run({ ...execution, signal: signal ?? execution?.signal }, () => readGitCommitReplaySeriesPreview(cwd, input, fileHistoryRuntime(signal)));
+}
+export function writeProjectGitArchive(cwd: string, input: unknown, destination: import('node:stream').Writable, signal?: AbortSignal) { return writeGitArchive(cwd, input, destination, fileHistoryRuntime(signal)); }
+async function historySearchRead<T>(read: () => Promise<T>): Promise<T> {
+  try { return await read(); }
+  catch (error) {
+    if (error instanceof Error && 'code' in error && typeof error.code === 'string' && error.code.startsWith('ASTRAGIT_GIT_FILE_HISTORY_')) error.code = error.code.replace('ASTRAGIT_GIT_FILE_HISTORY_', 'ASTRAGIT_GIT_HISTORY_QUERY_');
+    throw error;
+  }
+}
+export function getProjectGitHistorySearchScope(cwd: string, ref?: string, signal?: AbortSignal) { return historySearchRead(() => captureHistorySearchScope(cwd, ref, fileHistoryRuntime(signal))); }
+export function queryProjectGitHistoryScope(cwd: string, scope: GitHistorySearchScope, query: GitHistorySearchQuery, offset: number, signal?: AbortSignal) { return historySearchRead(() => searchHistoryScope(cwd, scope, query, offset, fileHistoryRuntime(signal))); }
+export function getProjectGitTrackedFiles(cwd: string, query: GitTrackedFileQuery = {}, signal?: AbortSignal) { return readTrackedFiles(cwd, query, fileHistoryRuntime(signal)); }
+export function getProjectGitFileHistory(cwd: string, query: GitFileHistoryQuery, signal?: AbortSignal) { return readFileHistory(cwd, query, fileHistoryRuntime(signal)); }
+export function getProjectGitFileRevision(cwd: string, query: GitFileRevisionQuery, signal?: AbortSignal) { return readFileRevision(cwd, query, fileHistoryRuntime(signal)); }
+async function patchRead<T>(read: () => Promise<T>): Promise<T> {
+  try { return await read(); }
+  catch (error) {
+    if (error instanceof Error && 'code' in error && typeof error.code === 'string' && error.code.startsWith('ASTRAGIT_GIT_FILE_HISTORY_')) error.code = error.code.replace('ASTRAGIT_GIT_FILE_HISTORY_', 'ASTRAGIT_GIT_PATCH_READ_');
+    if (error && typeof error === 'object') Object.assign(error, { operationStatus: 'failed_before_write' });
+    throw error;
+  }
+}
+export function getProjectGitPatchPreview(cwd: string, input: GitPatchInput, signal?: AbortSignal) { return patchRead(() => readPatchPreview(cwd, input, fileHistoryRuntime(signal))); }
+export function getProjectGitPatchExport(cwd: string, input: GitPatchExportInput, signal?: AbortSignal) { return patchRead(() => exportGitPatch(cwd, input, fileHistoryRuntime(signal))); }
+
+function externalToolRuntime(cwd: string, signal?: AbortSignal) {
+  const execution = projectGitExecution.getStore();
+  return { signal: signal ?? execution?.signal, env: { ...process.env, ...execution?.env }, redact: redactGitOutput,
+    sources: (path: string, input: GitExternalToolInput, stashUntracked = false) => projectGitExecution.run({ ...execution, signal: signal ?? execution?.signal, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' } }, () => getGitFilePreviewSources(cwd, { ...input, path, allowSpecial: true, stashUntracked })) };
+}
+async function lfsRead<T>(read: () => Promise<T>): Promise<T> {
+  try { return await read(); } catch (error) {
+    const value = error as { code?: string; details?: string; message?: string };
+    if (value.code?.startsWith('ASTRAGIT_GIT_FILE_HISTORY_')) throw Object.assign(branchManagementFailure('ASTRAGIT_GIT_LFS_READ', '无法完整读取 Git LFS 状态，请检查工具版本与 Git 详情。'), { details: redactGitOutput(value.details ?? value.message ?? ''), cause: error });
+    throw error;
+  }
+}
+export function getProjectGitLfsState(cwd: string, signal?: AbortSignal) { return lfsRead(() => readGitLfsState(cwd, { ...fileHistoryRuntime(signal), redact: redactGitOutput })); }
+async function flowRead<T>(read: () => Promise<T>): Promise<T> {
+  try { return await read(); } catch (error) {
+    const value = error as { code?: string; details?: string; message?: string };
+    if (value.code?.startsWith('ASTRAGIT_GIT_FILE_HISTORY_')) throw Object.assign(branchManagementFailure('ASTRAGIT_GIT_FLOW_READ', '无法完整读取 Git Flow 状态，请检查工具与仓库详情。'), { details: redactGitOutput(value.details ?? value.message ?? ''), cause: error });
+    throw error;
+  }
+}
+export function getProjectGitFlowState(cwd: string, signal?: AbortSignal) { return flowRead(() => readGitFlowState(cwd, { ...fileHistoryRuntime(signal), redact: redactGitOutput })); }
+export function getProjectGitFlowPreview(cwd: string, change: GitFlowChange, signal?: AbortSignal) { return flowRead(() => previewGitFlow(cwd, change, { ...fileHistoryRuntime(signal), redact: redactGitOutput })); }
+async function lineRead<T>(read: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  try { return await read(); } catch (error) {
+    if (signal?.aborted || fileHistoryRuntime(signal).signal?.aborted) throw Object.assign(new Error('逐行差异读取已取消。'), { code: 'ASTRAGIT_CANCELLED', operationStatus: 'failed_before_write', operationStage: 'preflight' });
+    const value = error as { code?: unknown; details?: string; message?: string };
+    if (typeof value?.code === 'string' && value.code.startsWith('ASTRAGIT_GIT_LINES_')) throw error;
+    throw Object.assign(new Error('无法完整读取逐行差异，请重新读取或使用整文件操作。'), { code: typeof value?.code === 'string' && value.code.endsWith('TOO_LARGE') ? 'ASTRAGIT_GIT_LINES_TOO_LARGE' : 'ASTRAGIT_GIT_LINES_READ', details: redactGitOutput(value?.details ?? value?.message ?? String(error)), operationStatus: 'failed_before_write', operationStage: 'preflight', cause: error });
+  }
+}
+export function getProjectGitLineDiff(cwd: string, input: GitLineDiffInput, signal?: AbortSignal) { return lineRead(() => readGitLineDiff(cwd, input, fileHistoryRuntime(signal)), signal); }
+export async function getProjectGitStagePreview(cwd: string, input: GitStagePreviewInput, signal?: AbortSignal) {
+  const runtime = fileHistoryRuntime(signal);
+  try { return await readGitStagePreview(cwd, input, runtime); }
+  catch (error) {
+    if (runtime.signal?.aborted) throw Object.assign(new Error('暂存文件核对已取消。'), { code: 'ASTRAGIT_CANCELLED', operationStatus: 'failed_before_write', operationStage: 'preflight', cause: error });
+    if (error && typeof error === 'object') {
+      const value = error as { code?: unknown };
+      if (typeof value.code === 'string' && value.code.startsWith('ASTRAGIT_GIT_FILE_HISTORY_')) value.code = value.code.endsWith('TOO_LARGE') ? 'ASTRAGIT_GIT_STAGE_TOO_LARGE' : 'ASTRAGIT_GIT_STAGE_READ';
+      Object.assign(error, { operationStatus: 'failed_before_write', operationStage: 'preflight' });
+    }
+    throw error;
+  }
+}
+export function getProjectGitLfsPreview(cwd: string, change: GitLfsChange, signal?: AbortSignal) { return lfsRead(() => previewGitLfs(cwd, change, { ...fileHistoryRuntime(signal), redact: redactGitOutput })); }
+async function externalToolRead<T>(read: () => Promise<T>): Promise<T> {
+  try { return await read(); } catch (error) {
+    const value = error as { code?: string; details?: string; message?: string };
+    if (value.code?.startsWith('ASTRAGIT_GIT_FILE_HISTORY_')) throw Object.assign(branchManagementFailure(value.code.endsWith('TOO_LARGE') ? 'ASTRAGIT_GIT_EXTERNAL_TOOL_TOO_LARGE' : 'ASTRAGIT_GIT_EXTERNAL_TOOL_READ', '无法完整读取外部工具配置或所选文件，请核对 Git 详情。'), { details: redactGitOutput(value.details ?? value.message ?? ''), cause: error });
+    throw error;
+  }
+}
+export function getProjectGitExternalToolSettings(cwd: string, signal?: AbortSignal) { return externalToolRead(() => readGitExternalToolSettings(cwd, externalToolRuntime(cwd, signal))); }
+export function getProjectGitExternalToolPreview(cwd: string, input: GitExternalToolInput, signal?: AbortSignal) { return externalToolRead(() => previewGitExternalTool(cwd, input, externalToolRuntime(cwd, signal))); }
+async function runExternalTool(cwd: string, action: Extract<ProjectGitAction, { type: 'external_tool' | 'configure_external_tool' }>) {
+  const execution = projectGitExecution.getStore(); const runtime = externalToolRuntime(cwd);
+  const run = (args: string[], input?: string, env?: NodeJS.ProcessEnv) => projectGitExecution.run({ ...execution, env: { ...execution?.env, ...env }, timeoutMs: 4 * 60 * 60_000 }, () => runGit(cwd, args, input));
+  const result = await externalToolRead(() => action.type === 'configure_external_tool' ? configureGitExternalTool(cwd, action.configuration, action.expectedFingerprint, runtime, run) : executeGitExternalTool(cwd, action.input, action.expectedFingerprint, runtime, run));
+  return { ...await finishProjectGitAction(cwd, action.type, result), outcome: 'completed' as const };
+}
+
+function submoduleRuntime(signal?: AbortSignal) {
+  const execution = projectGitExecution.getStore();
+  return { signal: signal ?? execution?.signal, env: { ...process.env, ...execution?.env }, redact: redactGitOutput,
+    hiddenChanges: (path: string, head: string) => projectGitExecution.run({ ...execution, signal: signal ?? execution?.signal, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' } }, () => readGitHiddenChanges(path, head, interactiveGitRun(path))) };
+}
+async function submoduleRead<T>(read: () => Promise<T>): Promise<T> {
+  try { return await read(); } catch (error) {
+    const value = error as { code?: string; details?: string; message?: string };
+    if (value.code?.startsWith('ASTRAGIT_GIT_FILE_HISTORY_')) throw Object.assign(branchManagementFailure('ASTRAGIT_GIT_SUBMODULE_READ', '无法完整读取子模块，请检查 Git 详情并重新载入。'), { details: redactGitOutput(value.details ?? value.message ?? ''), cause: error });
+    throw error;
+  }
+}
+export function getProjectGitSubmodules(cwd: string, signal?: AbortSignal) { return submoduleRead(() => readGitSubmodules(cwd, submoduleRuntime(signal))); }
+export function getProjectGitSubmodulePreview(cwd: string, change: GitSubmoduleChange, signal?: AbortSignal) { return submoduleRead(() => previewGitSubmodule(cwd, change, submoduleRuntime(signal))); }
+async function runSubmoduleChange(cwd: string, change: GitSubmoduleChange, expected: string) {
+  const execution = projectGitExecution.getStore();
+  const env = change.allowLocal ? gitCommandConfig({ ...process.env, ...execution?.env }, [['protocol.file.allow', 'always']]) : execution?.env;
+  return submoduleRead(() => executeGitSubmodule(cwd, change, expected, submoduleRuntime(), args => projectGitExecution.run({ ...execution, env, timeoutMs: 30 * 60_000 }, () => runGit(cwd, args))));
+}
+
+async function mailboxGuard(cwd: string) {
+  const context = await getGitRepositoryContext(cwd);
+  const status = parseGitPorcelainStatus((await runGit(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=dirty'])).stdout);
+  const hidden = context.headSha ? await readGitHiddenChanges(cwd, context.headSha, interactiveGitRun(cwd)) : [];
+  return { integration: await readIntegrationState(cwd), changed: [...new Set([...status.fileStatuses.filter(file => file.indexStatus !== '?').map(file => file.path), ...hidden])].sort() };
+}
+async function mailboxPreview(cwd: string, input: GitMailboxInput, signal?: AbortSignal, expected?: string) {
+  const execution = projectGitExecution.getStore();
+  return projectGitExecution.run({ ...execution, signal: signal ?? execution?.signal, timeoutMs: 30_000, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' } }, async () => {
+    const runtime = fileHistoryRuntime(signal); const guard = () => mailboxGuard(cwd);
+    return expected === undefined
+      ? { preview: await readMailboxPreview(cwd, input, runtime, guard), args: [] as string[], bytes: Buffer.alloc(0) }
+      : prepareMailboxImport(cwd, input, expected, runtime, guard);
+  });
+}
+export async function getProjectGitMailboxPreview(cwd: string, input: GitMailboxInput, signal?: AbortSignal) { return patchRead(async () => (await mailboxPreview(cwd, input, signal)).preview); }
+
+export async function getProjectGitStopTrackingPreview(cwd: string, paths: string[], signal?: AbortSignal) {
+  const execution = projectGitExecution.getStore();
+  return projectGitExecution.run({ ...execution, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' }, signal: signal ?? execution?.signal }, async () => {
+    const context = await getGitRepositoryContext(cwd);
+    if (!context.isRepository) throw branchManagementFailure('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是 Git 仓库。');
+    const result = await readStopTracking(context.topLevel, { headSha: context.headSha, branch: context.branch, detached: context.detached }, paths, args => runGit(context.topLevel, args));
+    const after = await getGitRepositoryContext(context.topLevel);
+    if (after.headSha !== context.headSha || after.branch !== context.branch || after.detached !== context.detached) throw branchManagementFailure('ASTRAGIT_GIT_STOP_TRACKING_CHANGED', '读取期间分支已变化，请重新载入确认范围。');
+    return result.preview;
+  });
+}
+
+export async function getProjectGitIgnoredFiles(cwd: string, query: GitIgnoredQuery = {}, signal?: AbortSignal) {
+  const execution = projectGitExecution.getStore();
+  return projectGitExecution.run({ ...execution, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' }, signal: signal ?? execution?.signal }, async () => {
+    const context = await getGitRepositoryContext(cwd);
+    if (!context.isRepository) throw branchManagementFailure('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是 Git 仓库。');
+    return readIgnoredFiles(context.topLevel, query, (args, input) => runGit(context.topLevel, args, input), signal ?? execution?.signal);
+  });
+}
+
+export async function getProjectGitResetPreview(cwd: string, revision: string, mode: GitResetMode, signal?: AbortSignal) {
+  if (!['soft', 'mixed', 'hard'].includes(mode)) throw branchManagementFailure('ASTRAGIT_GIT_RESET_MODE_INVALID', '重置方式无效。');
+  const execution = projectGitExecution.getStore();
+  return projectGitExecution.run({ ...execution, signal: signal ?? execution?.signal, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' } }, async () => {
+    const context = await getGitRepositoryContext(cwd);
+    if (!context.isRepository) throw branchManagementFailure('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是 Git 仓库。');
+    const targetSha = await resolveCommit(context.topLevel, revision);
+    const preview = await readGitWritePreview(context.topLevel, { headSha: context.headSha, branch: context.branch, detached: context.detached, targetSha, integrationState: await readIntegrationState(context.topLevel) }, mode, args => runGit(context.topLevel, args), signal ?? execution?.signal);
+    const after = await getGitRepositoryContext(context.topLevel);
+    if (!after.isRepository || after.headSha !== preview.headSha || after.branch !== preview.branch || after.detached !== preview.detached) throw branchManagementFailure('ASTRAGIT_GIT_RESET_PREVIEW_CHANGED', '读取期间当前分支或提交已变化，请重新载入预览。');
+    return preview;
+  });
+}
+
+export async function getProjectGitSkipPreview(cwd: string, kind: 'rebase' | 'cherry_pick' | 'revert' | 'am', signal?: AbortSignal) {
+  const execution = projectGitExecution.getStore();
+  return projectGitExecution.run({ ...execution, signal: signal ?? execution?.signal, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' } }, async () => {
+    if (!['rebase', 'cherry_pick', 'revert', 'am'].includes(kind) || await readIntegrationState(cwd) !== kind) throw branchManagementFailure('ASTRAGIT_GIT_INTEGRATION_CHANGED', '当前整合状态已变化，无法跳过该步骤。');
+    const context = await getGitRepositoryContext(cwd);
+    const preview = !context.headSha && kind === 'am'
+      ? await readGitWritePreview(context.topLevel, { headSha: '', branch: context.branch, detached: context.detached, targetSha: '', integrationState: 'am' }, 'hard', args => runGit(context.topLevel, args), signal)
+      : await getProjectGitResetPreview(cwd, requireGitObjectId(context.headSha, 'current HEAD'), 'hard', signal);
+    if (preview.integrationState !== kind) throw branchManagementFailure('ASTRAGIT_GIT_INTEGRATION_CHANGED', '当前整合状态已变化，请重新载入。');
+    return preview;
+  });
+}
+
+async function readRemotePushTarget(cwd: string, remote: string): Promise<{ urls: string[]; fingerprint: string }> {
+  const { stdout } = await runGit(cwd, ['remote', 'get-url', '--push', '--all', remote]);
+  return { urls: stdout.split(/\r?\n/u).filter(Boolean), fingerprint: createHash('sha256').update(JSON.stringify([remote, stdout])).digest('hex') };
+}
+
+function tagRuntime(cwd: string, context: GitRepositoryContext, signal?: AbortSignal) {
+  const execution = projectGitExecution.getStore();
+  return { signal: signal ?? execution?.signal, env: { ...process.env, ...execution?.env }, redact: redactGitOutput, pushTarget: async (remote: string) => {
+    if (typeof remote !== 'string' || !remote || remote.trim() !== remote) throw branchManagementFailure('ASTRAGIT_GIT_TAG_QUERY_INVALID', '请选择明确的远程仓库。');
+    return readRemotePushTarget(cwd, requireKnownRemote(context, remote));
+  } };
+}
+export async function getProjectGitTags(cwd: string, query: GitTagQuery = {}, signal?: AbortSignal) {
+  const execution = projectGitExecution.getStore();
+  return projectGitExecution.run({ ...execution, signal: signal ?? execution?.signal, timeoutMs: 30_000, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' } }, async () => {
+    const context = await getGitRepositoryContext(cwd); if (!context.isRepository) throw branchManagementFailure('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '请选择有效的 Git 仓库。');
+    return readGitTagPage(context.topLevel, query, interactiveGitRun(context.topLevel), tagRuntime(context.topLevel, context, signal));
+  });
+}
+async function resolveTagCommit(cwd: string, revision: string): Promise<string> {
+  if (typeof revision !== 'string' || !revision || revision.length > 4096 || revision.includes('\0')) throw branchManagementFailure('ASTRAGIT_GIT_TAG_QUERY_INVALID', '请选择有效的标签目标版本。');
+  try { return await requireGitStdout(cwd, ['rev-parse', '--verify', '--end-of-options', `${revision}^{commit}`]); }
+  catch (error) {
+    const candidate = error as { exitCode?: number; interrupted?: boolean };
+    if (candidate.interrupted || ![1, 128].includes(candidate.exitCode ?? 0)) throw error;
+    throw branchManagementFailure('ASTRAGIT_GIT_TAG_TARGET_INVALID', '标签目标不存在或不是提交，请重新选择。');
+  }
+}
+export async function getProjectGitTagTarget(cwd: string, revision: string, signal?: AbortSignal) {
+  const execution = projectGitExecution.getStore();
+  return projectGitExecution.run({ ...execution, signal: signal ?? execution?.signal, timeoutMs: 30_000, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' } }, async () => {
+    const target = await resolveTagCommit(cwd, revision);
+    return { sha: target, subject: (await requireGitStdout(cwd, ['show', '-s', '--format=%s', target])).trimEnd() };
+  });
 }
 
 /** 为项目 Git 工作台读取单仓完整快照；所有字段都来自当前本机仓库。 */
 export async function getProjectGitRepositorySnapshot(cwd: string): Promise<ProjectGitRepositorySnapshot> {
   const context = await getGitRepositoryContext(cwd);
   if (!context.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', 'The selected directory is not a Git repository.');
-  const [status, diff, stagedDiffText, unstagedDiffText, upstreamText, tagsText, headTagsText, reflogText, stashText, recentText] = await Promise.all([
+  const [status, diffs, upstreamText, tagsText, headTagsText, reflogText, stashText, recentText, indexFingerprint] = await Promise.all([
     getGitStatus(context.topLevel),
-    getGitDiff(context.topLevel),
-    readGitStdout(context.topLevel, ['-c', 'core.quotePath=false', 'diff', '--cached', '--submodule=short', '--', '.']),
-    readGitStdout(context.topLevel, ['-c', 'core.quotePath=false', 'diff', '--submodule=short', '--', '.']),
+    readWorkspaceGitDiffs(context.topLevel, parseGitPorcelainStatus, fileHistoryRuntime()),
     readGitStdout(context.topLevel, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']),
     readGitStdout(context.topLevel, ['tag', '--sort=-creatordate']),
     readGitStdout(context.topLevel, ['tag', '--points-at', 'HEAD', '--sort=-creatordate']),
@@ -2839,7 +3252,9 @@ export async function getProjectGitRepositorySnapshot(cwd: string): Promise<Proj
       '--pretty=format:%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%P',
       ...(context.headSha ? [context.headSha] : []),
     ]),
+    readProjectGitIndexFingerprint(context.topLevel).catch(() => undefined),
   ]);
+  if (!diffs) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '读取期间仓库已不可用，请刷新仓库列表。');
   const upstream = upstreamText || null;
   const divergence = upstream ? await readGitStdout(context.topLevel, ['rev-list', '--left-right', '--count', `${upstream}...HEAD`]) : '';
   const [behindText = '0', aheadText = '0'] = divergence.split(/\s+/u);
@@ -2850,21 +3265,25 @@ export async function getProjectGitRepositorySnapshot(cwd: string): Promise<Proj
   const [remoteDetails, branchTracking] = await Promise.all([
     Promise.all(
       context.remotes.map(async (name) => {
-        const [fetchUrl, pushUrl] = await Promise.all([readGitStdout(context.topLevel, ['remote', 'get-url', name]), readGitStdout(context.topLevel, ['remote', 'get-url', '--push', name])]);
-        return { name, fetchUrl: redactGitOutput(fetchUrl), pushUrl: redactGitOutput(pushUrl) };
+        const [fetchUrl, push] = await Promise.all([readGitStdout(context.topLevel, ['remote', 'get-url', name]), readRemotePushTarget(context.topLevel, name).catch(() => null)]);
+        return { name, fetchUrl: redactGitOutput(fetchUrl), pushUrl: redactGitOutput(push?.urls[0] ?? ''), ...(push ? { pushUrls: push.urls.map(redactGitOutput), pushFingerprint: push.fingerprint } : {}) };
       }),
     ),
-    readGitStdout(context.topLevel, ['for-each-ref', '--format=%(refname:short)%09%(upstream:short)%09%(upstream:track)', 'refs/heads/'], { ...process.env, LANG: 'C', LC_ALL: 'C' }),
+    readGitStdout(context.topLevel, ['for-each-ref', '--format=%(refname:lstrip=2)%09%(upstream:short)%09%(upstream:track)%09%(objectname)%09%(upstream)%09%(refname)%09%(symref)', 'refs/heads/', 'refs/remotes/'], { ...process.env, LANG: 'C', LC_ALL: 'C' }),
   ]);
   const parsedBranchTracking = parseProjectGitBranchTracking(branchTracking);
   const recentRefs = await readProjectGitRecentRefs(context.topLevel, reflogText, context, tags);
+  const integrationState = await readIntegrationState(context.topLevel);
   return {
+    indexFingerprint,
     branch: context.branch,
     detached: context.detached,
     headTags: splitLines(headTagsText),
     headSha: context.headSha,
     upstream,
-    integrationState: await readIntegrationState(context.topLevel),
+    integrationState,
+    ...(integrationState === 'cherry_pick' || integrationState === 'revert' ? { integrationNoCommit: await readIntegrationNoCommit(context.topLevel) } : {}),
+    rebaseEdit: integrationState === 'rebase' ? await readRebaseEditState(context.topLevel, context.headSha, args => runGit(context.topLevel, args)) : null,
     submodules: await readRegisteredSubmodules(context.topLevel),
     ahead: Number.parseInt(aheadText, 10) || 0,
     behind: Number.parseInt(behindText, 10) || 0,
@@ -2875,6 +3294,9 @@ export async function getProjectGitRepositorySnapshot(cwd: string): Promise<Proj
     checkedOutBranches: context.worktrees.flatMap((worktree) => (worktree.branch ? [worktree.branch] : [])),
     remoteDetails,
     branchUpstreams: parsedBranchTracking.upstreams,
+    branchUpstreamRefs: parsedBranchTracking.upstreamRefs,
+    localBranchHeads: parsedBranchTracking.localHeads,
+    remoteBranchHeads: parsedBranchTracking.remoteHeads,
     branchDivergences: parsedBranchTracking.divergences,
     remoteBranches: context.remoteBranches,
     remotes: context.remotes,
@@ -2883,9 +3305,7 @@ export async function getProjectGitRepositorySnapshot(cwd: string): Promise<Proj
     recentCommits: parseRecentCommits(recentText),
     outgoingCommits: parseRecentCommits(outgoingText),
     stashes: parseProjectGitStashes(stashText),
-    diff,
-    stagedDiff: diffSummaryFromText(stagedDiffText),
-    unstagedDiff: diffSummaryFromText(unstagedDiffText),
+    ...diffs,
   };
 }
 
@@ -2924,11 +3344,13 @@ async function readRegisteredSubmodules(cwd: string): Promise<{ path: string; in
   return modules;
 }
 
-async function readIntegrationState(cwd: string): Promise<'merge' | 'rebase' | null> {
+async function readIntegrationState(cwd: string): Promise<'merge' | 'rebase' | 'cherry_pick' | 'revert' | 'am' | null> {
   for (const [marker, state] of [
     ['rebase-merge', 'rebase'],
     ['rebase-apply', 'rebase'],
     ['MERGE_HEAD', 'merge'],
+    ['CHERRY_PICK_HEAD', 'cherry_pick'],
+    ['REVERT_HEAD', 'revert'],
   ] as const) {
     const path = await requireGitStdout(cwd, ['rev-parse', '--git-path', marker]);
     if (
@@ -2936,15 +3358,34 @@ async function readIntegrationState(cwd: string): Promise<'merge' | 'rebase' | n
         () => true,
         () => false,
       )
-    )
+    ) {
+      if (marker === 'rebase-apply' && await lstat(join(resolve(cwd, path), 'applying')).then(() => true, () => false)) return 'am';
       return state;
+    }
   }
+  // A user may commit a resolved step manually. Git clears *_HEAD but keeps
+  // the remaining sequencer, which still needs --continue/--abort/--skip.
+  const todoPath = await requireGitStdout(cwd, ['rev-parse', '--git-path', 'sequencer/todo']);
+  try {
+    const todo = await readFile(resolve(cwd, todoPath), 'utf8');
+    const next = todo.split(/\r?\n/u).map(line => line.trim()).find(line => line && !line.startsWith('#'));
+    if (/^pick\s+[a-f0-9]+(?:\s|$)/u.test(next ?? '')) return 'cherry_pick';
+    if (/^revert\s+[a-f0-9]+(?:\s|$)/u.test(next ?? '')) return 'revert';
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   return null;
+}
+
+async function readIntegrationNoCommit(cwd: string): Promise<boolean> {
+  const path = resolve(cwd, await requireGitStdout(cwd, ['rev-parse', '--git-path', 'sequencer/opts']));
+  try { await lstat(path); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
+  try { return (await requireGitStdout(cwd, ['config', '--no-includes', '--file', path, '--type=bool', '--get', 'options.no-commit'])) === 'true'; }
+  catch (error) { if ((error as { exitCode?: number }).exitCode === 1) return false; throw error; }
 }
 
 /** 执行项目 Git 工作台白名单动作；调用方不能传入任意子命令或任意工作目录。 */
 export async function executeProjectGitAction(cwd: string, action: ProjectGitAction, signal?: AbortSignal, env?: NodeJS.ProcessEnv, onCommand?: (command: string) => Promise<void>): Promise<ProjectGitActionResult> {
-  return projectGitExecution.run({ signal, env, onCommand }, () => executeProjectGitActionInternal(cwd, action));
+  const actionEnvironment = { ...env, ...gitDirectoryEnvironment, ...(action.type === 'external_tool' && action.input.mode === 'diff' ? { GIT_OPTIONAL_LOCKS: '0' } : {}) };
+  return projectGitExecution.run({ signal, env: actionEnvironment, onCommand }, () => executeProjectGitActionInternal(cwd, action));
 }
 
 /** 冲突编辑直接使用当前项目仓库的 Git stage，不复用任务集成的来源/任务重映射。 */
@@ -2980,11 +3421,82 @@ export async function validateProjectGitPushTarget(cwd: string, remote: string, 
 }
 
 async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAction): Promise<ProjectGitActionResult> {
-  const context = await getGitRepositoryContext(cwd);
+  const context = await getGitRepositoryContext(cwd).catch(error => { throw Object.assign(error as object, { operationStage: 'preflight', operationStatus: 'failed_before_write' }); });
   if (!context.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', 'The selected directory is not a Git repository.');
   const repositoryPath = context.topLevel;
   let args: string[];
+  let skippedStep: GitWritePreview | undefined;
   switch (action.type) {
+    case 'interactive_rebase': {
+      const preview = await getProjectGitInteractiveRebasePreview(repositoryPath, action.baseSha, action.ontoSha);
+      const execution = projectGitExecution.getStore();
+      const output = await executeInteractiveRebase(repositoryPath, preview, action, interactiveGitRun(repositoryPath), (args, env) => projectGitExecution.run({ ...execution, env: { ...execution?.env, ...env }, timeoutMs: 30 * 60_000 }, () => runGitPreservingConflict(repositoryPath, args)));
+      return finishProjectGitAction(repositoryPath, action.type, output);
+    }
+    case 'amend_rebase_step': {
+      const edit = await readRebaseEditState(repositoryPath, context.headSha, interactiveGitRun(repositoryPath));
+      if (!edit) throw branchManagementFailure('ASTRAGIT_GIT_REBASE_EDIT_REQUIRED', '当前不是原生 edit 暂停步骤，不能修订此整合提交。');
+      if (edit.fingerprint !== action.expectedStepFingerprint || context.headSha !== action.expectedHeadSha || !action.expectedIndexFingerprint || action.expectedIndexFingerprint !== await readProjectGitIndexFingerprint(repositoryPath)) throw branchManagementFailure('ASTRAGIT_GIT_REBASE_EDIT_CHANGED', '当前变基步骤、HEAD 或暂存内容已变化，请重新打开修订窗口。');
+      if ((await getGitStatus(repositoryPath)).conflictFiles.length) throw branchManagementFailure('ASTRAGIT_GIT_CONFLICTS_REMAIN', '请先解决并暂存所有冲突。');
+      if (typeof action.message !== 'string' || action.message.includes('\0') || Buffer.byteLength(action.message) > 128 * 1024) throw branchManagementFailure('ASTRAGIT_GIT_REBASE_MESSAGE_INVALID', '提交说明无效或超过 128 KiB。');
+      return finishProjectGitAction(repositoryPath, action.type, await runGit(repositoryPath, ['commit', '--amend', '--allow-empty', '--allow-empty-message', '--cleanup=verbatim', '-F', '-'], action.message));
+    }
+    case 'stage_ignored': {
+      let paths: string[];
+      try { paths = await requireIgnoredSelection(repositoryPath, action.paths, (args, input) => runGit(repositoryPath, args, input)); }
+      catch (error) { throw Object.assign(error as object, { operationStatus: 'failed_before_write', operationStage: 'preflight' }); }
+      const review = parseGitLargeFileReview(action.largeFileReview);
+      validateGitStageReview(await getProjectGitStagePreview(repositoryPath, { paths, forceIgnored: true, thresholdBytes: review?.thresholdBytes }), review);
+      return finishProjectGitAction(repositoryPath, action.type, await runGit(repositoryPath, ['--literal-pathspecs', 'add', '--force', '--pathspec-from-file=-', '--pathspec-file-nul'], paths.join('\0') + '\0'));
+    }
+    case 'stop_tracking': {
+      const current = await readStopTracking(repositoryPath, { headSha: context.headSha, branch: context.branch, detached: context.detached }, action.paths, args => runGit(repositoryPath, args));
+      if (!action.expectedFingerprint || action.expectedFingerprint !== current.preview.fingerprint) throw branchManagementFailure('ASTRAGIT_GIT_STOP_TRACKING_CHANGED', '分支、所选目录范围或暂存版本已变化，本次未停止跟踪，请重新载入并确认。');
+      const beforeWrite = await getGitRepositoryContext(repositoryPath);
+      if (beforeWrite.headSha !== context.headSha || beforeWrite.branch !== context.branch || beforeWrite.detached !== context.detached) throw branchManagementFailure('ASTRAGIT_GIT_STOP_TRACKING_CHANGED', '分支已变化，本次未停止跟踪，请重新载入并确认。');
+      const output = await runGit(repositoryPath, ['--literal-pathspecs', 'rm', '--cached', ...(action.force ? ['--force'] : []), '--pathspec-from-file=-', '--pathspec-file-nul'], current.paths.join('\0') + '\0');
+      return finishProjectGitAction(repositoryPath, action.type, output);
+    }
+    case 'ignore': {
+      const execution = projectGitExecution.getStore();
+      const result = await appendGitIgnore(repositoryPath, action, args => runGit(repositoryPath, args), { ...process.env, ...execution?.env }, async path => { await execution?.onCommand?.(`[AstraGit] append ignore rules to ${JSON.stringify(path)}`); }, execution?.signal);
+      return finishProjectGitAction(repositoryPath, action.type, result);
+    }
+    case 'reset_revision': {
+      const target = requireGitObjectId(action.targetSha, 'reset target');
+      const preview = await getProjectGitResetPreview(repositoryPath, target, action.mode);
+      if (!action.expectedFingerprint || action.expectedFingerprint !== preview.fingerprint) throw branchManagementFailure('ASTRAGIT_GIT_RESET_PREVIEW_CHANGED', '分支、暂存区或工作区内容已变化，未执行重置。请重新载入并确认预览。');
+      if (action.mode === 'soft' && (preview.conflictFileCount || preview.integrationState === 'merge')) throw branchManagementFailure('ASTRAGIT_GIT_RESET_SOFT_UNMERGED', '当前有合并或未解决的冲突，Git 不允许 soft 重置。请选择其他方式，或先处理当前整合。');
+      if (action.mode === 'hard' && preview.nestedRepositoryCount && action.discardNestedRepositories !== true) throw branchManagementFailure('ASTRAGIT_GIT_RESET_NESTED_CONFIRMATION_REQUIRED', '重置范围包含其他 Git 仓库，请先核对并明确确认影响。');
+      const result = await finishProjectGitAction(repositoryPath, action.type, await runGit(repositoryPath, ['reset', `--${action.mode}`, '--no-recurse-submodules', target, '--']));
+      if (result.headSha !== target || result.branch !== preview.branch) throw Object.assign(gitCoreError('ASTRAGIT_GIT_RESET_OUTCOME_UNKNOWN', 'Git 已执行重置，但当前提交与确认目标不同，请刷新并核对结果。'), { operationStatus: 'unknown_after_write', operationStage: 'refresh' });
+      return result;
+    }
+    case 'skip_integration': {
+      const preview = await getProjectGitSkipPreview(repositoryPath, action.kind);
+      if (!action.expectedFingerprint || action.expectedFingerprint !== preview.fingerprint) throw branchManagementFailure('ASTRAGIT_GIT_INTEGRATION_PREVIEW_CHANGED', '当前步骤、暂存区或文件内容已变化，未执行跳过。请重新载入并确认。');
+      if (preview.nestedRepositoryCount && action.discardNestedRepositories !== true) throw branchManagementFailure('ASTRAGIT_GIT_RESET_NESTED_CONFIRMATION_REQUIRED', '当前步骤会影响其他 Git 仓库，请先明确确认。');
+      if (action.kind === 'rebase') return runInteractiveRebaseControl(repositoryPath, 'skip', action.type, preview);
+      skippedStep = preview;
+      args = ['-c', 'core.editor=true', '-c', 'submodule.recurse=false', action.kind === 'cherry_pick' ? 'cherry-pick' : action.kind, '--skip'];
+      break;
+    }
+    case 'set_identity_field':
+    case 'configure_remote':
+      return finishProjectGitAction(repositoryPath, action.type, await executeRepositorySettings(args => runGit(repositoryPath, args), redactGitOutput, action));
+    case 'configure_commit_template':
+      return finishProjectGitAction(repositoryPath, action.type, await configureCommitTemplate(repositoryPath, (args, input) => runGit(repositoryPath, args, input), redactGitOutput, action));
+    case 'amend_commit': {
+      const refuse = (code: string, message: string) => Object.assign(gitCoreError(code, message), { operationStatus: 'failed_before_write' });
+      if (!context.headSha) throw refuse('ASTRAGIT_GIT_AMEND_HEAD_REQUIRED', '仓库还没有提交，无法修订上次提交。');
+      if (action.expectedHeadSha !== context.headSha || action.expectedBranch !== context.branch || !/^[a-f0-9]{64}$/u.test(action.expectedIndexFingerprint) || action.expectedIndexFingerprint !== await readProjectGitIndexFingerprint(repositoryPath)) {
+        throw refuse('ASTRAGIT_GIT_AMEND_STALE', '当前分支、上次提交或暂存内容已变化，请重新打开修订窗口核对。');
+      }
+      if (await readIntegrationState(repositoryPath)) throw refuse('ASTRAGIT_GIT_INTEGRATION_ACTIVE', '提交整合期间不能修订上次提交，请先完成或终止当前整合。');
+      if ((await getGitStatus(repositoryPath)).conflictFiles.length) throw refuse('ASTRAGIT_GIT_CONFLICTS_REMAIN', '请先解决并暂存所有冲突。');
+      if (typeof action.message !== 'string' || !action.message.trim() || action.message.includes('\0') || Buffer.byteLength(action.message) > 128 * 1024) throw refuse('ASTRAGIT_GIT_AMEND_MESSAGE_INVALID', '提交说明不能为空、包含无效字节或超过 128 KiB。');
+      return finishProjectGitAction(repositoryPath, action.type, await runGit(repositoryPath, ['commit', '--amend', '--cleanup=verbatim', '-F', '-'], action.message));
+    }
     case 'subtree': {
       const [path] = requireRepositoryPaths(repositoryPath, [action.path]);
       if (!path || relative(repositoryPath, resolve(repositoryPath, path)) === '') throw gitCoreError('ASTRAGIT_GIT_SUBTREE_INVALID', '子树必须使用仓库内的子目录。');
@@ -2998,16 +3510,40 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
       args = ['subtree', action.operation, `--prefix=${path}`, ...(action.operation === 'push' ? [] : ['--squash']), remote, branch];
       break;
     }
+    case 'external_tool':
+    case 'configure_external_tool':
+      return runExternalTool(repositoryPath, action);
+    case 'manage_lfs': {
+      const execution = projectGitExecution.getStore();
+      const output = await lfsRead(() => executeGitLfs(repositoryPath, action.change, action.expectedFingerprint, args => projectGitExecution.run({ ...execution, timeoutMs: 30 * 60_000 }, () => runGit(repositoryPath, args)), { ...fileHistoryRuntime(), redact: redactGitOutput, onWrite: async path => { await execution?.onCommand?.(`[AstraGit] remove reviewed LFS rule in ${JSON.stringify(path)}`); } }));
+      return { ...await finishProjectGitAction(repositoryPath, action.type, output), outcome: 'completed' };
+    }
+    case 'manage_flow': {
+      const execution = projectGitExecution.getStore();
+      const output = await executeGitFlow(repositoryPath, action.change, action.expectedFingerprint, (args, input) => projectGitExecution.run({ ...execution, timeoutMs: 30 * 60_000 }, () => runGit(repositoryPath, args, input)), { ...fileHistoryRuntime(), redact: redactGitOutput });
+      return { ...await finishProjectGitAction(repositoryPath, action.type, output), flow: output.flow };
+    }
+    case 'manage_submodule': {
+      const output = await runSubmoduleChange(repositoryPath, action.change, action.expectedFingerprint);
+      // Submodule commands do not create parent conflicts. Preserve existing
+      // conflict facts without reporting them as a new failure of this action.
+      return { ...await finishProjectGitAction(repositoryPath, action.type, output), outcome: 'completed' };
+    }
     case 'submodule_update': {
-      const modules = await readRegisteredSubmodules(repositoryPath);
-      if (!modules.some((item) => item.path === action.path)) throw gitCoreError('ASTRAGIT_GIT_SUBMODULE_INVALID', '该路径不是当前仓库登记的子模块。');
-      args = ['--literal-pathspecs', 'submodule', 'update', '--init', '--', action.path];
-      break;
+      const change: GitSubmoduleChange = { operation: 'update', path: action.path, strategy: 'checkout' };
+      const preview = await getProjectGitSubmodulePreview(repositoryPath, change);
+      return { ...await finishProjectGitAction(repositoryPath, action.type, await runSubmoduleChange(repositoryPath, change, preview.fingerprint)), outcome: 'completed' };
     }
     case 'continue_integration':
     case 'abort_integration': {
-      if ((await readIntegrationState(repositoryPath)) !== action.kind) throw gitCoreError('ASTRAGIT_GIT_INTEGRATION_CHANGED', '合并或变基状态已变化，请刷新后重试。');
-      args = action.type === 'abort_integration' ? [action.kind, '--abort'] : action.kind === 'merge' ? ['-c', 'core.editor=true', 'merge', '--continue'] : ['-c', 'core.editor=true', 'rebase', '--continue'];
+      if ((await readIntegrationState(repositoryPath)) !== action.kind) throw gitCoreError('ASTRAGIT_GIT_INTEGRATION_CHANGED', '提交整合状态已变化，请刷新后重试。');
+      if (action.type === 'continue_integration' && (action.kind === 'cherry_pick' || action.kind === 'revert') && await readIntegrationNoCommit(repositoryPath)) {
+        const status = await getGitStatus(repositoryPath);
+        if (!status.conflictFiles.length && status.fileStatuses.some(file => file.indexStatus !== ' ' && file.indexStatus !== '?')) throw gitCommitReplayFailure('MANUAL_COMMIT_REQUIRED', '本次序列不自动提交。请先提交已解决并暂存的内容，再继续剩余提交。');
+      }
+      if (action.kind === 'rebase') return runInteractiveRebaseControl(repositoryPath, action.type === 'abort_integration' ? 'abort' : 'continue', action.type);
+      const command = action.kind === 'cherry_pick' ? 'cherry-pick' : action.kind;
+      args = action.type === 'abort_integration' ? [command, '--abort'] : ['-c', 'core.editor=true', command, '--continue'];
       break;
     }
     case 'fetch': {
@@ -3029,31 +3565,78 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
       args = ['branch', '-m', branch, name];
       break;
     }
+    case 'delete_remote_tag': {
+      if (typeof action.remote !== 'string' || !action.remote || action.remote.trim() !== action.remote) throw branchManagementFailure('ASTRAGIT_GIT_TAG_QUERY_INVALID', '请选择明确的远程仓库。');
+      const remote = requireKnownRemote(context, action.remote);
+      const result = await deleteGitRemoteTag({ ...action, remote }, interactiveGitRun(repositoryPath), tagRuntime(repositoryPath, context));
+      return finishProjectGitAction(repositoryPath, action.type, result);
+    }
     case 'create_tag':
     case 'push_tag':
     case 'delete_tag': {
-      const name = requireSafeGitRef(action.tagName, 'tag');
-      await requireGitStdout(repositoryPath, ['check-ref-format', `refs/tags/${name}`]);
+      const name = action.tagName;
+      if (typeof name !== 'string' || !name || name.length > 4096 || name.includes('\0')) throw branchManagementFailure('ASTRAGIT_GIT_TAG_INVALID', '标签名称无效。');
+      await assertGitTagRef(name, interactiveGitRun(repositoryPath));
       if (action.type === 'push_tag') {
         const remote = requireKnownRemote(context, action.remote);
-        await requireGitStdout(repositoryPath, ['rev-parse', '--verify', `refs/tags/${name}`]);
-        args = ['push', '--no-follow-tags', remote, `refs/tags/${name}:refs/tags/${name}`];
-      } else if (action.type === 'delete_tag') args = ['tag', '-d', name];
+        const tag = (await localGitTags(interactiveGitRun(repositoryPath))).get(name);
+        if (!tag) throw branchManagementFailure('ASTRAGIT_GIT_TAG_NOT_FOUND', '本地标签已不存在，请刷新后重新选择。');
+        if (action.expectedTagObjectSha !== undefined && action.expectedTagObjectSha !== tag.objectSha) throw branchManagementFailure('ASTRAGIT_GIT_TAG_LOCAL_CHANGED', '本地标签对象已变化，本次未推送，请刷新后核对。');
+        if (action.expectedRemotePushFingerprint !== undefined && action.expectedRemotePushFingerprint !== (await readRemotePushTarget(repositoryPath, remote)).fingerprint) throw branchManagementFailure('ASTRAGIT_GIT_TAG_REMOTE_CHANGED', '远程推送地址已变化，本次未推送，请重新核对。');
+        const execution = projectGitExecution.getStore();
+        const env = gitCommandConfig({ ...process.env, ...execution?.env }, [[`remote.${remote}.mirror`, 'false']]);
+        return finishProjectGitAction(repositoryPath, action.type, await interactiveGitRun(repositoryPath)(['push', '--no-follow-tags', '--', remote, `${tag.objectSha}:refs/tags/${name}`], undefined, env));
+      } else if (action.type === 'delete_tag') {
+        if (action.expectedTagObjectSha === undefined) args = ['tag', '-d', '--', name];
+        else {
+          const tag = (await localGitTags(interactiveGitRun(repositoryPath))).get(name);
+          if (!tag || tag.objectSha !== action.expectedTagObjectSha) throw branchManagementFailure('ASTRAGIT_GIT_TAG_LOCAL_CHANGED', '本地标签对象已变化，本次未删除，请刷新后核对。');
+          args = ['update-ref', '--no-deref', '-d', `refs/tags/${name}`, requireGitObjectId(action.expectedTagObjectSha, 'tag object')];
+        }
+      }
       else {
-        const revision = requireSafeGitRef(action.revision, 'revision');
-        const sha = await requireGitStdout(repositoryPath, ['rev-parse', '--verify', `${revision}^{commit}`]);
-        args = ['tag', '-a', name, '-m', requireSafeGitText(action.message?.trim() || name, 'tag message'), sha.trim()];
+        if (name.startsWith('-')) throw branchManagementFailure('ASTRAGIT_GIT_TAG_INVALID', '创建标签时名称不能以短横线开头。');
+        if ((action.annotated !== undefined && typeof action.annotated !== 'boolean') || (action.message !== undefined && typeof action.message !== 'string')) throw branchManagementFailure('ASTRAGIT_GIT_TAG_OPTIONS_INVALID', '标签类型或说明无效。');
+        if ((await localGitTags(interactiveGitRun(repositoryPath))).has(name)) throw branchManagementFailure('ASTRAGIT_GIT_TAG_EXISTS', '该标签已存在，请选择其他名称；现有标签未替换。');
+        const revision = action.revision;
+        if (typeof revision !== 'string' || !revision || revision.length > 4096 || revision.includes('\0')) throw branchManagementFailure('ASTRAGIT_GIT_TAG_QUERY_INVALID', '请选择有效的标签目标版本。');
+        const sha = await resolveTagCommit(repositoryPath, revision);
+        if (action.expectedTargetSha !== undefined && action.expectedTargetSha !== sha) throw branchManagementFailure('ASTRAGIT_GIT_TAG_TARGET_CHANGED', '目标提交已变化，本次未创建标签，请重新读取目标。');
+        if (action.annotated === false) {
+          if (action.message?.trim()) throw branchManagementFailure('ASTRAGIT_GIT_TAG_OPTIONS_INVALID', '轻量标签不包含附注，请切换为附注标签或清除说明。');
+          args = ['tag', '--no-sign', '--', name, sha];
+        } else {
+          const message = action.message?.trim() ? action.message : name;
+          if (message.includes('\0') || Buffer.byteLength(message) > 128 * 1024) throw branchManagementFailure('ASTRAGIT_GIT_TAG_OPTIONS_INVALID', '标签说明包含无效内容或超过 128 KiB。');
+          return finishProjectGitAction(repositoryPath, action.type, await runGit(repositoryPath, ['tag', '-a', '--cleanup=verbatim', '-F', '-', '--', name, sha], message));
+        }
       }
       break;
     }
-    case 'stage':
-      args = ['--literal-pathspecs', 'add', '-A', '--', ...requireRepositoryPaths(repositoryPath, action.paths)];
-      break;
+    case 'stage': {
+      const paths = requireRepositoryPaths(repositoryPath, action.paths); const review = parseGitLargeFileReview(action.largeFileReview);
+      validateGitStageReview(await getProjectGitStagePreview(repositoryPath, { paths, thresholdBytes: review?.thresholdBytes }), review);
+      return finishProjectGitAction(repositoryPath, action.type, await runGit(repositoryPath, ['--literal-pathspecs', 'add', '-A', '--pathspec-from-file=-', '--pathspec-file-nul'], paths.join('\0') + '\0'));
+    }
     case 'unstage':
       args = context.headSha
         ? ['--literal-pathspecs', 'restore', '--staged', '--', ...requireRepositoryPaths(repositoryPath, action.paths)]
         : ['--literal-pathspecs', 'rm', '--cached', '--', ...requireRepositoryPaths(repositoryPath, action.paths)];
       break;
+    case 'import_mailbox': {
+      const prepared = await patchRead(() => mailboxPreview(repositoryPath, action.mailbox, undefined, action.expectedFingerprint));
+      return finishProjectGitAction(repositoryPath, action.type, await runGitPreservingConflict(repositoryPath, prepared.args, undefined, prepared.bytes));
+    }
+    case 'import_patch': {
+      const prepared = await patchRead(() => preparePatchImport(repositoryPath, action.patch, action.expectedFingerprint, fileHistoryRuntime()));
+      return finishProjectGitAction(repositoryPath, action.type, await runGit(repositoryPath, prepared.args, prepared.bytes));
+    }
+    case 'apply_line_changes': {
+      const input = parseGitLineChange(action.input);
+      if (input.operation === 'stage') { const review = parseGitLargeFileReview(action.largeFileReview); validateGitStageReview(await getProjectGitStagePreview(repositoryPath, { paths: [input.path], thresholdBytes: review?.thresholdBytes }), review); }
+      const prepared = await lineRead(() => prepareGitLineChanges(repositoryPath, input, fileHistoryRuntime()));
+      return finishProjectGitAction(repositoryPath, action.type, await runGit(repositoryPath, prepared.args, prepared.bytes));
+    }
     case 'apply_patch': {
       // 补丁末尾换行和上下文空白属于补丁内容，不能裁剪，否则 git apply 会判定补丁损坏。
       const patch = action.patch;
@@ -3071,7 +3654,7 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
         if ((action.expectedHeadSha !== undefined && action.expectedHeadSha !== context.headSha) || (action.expectedBranch !== undefined && action.expectedBranch !== context.branch)) {
           throw gitCoreError('ASTRAGIT_GIT_SELECTION_CHANGED', '当前分支或提交已变化，请刷新更改后重新确认提交范围。');
         }
-        if (await readIntegrationState(repositoryPath)) throw gitCoreError('ASTRAGIT_GIT_INTEGRATION_ACTIVE', '合并或变基期间请在 Git 工作区解决冲突并继续操作。');
+        if (await readIntegrationState(repositoryPath)) throw gitCoreError('ASTRAGIT_GIT_INTEGRATION_ACTIVE', '提交整合期间请在 Git 工作区解决冲突并继续操作。');
         const status = await getGitStatus(repositoryPath);
         if (status.conflictFiles.length) throw gitCoreError('ASTRAGIT_GIT_CONFLICTS_REMAIN', '请先解决仓库中的冲突。');
         const selected = [...new Set(requireRepositoryPaths(repositoryPath, action.paths))];
@@ -3140,26 +3723,78 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
       break;
     case 'create_branch': {
       const branchName = await assertGitBranchFormat(repositoryPath, action.branchName, 'branch');
+      if (await readCommitIfPresent(repositoryPath, `refs/heads/${branchName}`)) throw Object.assign(gitCoreError('ASTRAGIT_GIT_BRANCH_EXISTS', `本地分支“${branchName}”已存在。请使用不同名称，或在分支列表中切换到已有分支。`), { operationStage: 'preflight', operationStatus: 'failed_before_write' });
       const requestedBase = action.baseRef?.trim() || '';
       const baseRef = requestedBase ? (action.trackRemote ? await assertGitBranchFormat(repositoryPath, requestedBase, 'base branch') : await resolveCommit(repositoryPath, requestedBase)) : null;
       if (action.trackRemote && baseRef) await resolveCommit(repositoryPath, baseRef);
       args = ['switch', '-c', branchName, ...(action.trackRemote ? ['--track'] : []), ...(baseRef ? [baseRef] : [])];
       break;
     }
-    case 'delete_branch':
-      args = ['branch', '-d', await assertNamedBranchExists(repositoryPath, action.branchName)];
+    case 'delete_branch': {
+      if (action.force !== undefined && typeof action.force !== 'boolean') throw branchManagementFailure('ASTRAGIT_ACTION_INVALID', '强制删除选项无效。');
+      const branch = await assertNamedBranchExists(repositoryPath, action.branchName).catch(error => { throw Object.assign(error, { operationStage: 'preflight', operationStatus: 'failed_before_write' }); });
+      if (context.worktrees.some(worktree => worktree.branch === branch)) throw branchManagementFailure('ASTRAGIT_GIT_BRANCH_IN_USE', '分支正在工作区中使用，请先到该工作区切换分支，再删除。');
+      const targetHead = await resolveCommit(repositoryPath, localBranchRef(branch));
+      if ((action.force && !action.expectedTargetHeadSha) || (action.expectedTargetHeadSha !== undefined && action.expectedTargetHeadSha !== targetHead)) throw branchManagementFailure('ASTRAGIT_GIT_BRANCH_REVIEW_CHANGED', '分支提交已变化或尚未确认，请重新打开删除窗口核对。');
+      args = ['branch', action.force ? '-D' : '-d', '--', branch];
       break;
+    }
+    case 'set_upstream': {
+      const branch = await assertNamedBranchExists(repositoryPath, action.branchName).catch(error => { throw Object.assign(error, { operationStage: 'preflight', operationStatus: 'failed_before_write' }); });
+      const currentHead = await resolveCommit(repositoryPath, localBranchRef(branch));
+      const tracking = await requireGitStdout(repositoryPath, ['for-each-ref', '--format=%(refname)%09%(upstream)', localBranchRef(branch)]);
+      const currentUpstream = tracking.split('\n').find(line => line.startsWith(`${localBranchRef(branch)}\t`))?.split('\t')[1] || null;
+      if (action.expectedTargetHeadSha !== currentHead || action.expectedUpstreamRef !== currentUpstream) throw branchManagementFailure('ASTRAGIT_GIT_BRANCH_REVIEW_CHANGED', '分支或跟踪关系已变化，请重新打开跟踪设置核对。');
+      if (action.upstreamRef === localBranchRef(branch)) throw branchManagementFailure('ASTRAGIT_GIT_UPSTREAM_SELF', '分支不能跟踪自身，请选择另一个上游。');
+      if (action.upstreamRef !== null) {
+        const ref = requireSafeGitRef(action.upstreamRef, 'upstream');
+        if (!ref.startsWith('refs/heads/') && !ref.startsWith('refs/remotes/')) throw branchManagementFailure('ASTRAGIT_GIT_UPSTREAM_INVALID', '上游必须是已存在的本地或远程跟踪分支。');
+        await requireGitStdout(repositoryPath, ['check-ref-format', ref]);
+        await resolveCommit(repositoryPath, ref);
+      } else if (!currentUpstream && !await readGitStdout(repositoryPath, ['config', '--get-all', `branch.${branch}.merge`])) return finishProjectGitAction(repositoryPath, action.type, { stdout: '', stderr: '' });
+      args = ['branch', ...(action.upstreamRef === null ? ['--unset-upstream'] : [`--set-upstream-to=${action.upstreamRef}`]), '--', branch];
+      break;
+    }
+    case 'delete_remote_branch': {
+      const remote = requireKnownRemote(context, action.remote);
+      const branch = await assertGitBranchFormat(repositoryPath, action.branchName, 'remote branch');
+      const trackingRef = `${remote}/${branch}`;
+      if (!context.remoteBranches.includes(trackingRef) || !action.expectedTargetHeadSha || await resolveCommit(repositoryPath, `refs/remotes/${trackingRef}`) !== action.expectedTargetHeadSha) throw branchManagementFailure('ASTRAGIT_GIT_REMOTE_BRANCH_CHANGED', '远程跟踪分支已变化，请重新抓取并核对后再删除。');
+      const push = await readRemotePushTarget(repositoryPath, remote);
+      if (!push.urls.length || push.fingerprint !== action.expectedRemotePushFingerprint) throw branchManagementFailure('ASTRAGIT_GIT_REMOTE_TARGET_CHANGED', '远程推送目标已变化，请重新打开删除窗口核对。');
+      const expected = requireGitObjectId(action.expectedTargetHeadSha, 'remote branch head');
+      const deleteArgs = ['push', '--no-follow-tags', `--force-with-lease=refs/heads/${branch}:${expected}`, '--', remote, `:refs/heads/${branch}`];
+      try { return await finishProjectGitAction(repositoryPath, action.type, await runGit(repositoryPath, deleteArgs)); }
+      catch (error) {
+        const log = gitErrorOutput(error);
+        const candidate = error as { interrupted?: boolean; stderr?: string; stdout?: string };
+        if (push.urls.length === 1 && !candidate.interrupted && /\[rejected\][^\n]*\(stale info\)/u.test(candidate.stderr ?? '')) throw Object.assign(branchManagementFailure('ASTRAGIT_GIT_REMOTE_BRANCH_CHANGED', '服务器上的分支已变化，删除被拒绝。请重新抓取并核对后再删除。'), { details: log });
+        if (push.urls.length === 1 && !candidate.interrupted && /\[remote rejected\]/u.test(candidate.stderr ?? '')) throw Object.assign(branchManagementFailure('ASTRAGIT_GIT_REMOTE_DELETE_REJECTED', '服务器拒绝删除该分支，请查看分支保护或服务端检查。'), { details: log });
+        throw Object.assign(gitCoreError('ASTRAGIT_GIT_REMOTE_DELETE_OUTCOME_UNKNOWN', '未能确认所有远程目标的删除结果，请逐一核对服务器分支，不要直接重复删除。', log), { operationStatus: 'unknown_after_write', operationStage: 'command' });
+      }
+    }
+    case 'cherry_pick_series': {
+      const preview = await getProjectGitCommitReplaySeriesPreview(repositoryPath, action.input);
+      if (!/^[a-f0-9]{64}$/u.test(action.expectedFingerprint) || action.expectedFingerprint !== preview.fingerprint) throw gitCommitReplayFailure('PREVIEW_CHANGED', '所选提交、顺序、选项或本地内容已变化，请重新核对后执行。');
+      return finishProjectGitAction(repositoryPath, action.type, await runGitPreservingConflict(repositoryPath, gitCommitReplaySeriesArguments(preview), undefined, preview.input.revisions.join('\n') + '\n'));
+    }
     case 'revert':
-      args = ['revert', '--no-edit', await resolveCommit(repositoryPath, action.revision)];
+    case 'cherry_pick': {
+      const input = parseGitCommitReplayInput({ kind: action.type, revision: action.revision, ...(action.mainline !== undefined ? { mainline: action.mainline } : {}), ...(action.commit !== undefined ? { commit: action.commit } : {}), ...(action.includeSourceId !== undefined ? { includeSourceId: action.includeSourceId } : {}) });
+      const preview = await getProjectGitCommitReplayPreview(repositoryPath, input);
+      if (action.expectedFingerprint !== undefined && (!/^[a-f0-9]{64}$/u.test(action.expectedFingerprint) || action.expectedFingerprint !== preview.fingerprint)) throw gitCommitReplayFailure('PREVIEW_CHANGED', '提交来源、父级、选项或本地内容已变化，请重新预览后执行。');
+      args = gitCommitReplayArguments(preview, action.mainline);
       break;
-    case 'cherry_pick':
-      args = ['cherry-pick', await resolveCommit(repositoryPath, action.revision)];
+    }
+    case 'merge': {
+      if ((action.expectedHeadSha !== undefined && action.expectedHeadSha !== context.headSha) || (action.expectedBranch !== undefined && action.expectedBranch !== context.branch)) throw branchManagementFailure('ASTRAGIT_GIT_MERGE_TARGET_CHANGED', '合入分支或提交已变化，本次未合并。请关闭合并窗口并刷新后重新确认。');
+      const source = await selectedBranchReference(repositoryPath, context, action.branchName);
+      if (action.expectedSourceHeadSha !== undefined && action.expectedSourceHeadSha !== await resolveCommit(repositoryPath, source)) throw branchManagementFailure('ASTRAGIT_GIT_MERGE_SOURCE_CHANGED', '来源分支已变化，本次未合并。请关闭合并窗口并刷新后重新确认。');
+      args = ['merge', '--no-edit', ...(action.commitMerge !== undefined ? [action.commitMerge ? '--commit' : '--no-commit'] : []), ...(action.includeMergeLog !== undefined ? [action.includeMergeLog ? '--log' : '--no-log'] : []), ...(action.noFastForward !== undefined ? [action.noFastForward ? '--no-ff' : '--ff'] : []), source];
       break;
-    case 'merge':
-      args = ['merge', '--no-edit', await assertGitBranchFormat(repositoryPath, action.branchName, 'merge branch')];
-      break;
+    }
     case 'rebase':
-      args = ['rebase', await assertGitBranchFormat(repositoryPath, action.branchName, 'rebase branch')];
+      args = ['rebase', await selectedBranchReference(repositoryPath, context, action.branchName)];
       break;
     case 'stash':
       args = ['stash', 'push', ...(action.includeUntracked ? ['-u'] : []), ...(action.keepIndex ? ['--keep-index'] : []), '-m', requireSafeGitText(action.message || 'AstraGit shelf', 'stash message')];
@@ -3172,6 +3807,7 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
       break;
   }
   const conflictCapable =
+    action.type === 'skip_integration' ||
     (action.type === 'subtree' && action.operation === 'pull') ||
     action.type === 'continue_integration' ||
     action.type === 'pull' ||
@@ -3180,27 +3816,59 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
     action.type === 'apply_stash' ||
     action.type === 'revert' ||
     action.type === 'cherry_pick';
-  const operation = () => (conflictCapable ? runGitPreservingConflict(repositoryPath, args) : runGit(repositoryPath, args));
+  const operation = () => (conflictCapable ? runGitPreservingConflict(repositoryPath, args, skippedStep) : runGit(repositoryPath, args));
   const switchingAction = action.type === 'checkout' || action.type === 'checkout_revision' || action.type === 'create_branch' ? action : null;
-  const switchingStatus = switchingAction ? await getGitStatus(repositoryPath) : null;
+  const switchingStatus = switchingAction ? await getGitStatus(repositoryPath).catch(error => { throw Object.assign(error as object, { operationStage: 'preflight', operationStatus: 'failed_before_write' }); }) : null;
   if (switchingAction && switchingStatus?.conflictFiles.length) {
     const conflictLog = [
       '$ git status --porcelain --untracked-files=all',
       ...switchingStatus.fileStatuses.filter((file) => file.category === 'conflict').map((file) => `${file.indexStatus}${file.workingTreeStatus} ${file.originalPath ? `${file.originalPath} -> ${file.path}` : file.path}`),
     ].join('\n');
-    throw Object.assign(gitCoreError('ASTRAGIT_GIT_CHECKOUT_CONFLICTED', `当前仓库存在未解决的冲突，无法切换到${projectGitSwitchTarget(switchingAction)}。请先处理并确认冲突文件；本次切换未执行。`, conflictLog), { operationStage: 'preflight', operationStatus: 'failed_before_write' });
+    throw Object.assign(gitCoreError('ASTRAGIT_GIT_CHECKOUT_CONFLICTED', `当前仓库存在未解决的冲突，无法切换到${projectGitSwitchTarget(switchingAction)}。请先处理并确认冲突文件；本次切换未执行。`, conflictLog), { operationStage: 'preflight', operationStatus: 'failed_before_write', affectedFiles: switchingStatus.conflictFiles.slice(0, 200), affectedFileCount: switchingStatus.conflictFiles.length });
   }
-  // 切换始终使用 Git 的保护性检查，不自动贮藏、恢复或强制覆盖用户修改。
+  if (switchingAction && await readIntegrationState(repositoryPath)) throw Object.assign(gitCoreError('ASTRAGIT_GIT_CHECKOUT_INTEGRATION_ACTIVE', '当前提交整合尚未结束，本次切换未执行。请先继续或终止当前整合。'), { operationStage: 'preflight', operationStatus: 'failed_before_write', affectedFiles: switchingStatus!.fileStatuses.map(file => file.path).slice(0, 200), affectedFileCount: switchingStatus!.fileStatuses.length });
+  // 贮藏只由本次确认显式请求；保留该条目，不在目标分支自动恢复。
+  let savedStash: string | null = null;
+  if (switchingAction?.stashBeforeCheckout && switchingStatus!.fileStatuses.length) {
+    if (switchingAction.type === 'checkout') await assertNamedBranchExists(repositoryPath, switchingAction.branchName);
+    const previous = await readCommitIfPresent(repositoryPath, 'refs/stash');
+    try {
+      await runGit(repositoryPath, ['stash', 'push', '--include-untracked', '-m', `AstraGit: before switch from ${context.branch}`]);
+      savedStash = await readCommitIfPresent(repositoryPath, 'refs/stash');
+      if (!savedStash || savedStash === previous) throw new Error('Git did not confirm a new stash.');
+      const remaining = await getGitStatus(repositoryPath);
+      if (remaining.fileStatuses.length) throw new Error('Some local changes remain after stashing. Check submodule changes in their own repositories.');
+    } catch (error) {
+      const retained = savedStash ?? await readCommitIfPresent(repositoryPath, 'refs/stash');
+      throw Object.assign(gitCoreError('ASTRAGIT_GIT_CHECKOUT_STASH_OUTCOME_UNKNOWN', '贮藏步骤未确认完成，尚未执行分支切换。请刷新并核对文件与贮藏列表，避免重复贮藏。', gitErrorOutput(error)), { operationStage: 'stash', operationStatus: 'unknown_after_write', ...(retained && retained !== previous ? { savedStash: retained } : {}) });
+    }
+  }
   try {
     const output = await operation();
-    return finishProjectGitAction(repositoryPath, action.type, output);
+    return await finishProjectGitAction(repositoryPath, action.type, { ...output, ...(savedStash ? { savedStash } : {}) });
   } catch (error) {
-    if (switchingAction) throw classifyGitSwitchFailure(switchingAction, args, error);
+    if (savedStash) throw Object.assign(gitCoreError('ASTRAGIT_GIT_CHECKOUT_FAILED_STASH_PRESERVED', '本地修改已保存在贮藏中，但尚未确认切换完成。请刷新核对当前分支，再到贮藏区查看；不会自动恢复或删除贮藏。', gitErrorOutput(error)), { savedStash, operationStage: 'command', operationStatus: 'unknown_after_write' });
+    if (switchingAction) throw classifyGitSwitchFailure(switchingAction, args, error, switchingStatus!.fileStatuses.flatMap(file => [file.path, ...(file.originalPath ? [file.originalPath] : [])]));
     throw error;
   }
 }
 
 type ProjectGitSwitchAction = Extract<ProjectGitAction, { type: 'checkout' | 'checkout_revision' | 'create_branch' }>;
+
+function branchManagementFailure(code: string, message: string): Error & { code: string } {
+  return Object.assign(gitCoreError(code, message), { operationStage: 'preflight', operationStatus: 'failed_before_write' });
+}
+
+async function selectedBranchReference(cwd: string, context: GitRepositoryContext, value: string): Promise<string> {
+  const branch = await assertGitBranchFormat(cwd, value, 'branch');
+  if (branch.startsWith('refs/heads/') || branch.startsWith('refs/remotes/')) {
+    await requireGitStdout(cwd, ['show-ref', '--verify', '--hash', branch]).catch(() => { throw branchManagementFailure('ASTRAGIT_GIT_BRANCH_NOT_FOUND', '所选分支已不存在，请刷新分支列表。'); });
+    return branch;
+  }
+  if (context.localBranches.includes(branch)) return localBranchRef(branch);
+  if (context.remoteBranches.includes(branch)) return `refs/remotes/${branch}`;
+  return branch;
+}
 
 function projectGitSwitchTarget(action: ProjectGitSwitchAction): string {
   if (action.type === 'checkout') return `分支“${action.branchName}”`;
@@ -3209,7 +3877,7 @@ function projectGitSwitchTarget(action: ProjectGitSwitchAction): string {
 }
 
 /** 把 Git 的保护性拒绝转换为可执行的用户提示；原始输出只进入详情，不作为摘要。 */
-function classifyGitSwitchFailure(action: ProjectGitSwitchAction, args: string[], error: unknown): Error & { code: string; details?: string } {
+function classifyGitSwitchFailure(action: ProjectGitSwitchAction, args: string[], error: unknown, knownPaths: string[]): Error & { code: string; details?: string } {
   const existing = error as { code?: unknown } | null;
   if (typeof existing?.code === 'string' && existing.code !== 'ASTRAGIT_GIT_COMMAND_FAILED' && existing.code !== 'ASTRAGIT_GIT_LOCAL_CHANGES_BLOCKED') return error as Error & { code: string; details?: string };
   const output = gitErrorOutput(error);
@@ -3227,11 +3895,38 @@ function classifyGitSwitchFailure(action: ProjectGitSwitchAction, args: string[]
   const untrackedFiles = /(?:following )?untracked working tree files would be overwritten by (?:checkout|switch)/iu.test(output);
   if (trackedChanges || untrackedFiles) {
     const kind = trackedChanges && untrackedFiles ? '未提交修改和未跟踪文件' : trackedChanges ? '未提交修改' : '未跟踪文件';
-    return rejected('ASTRAGIT_GIT_CHECKOUT_BLOCKED', `无法切换到${target}：当前工作区的${kind}会被目标内容覆盖。切换未执行；请先提交、贮藏（包含相关未跟踪文件），或检查后放弃/移开相关文件。`, trackedChanges && untrackedFiles ? 'both' : trackedChanges ? 'tracked' : 'untracked');
+    return Object.assign(rejected('ASTRAGIT_GIT_CHECKOUT_BLOCKED', `无法切换到${target}：当前工作区的${kind}会被目标内容覆盖。切换未执行；请先提交、贮藏（包含相关未跟踪文件），或检查后放弃/移开相关文件。`, trackedChanges && untrackedFiles ? 'both' : trackedChanges ? 'tracked' : 'untracked'), gitOverwriteFiles(output, knownPaths));
   }
   if (/invalid reference|invalid branch name|pathspec [^\n]*did not match|not a valid object name/iu.test(output)) return rejected('ASTRAGIT_GIT_BRANCH_NOT_FOUND', `找不到${target}，请刷新分支列表后重试。`);
   return Object.assign(gitCoreError('ASTRAGIT_GIT_SWITCH_FAILED', `切换到${target}未完成，Git 未确认是否修改了工作区。请刷新仓库状态并查看错误详情后再继续。`, details), { command, operationStage: 'command', operationStatus: 'unknown_after_write' });
 }
+
+/** Only read paths from Git's overwrite diagnostic blocks, never arbitrary log lines. */
+function gitOverwriteFiles(output: string, knownPaths: string[]): { affectedFiles: string[]; affectedFileCount: number } {
+  const paths = new Set<string>();
+  const known = new Set(knownPaths);
+  // Some Git versions print these paths verbatim, including embedded newlines.
+  // Prefer the longest canonical status path so a file named "a" is not confused
+  // with a different file named "a\nb". Never offer a path inferred from a log.
+  const names = [...known].sort((a, b) => b.length - a.length);
+  let inFiles = false;
+  for (let offset = 0; offset < output.length;) {
+    const end = output.indexOf('\n', offset);
+    const line = output.slice(offset, end < 0 ? output.length : end);
+    const start = offset;
+    offset = end < 0 ? output.length : end + 1;
+    if (/(?:following files|untracked working tree files) would be overwritten by (?:checkout|switch|merge):\s*$/iu.test(line)) { inFiles = true; continue; }
+    if (!inFiles) continue;
+    if (!line.startsWith('\t')) { inFiles = false; continue; }
+    const literal = names.find(path => output.startsWith(`\t${path}\n`, start));
+    const path = literal ?? decodeGitDiagnosticPath(line.slice(1));
+    if (literal) offset = start + literal.length + 2;
+    if (path && known.has(path) && !path.includes('\0') && !path.startsWith('/') && !path.split('/').includes('..')) paths.add(path);
+  }
+  return { affectedFiles: [...paths].slice(0, 200), affectedFileCount: paths.size };
+}
+
+/** Git C-quotes UTF-8 octets, tabs and newlines even when a filename is valid. */
 
 function gitErrorOutput(error: unknown): string {
   if (!error || typeof error !== 'object') return typeof error === 'string' ? error : 'Git 命令执行失败。';
@@ -3251,8 +3946,9 @@ async function finishProjectGitAction(repositoryPath: string, action: ProjectGit
     nextContext = await getGitRepositoryContext(repositoryPath);
     if (!nextContext.isRepository) throw new Error('Git repository is no longer available.');
     nextStatus = await getGitStatus(repositoryPath);
+    if (!nextStatus.isRepository) throw new Error('Git status could not be read after the action.');
   } catch (error) {
-    throw Object.assign(gitCoreError('ASTRAGIT_GIT_ACTION_STATE_READ_FAILED', 'Git 命令已结束，但读取操作后状态失败。请刷新核对结果，避免重复执行。', [gitErrorOutput(error), output.stdout, output.stderr].filter(Boolean).join('\n')), { operationStage: 'refresh', operationStatus: 'unknown_after_write' });
+    throw Object.assign(gitCoreError('ASTRAGIT_GIT_ACTION_STATE_READ_FAILED', 'Git 命令已结束，但读取操作后状态失败。请刷新核对结果，避免重复执行。', [gitErrorOutput(error), output.stdout, output.stderr].filter(Boolean).join('\n')), { cause: error, operationStage: 'refresh', operationStatus: 'unknown_after_write' });
   }
   return {
     action,
@@ -3294,6 +3990,7 @@ async function executeProjectGitUpdate(repositoryPath: string, strategy: 'merge'
 
 async function runWithSmartStash(repositoryPath: string, label: string, operation: () => Promise<GitRunnerResult>): Promise<GitRunnerResult> {
   const before = await getGitStatus(repositoryPath);
+  if (!before.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '仓库已不可用，请重新载入后再更新。');
   if (before.conflictFiles.length > 0) throw gitCoreError('ASTRAGIT_GIT_CONFLICT_IN_PROGRESS', 'Resolve the current Git conflicts before starting another smart operation.');
   if (before.clean) return operation();
   const message = `AstraGit ${label} ${new Date().toISOString()}`;
@@ -3304,7 +4001,7 @@ async function runWithSmartStash(repositoryPath: string, label: string, operatio
     operated = await operation();
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'Git operation failed.';
-    const operatedStatus = await getGitStatus(repositoryPath).catch(() => emptyGitStatus());
+    const operatedStatus = await readSmartOperationStatus(repositoryPath, stashHash, error);
     if (operatedStatus.conflictFiles.length === 0) {
       try {
         const restoration = await restoreSmartStash(repositoryPath, stashHash);
@@ -3318,7 +4015,7 @@ async function runWithSmartStash(repositoryPath: string, label: string, operatio
     }
     throw Object.assign(gitCoreError('ASTRAGIT_GIT_SMART_OPERATION_FAILED_STASH_PRESERVED', `更新未完成；先前修改仍保存在贮藏 ${stashHash.slice(0, 8)}，请先处理当前冲突。`, gitErrorOutput(error)), { cause: error, operationStage: 'integration', operationStatus: 'unknown_after_write', savedStash: stashHash });
   }
-  const operatedStatus = await getGitStatus(repositoryPath);
+  const operatedStatus = await readSmartOperationStatus(repositoryPath, stashHash);
   if (operatedStatus.conflictFiles.length > 0) {
     return combineGitRunnerResults(saved, operated, {
       stdout: '',
@@ -3341,9 +4038,20 @@ async function runWithSmartStash(repositoryPath: string, label: string, operatio
   return combineGitRunnerResults(saved, operated, restoration.output);
 }
 
+async function readSmartOperationStatus(repositoryPath: string, stashHash: string, operationError?: unknown): Promise<GitStatusSummary> {
+  try {
+    const status = await getGitStatus(repositoryPath);
+    if (!status.isRepository) throw gitCoreError('ASTRAGIT_GIT_STATE_READ_FAILED', '更新后仓库已不可用。');
+    return status;
+  } catch (error) {
+    throw Object.assign(gitCoreError('ASTRAGIT_GIT_SMART_STATUS_UNCONFIRMED', `更新后未能核实仓库状态，先前本地修改保存在贮藏 ${stashHash.slice(0, 8)}。请刷新并核对；本次没有继续自动恢复或删除贮藏。`, [operationError ? gitErrorOutput(operationError) : '', gitErrorOutput(error)].filter(Boolean).join('\n')), { cause: error, operationStage: 'refresh', operationStatus: 'unknown_after_write', savedStash: stashHash });
+  }
+}
+
 async function restoreSmartStash(repositoryPath: string, stashHash: string): Promise<{ output: GitRunnerResult; conflict: boolean }> {
   const restored = await runGitPreservingConflict(repositoryPath, ['stash', 'apply', '--index', stashHash]);
   const restoredStatus = await getGitStatus(repositoryPath);
+  if (!restoredStatus.isRepository) throw gitCoreError('ASTRAGIT_GIT_STATE_READ_FAILED', '恢复命令已结束，但仓库状态不可读，未删除贮藏。');
   if (restoredStatus.conflictFiles.length > 0) return { output: restored, conflict: true };
   const stashList = await readGitStdout(repositoryPath, ['stash', 'list', '--format=%gd%x1f%H']);
   const stashRef = splitLines(stashList)
@@ -3389,27 +4097,30 @@ export async function getProjectGitCommitDetail(cwd: string, commitHash: string)
   const requestedRevision = commitHash.trim();
   const stashRef = /^stash@\{\d+\}$/u.test(requestedRevision) ? requireStashRef(requestedRevision) : null;
   const commit = await resolveCommit(context.topLevel, stashRef ?? requestedRevision);
-  const [metadata, numstat, diffText] = await Promise.all([
-    requireGitStdout(context.topLevel, ['-c', 'core.quotePath=false', 'show', '-s', '--date=iso-strict', '--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%P%x1f%B', commit]),
-    stashRef
-      ? requireGitStdout(context.topLevel, ['-c', 'core.quotePath=false', 'stash', 'show', '--include-untracked', '--numstat', stashRef])
-      : readGitStdout(context.topLevel, ['-c', 'core.quotePath=false', 'show', '--format=', '--numstat', commit]),
-    stashRef
-      ? requireGitStdout(context.topLevel, ['-c', 'core.quotePath=false', 'stash', 'show', '--include-untracked', '--patch', '--no-ext-diff', '--find-renames', stashRef])
-      : readGitStdout(context.topLevel, ['-c', 'core.quotePath=false', 'show', '--format=', '--no-ext-diff', '--find-renames', commit]),
+  const reader = gitDiffReader(context.topLevel, fileHistoryRuntime());
+  const [rawMetadata, numstat] = await Promise.all([
+    readGitDiffMetadata(reader, ['show', '-s', '--date=iso-strict', '--format=%H%x00%h%x00%s%x00%an%x00%aI%x00%P%x00%B%x00', commit]),
+    readGitDiffMetadata(reader, stashRef
+      ? ['stash', 'show', '--include-untracked', ...gitDisplayDiffMetadataOptions, '--numstat', '-z', commit]
+      : ['show', '--format=', ...gitDisplayDiffMetadataOptions, '--diff-merges=first-parent', '--numstat', '-z', commit]),
   ]);
-  const [hash = commit, shortHash = commit.slice(0, 8), subject = '', author = '', authoredAt = '', parents = '', ...bodyParts] = metadata.split('\x1f');
-  const files = splitLines(numstat).flatMap((line) => {
-    const [added = '', deleted = '', path = ''] = line.split('\t');
-    if (!path) return [];
-    return [{ path, additions: added === '-' ? 0 : Number.parseInt(added, 10) || 0, deletions: deleted === '-' ? 0 : Number.parseInt(deleted, 10) || 0 }];
-  });
+  // The trailing record separator is followed by show's output newline, not part of the message.
+  const metadata = rawMetadata.replace(/\r?\n$/u, '');
+  const fields = metadata.split('\0');
+  if (fields.length !== 8) throw gitCoreError('ASTRAGIT_GIT_DIFF_READ_FAILED', '无法完整读取提交元数据，请重新读取。');
+  const [hash = commit, shortHash = commit.slice(0, 8), subject = '', author = '', authoredAt = '', parents = '', fullMessage = ''] = fields;
+  const files = parseGitNumStat(numstat, true);
+  const diff = await readGitDisplayDiff(reader, stashRef
+    ? ['stash', 'show', '--include-untracked', '--patch', ...gitDisplayDiffOptions, commit]
+    : ['show', '--format=', ...gitDisplayDiffOptions, '--diff-merges=first-parent', commit], files.map(file => file.path));
+  if (!stashRef && parents.split(' ').filter(Boolean).length > 1) diff.comparisonParent = parents.split(' ')[0];
   return {
     commit: { hash, shortHash, subject, author, authoredAt, parentHashes: splitLines(parents.replace(/\s+/gu, '\n')) },
-    body: bodyParts.join('\x1f').trim(),
+    body: fullMessage.trim(),
+    fullMessage,
     parentHashes: splitLines(parents.replace(/\s+/gu, '\n')),
     files,
-    diff: { isRepository: true, files: files.map((file) => file.path), diffText, fileDiffs: parseGitUnifiedDiff(diffText) },
+    diff,
   };
 }
 
@@ -3418,9 +4129,23 @@ export async function getProjectGitComparisonDiff(cwd: string, branchName: strin
   const context = await getGitRepositoryContext(cwd);
   if (!context.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', 'The selected directory is not a Git repository.');
   const revision = await resolveCommit(context.topLevel, branchName);
-  const args =
-    mode === 'working-tree' ? ['-c', 'core.quotePath=false', 'diff', '--no-ext-diff', '--find-renames', revision, '--', '.'] : ['-c', 'core.quotePath=false', 'diff', '--no-ext-diff', '--find-renames', `${revision}..HEAD`, '--', '.'];
-  return diffSummaryFromText(await readGitStdout(context.topLevel, args));
+  const reader = gitDiffReader(context.topLevel, fileHistoryRuntime());
+  const scope = mode === 'working-tree' ? [revision] : [revision, await resolveCommit(context.topLevel, 'HEAD')];
+  const names = await readGitDiffMetadata(reader, ['diff', ...gitDisplayDiffMetadataOptions, '--name-only', '-z', ...scope, '--', '.']);
+  return readGitDisplayDiff(reader, ['diff', ...gitDisplayDiffOptions, ...scope, '--', '.'], splitNullRecords(names));
+}
+
+/** Compare two selected commits directly, never via HEAD or their merge base. */
+export async function getProjectGitRevisionsDiff(cwd: string, revisions: [string, string], signal?: AbortSignal): Promise<GitRevisionComparison> {
+  if (!Array.isArray(revisions) || revisions.length !== 2 || revisions.some(ref => typeof ref !== 'string' || !ref || ref.length > 4096 || ref.includes('\0'))) throw gitCoreError('ASTRAGIT_GIT_COMPARISON_INVALID', '请选择两个有效提交进行比较。');
+  const reader = gitDiffReader(cwd, fileHistoryRuntime(signal));
+  await reader.initialize();
+  const fixed = await Promise.all(revisions.map(ref => reader.revision(ref))) as [string, string];
+  if (fixed.some(ref => !ref)) throw gitCoreError('ASTRAGIT_GIT_COMPARISON_INVALID', '所选版本还没有提交，无法进行两提交比较。');
+  const numstat = await readGitDiffMetadata(reader, ['diff', ...gitDisplayDiffMetadataOptions, '--numstat', '-z', ...fixed, '--', '.']);
+  const files = parseGitNumStat(numstat, true);
+  const diff = await readGitDisplayDiff(reader, ['diff', ...gitDisplayDiffOptions, ...fixed, '--', '.'], files.map(file => file.path));
+  return { revisions: fixed, files, diff };
 }
 
 /** 读取文件当前版本的逐行归属；只读命令不修改工作区、索引或引用。 */
@@ -3557,16 +4282,23 @@ function parseProjectGitStashes(stdout: string): ProjectGitStashEntry[] {
 function parseProjectGitBranchTracking(stdout: string): {
   upstreams: Record<string, string>;
   divergences: Record<string, { ahead: number; behind: number }>;
+  upstreamRefs: Record<string, string>;
+  localHeads: Record<string, string>;
+  remoteHeads: Record<string, string>;
 } {
   const rows = splitLines(stdout).map((line) => {
-    const [branch = '', upstream = '', track = ''] = line.split('\t');
+    const [branch = '', upstream = '', track = '', head = '', upstreamRef = '', ref = '', symbolic = ''] = line.split('\t');
     const ahead = Number.parseInt(track.match(/\bahead (\d+)\b/u)?.[1] ?? '0', 10) || 0;
     const behind = Number.parseInt(track.match(/\bbehind (\d+)\b/u)?.[1] ?? '0', 10) || 0;
-    return { branch, upstream, ahead, behind };
+    return { branch, upstream, ahead, behind, head, upstreamRef, ref, symbolic };
   });
+  const local = rows.filter(row => row.ref.startsWith('refs/heads/'));
   return {
-    upstreams: Object.fromEntries(rows.filter((row) => row.branch).map((row) => [row.branch, row.upstream])),
-    divergences: Object.fromEntries(rows.filter((row) => row.branch && row.upstream).map((row) => [row.branch, { ahead: row.ahead, behind: row.behind }])),
+    upstreams: Object.fromEntries(local.map(row => [row.ref.slice(11), row.upstream])),
+    divergences: Object.fromEntries(local.filter(row => row.upstream).map(row => [row.ref.slice(11), { ahead: row.ahead, behind: row.behind }])),
+    upstreamRefs: Object.fromEntries(local.map(row => [row.ref.slice(11), row.upstreamRef])),
+    localHeads: Object.fromEntries(local.filter(row => /^[a-f0-9]{40,64}$/u.test(row.head)).map(row => [row.ref.slice(11), row.head])),
+    remoteHeads: Object.fromEntries(rows.filter(row => row.ref.startsWith('refs/remotes/') && !(row.symbolic && row.ref.endsWith('/HEAD')) && /^[a-f0-9]{40,64}$/u.test(row.head)).map(row => [row.ref.slice(13), row.head])),
   };
 }
 
@@ -3698,8 +4430,12 @@ function classifyGitFileStatus(indexStatus: string, workingTreeStatus: string): 
 }
 
 async function readGitStdout(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
+  return (await readGitRawStdout(cwd, args, env)).trim();
+}
+
+async function readGitRawStdout(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
   try {
-    return (await execFileAsync('git', args, { cwd, env, timeout: 30_000, maxBuffer: 20 * 1024 * 1024 })).stdout.trim();
+    return (await execFileAsync('git', args, { cwd, env, timeout: 30_000, maxBuffer: 20 * 1024 * 1024 })).stdout;
   } catch {
     return '';
   }
@@ -3729,187 +4465,22 @@ function emptyGitStatus(): GitStatusSummary {
 
 /** 只读获取当前工作区 diff；不执行 add、commit、checkout、stash 等写操作。 */
 export async function getGitDiff(cwd: string): Promise<GitDiffSummary> {
-  try {
-    await execFileAsync('git', ['rev-parse', '--is-inside-work-tree'], { cwd });
-    const names = (await execFileAsync('git', ['-c', 'core.quotePath=false', 'diff', '--name-only'], { cwd })).stdout.trim();
-    const stagedNames = (await execFileAsync('git', ['-c', 'core.quotePath=false', 'diff', '--cached', '--name-only'], { cwd })).stdout.trim();
-    const porcelain = (await execFileAsync('git', ['status', '--porcelain', '-z', '--untracked-files=all'], { cwd })).stdout;
-    const untrackedPaths = parseGitPorcelainStatus(porcelain)
-      .fileStatuses.filter((file) => file.indexStatus === '?')
-      .map((file) => file.path);
-    const diffText = (
-      await execFileAsync('git', ['-c', 'core.quotePath=false', 'diff', '--submodule=short', '--', '.'], {
-        cwd,
-        maxBuffer: 10 * 1024 * 1024,
-      })
-    ).stdout;
-    const stagedDiffText = (
-      await execFileAsync('git', ['-c', 'core.quotePath=false', 'diff', '--cached', '--submodule=short', '--', '.'], {
-        cwd,
-        maxBuffer: 10 * 1024 * 1024,
-      })
-    ).stdout;
-    const untrackedDiffs: string[] = [];
-    for (const path of untrackedPaths.slice(0, 200)) {
-      untrackedDiffs.push(await readGitDiffAllowChanges(cwd, ['-c', 'core.quotePath=false', 'diff', '--no-index', '--', '/dev/null', path]));
-    }
-    const combinedDiffText = [diffText, stagedDiffText, ...untrackedDiffs].filter(Boolean).join('\n');
-    return {
-      isRepository: true,
-      files: Array.from(new Set([...splitLines(names), ...splitLines(stagedNames), ...untrackedPaths])),
-      diffText: combinedDiffText,
-      fileDiffs: parseGitUnifiedDiff(combinedDiffText),
-    };
-  } catch {
-    return { isRepository: false, files: [], diffText: '', fileDiffs: [] };
-  }
-}
-
-/** 将 unified diff 解析成文件、hunk 和行级记录；该函数只解析文本，不执行任何 Git 写操作。 */
-export function parseGitUnifiedDiff(diffText: string): GitFileDiff[] {
-  const files: GitFileDiff[] = [];
-  let currentFile: GitFileDiff | undefined;
-  let currentHunk: GitDiffHunk | undefined;
-  let oldLine = 0;
-  let newLine = 0;
-
-  for (const line of diffText.split('\n')) {
-    if (line.startsWith('diff --git ')) {
-      currentFile = createFileDiffFromHeader(line);
-      files.push(currentFile);
-      currentHunk = undefined;
-      continue;
-    }
-    if (!currentFile) continue;
-
-    if (line.startsWith('rename from ')) {
-      currentFile.oldPath = stripDiffPathPrefix(line.slice('rename from '.length));
-      currentFile.changeType = 'renamed';
-      continue;
-    }
-    if (line.startsWith('rename to ')) {
-      currentFile.newPath = stripDiffPathPrefix(line.slice('rename to '.length));
-      currentFile.changeType = 'renamed';
-      continue;
-    }
-    if (line.startsWith('new file mode ')) {
-      currentFile.changeType = 'added';
-      if (line.endsWith(' 160000')) currentFile.isSubmodule = true;
-      continue;
-    }
-    if (line.startsWith('deleted file mode ')) {
-      currentFile.changeType = 'deleted';
-      if (line.endsWith(' 160000')) currentFile.isSubmodule = true;
-      continue;
-    }
-    if (line.startsWith('index ') && / 160000$/u.test(line)) {
-      currentFile.isSubmodule = true;
-      continue;
-    }
-    if (line.startsWith('copy from ') || line.startsWith('copy to ')) {
-      currentFile.changeType = 'copied';
-      continue;
-    }
-    if (line.startsWith('--- ')) {
-      const path = parseDiffMarkerPath(line.slice(4));
-      if (path && path !== '/dev/null') currentFile.oldPath = path;
-      continue;
-    }
-    if (line.startsWith('+++ ')) {
-      const path = parseDiffMarkerPath(line.slice(4));
-      if (path && path !== '/dev/null') currentFile.newPath = path;
-      if (path === '/dev/null') currentFile.changeType = 'deleted';
-      continue;
-    }
-    if (line.startsWith('@@ ')) {
-      currentHunk = parseGitDiffHunkHeader(line);
-      currentFile.hunks.push(currentHunk);
-      oldLine = currentHunk.oldStart;
-      newLine = currentHunk.newStart;
-      continue;
-    }
-    if (!currentHunk) continue;
-
-    if (line.startsWith('+') && !line.startsWith('+++')) {
-      currentHunk.lines.push({
-        type: 'addition',
-        content: line.slice(1),
-        oldLineNumber: null,
-        newLineNumber: newLine,
-      });
-      currentFile.addedLines += 1;
-      newLine += 1;
-      continue;
-    }
-    if (line.startsWith('-') && !line.startsWith('---')) {
-      currentHunk.lines.push({
-        type: 'deletion',
-        content: line.slice(1),
-        oldLineNumber: oldLine,
-        newLineNumber: null,
-      });
-      currentFile.deletedLines += 1;
-      oldLine += 1;
-      continue;
-    }
-    if (line.startsWith(' ')) {
-      currentHunk.lines.push({
-        type: 'context',
-        content: line.slice(1),
-        oldLineNumber: oldLine,
-        newLineNumber: newLine,
-      });
-      oldLine += 1;
-      newLine += 1;
-      continue;
-    }
-    if (line.startsWith('\\')) {
-      currentHunk.lines.push({
-        type: 'metadata',
-        content: line,
-        oldLineNumber: null,
-        newLineNumber: null,
-      });
-    }
-  }
-
-  return files;
-}
-
-function createFileDiffFromHeader(header: string): GitFileDiff {
-  const match = /^diff --git a\/(.+) b\/(.+)$/u.exec(header);
-  return {
-    oldPath: match?.[1] ?? '',
-    newPath: match?.[2] ?? '',
-    changeType: 'modified',
-    addedLines: 0,
-    deletedLines: 0,
-    hunks: [],
-  };
-}
-
-function parseGitDiffHunkHeader(header: string): GitDiffHunk {
-  const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/u.exec(header);
-  return {
-    header,
-    oldStart: Number(match?.[1] ?? 0),
-    oldLines: Number(match?.[2] ?? 1),
-    newStart: Number(match?.[3] ?? 0),
-    newLines: Number(match?.[4] ?? 1),
-    lines: [],
-  };
-}
-
-function parseDiffMarkerPath(value: string): string {
-  return value === '/dev/null' ? value : stripDiffPathPrefix(value);
-}
-
-function stripDiffPathPrefix(value: string): string {
-  return value.replace(/^[ab]\//u, '');
+  return (await readWorkspaceGitDiffs(cwd, parseGitPorcelainStatus, fileHistoryRuntime()))?.diff
+    ?? { isRepository: false, files: [], diffText: '', fileDiffs: [] };
 }
 
 /** 基于只读 diff 构造 patch 导出负载；不执行任何 Git 写操作。 */
 export function buildGitPatchExport(diff: GitDiffSummary, createdAt = new Date().toISOString()): GitPatchExport {
+  if (diff.unavailableReason) throw gitCoreError('ASTRAGIT_GIT_DIFF_INCOMPLETE', '差异未完整读取，不能导出补丁。请缩小到所需文件并重新读取，或使用外部 Git 工具导出。');
+  const targets = new Set<string>();
+  const stagesByPath = new Map<string, NonNullable<GitFileDiff['stage']>>();
+  for (const file of diff.fileDiffs) {
+    const target = file.newPath || file.oldPath;
+    const mixed = targets.has(target) || (file.stage && [file.oldPath, file.newPath].filter(Boolean).some(path => stagesByPath.has(path) && stagesByPath.get(path) !== file.stage));
+    if (mixed) throw gitCoreError('ASTRAGIT_GIT_DIFF_MIXED_STAGES', '同一文件包含不同暂存阶段的差异，不能直接拼接导出。请在补丁导出中明确选择已暂存、未暂存或工作区范围。');
+    targets.add(target);
+    if (file.stage) for (const path of [file.oldPath, file.newPath].filter(Boolean)) stagesByPath.set(path, file.stage);
+  }
   const timestamp = createdAt.replace(/[^0-9A-Za-z]/g, '-');
   return {
     fileName: `astragit-diff-${timestamp}.patch`,
@@ -3974,8 +4545,10 @@ export async function getGitFilePreviewSources(
     comparisonMode?: 'current' | 'working-tree';
     /** 已确认的任务分支两端。 */
     revisions?: [string, string];
+    allowSpecial?: boolean;
+    stashUntracked?: boolean;
   },
-): Promise<Array<{ name: string; label: string; root?: string; path?: string; blob?: string; reason?: string }>> {
+): Promise<Array<{ name: string; label: string; root?: string; path?: string; blob?: string; inline?: string; missing?: boolean; mode?: string; reason?: string }>> {
   /** 路径沿用工作区校验，Git 管理目录不作为用户文件开放。 */
   const path = requireSafeWorkspacePath(input.path);
   if (path.split('/').includes('.git')) throw new Error('不能预览 Git 管理目录。');
@@ -3992,7 +4565,7 @@ export async function getGitFilePreviewSources(
   } else if (input.commitHash) {
     after = await resolveCommit(cwd, input.commitHash);
     before = (await readGitStdout(cwd, ['rev-parse', '--verify', `${after}^1`])) || null;
-    if (/^stash@\{\d+\}$/u.test(input.commitHash)) untrackedTree = (await readGitStdout(cwd, ['rev-parse', '--verify', `${after}^3`])) || null;
+    if (input.stashUntracked || /^stash@\{\d+\}$/u.test(input.commitHash)) untrackedTree = (await readGitStdout(cwd, ['rev-parse', '--verify', `${after}^3`])) || null;
   } else if (input.comparisonRef) {
     before = await resolveCommit(cwd, input.comparisonRef);
     after = input.comparisonMode === 'working-tree' ? 'worktree' : head;
@@ -4026,13 +4599,14 @@ export async function getGitFilePreviewSources(
   /** 使用 Git 树记录获取对象，拒绝符号链接和子模块作为普通文件解码。 */
   async function side(revision: string | null, name: string, prefix: string, fallback?: string | null) {
     const label = `${prefix} · ${revision === 'worktree' ? '工作区' : revision === 'index' ? '暂存区' : (revision?.slice(0, 12) ?? '不存在')}`;
-    if (!revision) return { name, label, reason: '此版本中不存在该文件。' };
+    if (!revision) return { name, label, missing: true, reason: '此版本中不存在该文件。' };
     if (revision === 'worktree') return { name, label, root: cwd, path: resolve(cwd, requireSafeWorkspacePath(name)) };
     const output = revision === 'index' ? (await runGit(cwd, ['ls-files', '--stage', '-z', '--', `:(literal)${name}`])).stdout : (await runGit(cwd, ['ls-tree', '-z', revision, '--', `:(literal)${name}`])).stdout;
     const entry = output.split('\0').find((item) => item.slice(item.indexOf('\t') + 1) === name);
-    const match = entry?.match(/^(100[0-7]{3}) (?:blob )?([a-f0-9]{40,64})(?: 0)?\t/u);
+    const match = entry?.match(input.allowSpecial ? /^(100[0-7]{3}|120000|160000) (?:(?:blob|commit) )?([a-f0-9]{40,64})(?: 0)?\t/u : /^(100[0-7]{3}) (?:blob )?([a-f0-9]{40,64})(?: 0)?\t/u);
     if (!match && !entry && fallback) return side(fallback, name, prefix);
-    return match ? { name, label, root: cwd, blob: match[2] } : { name, label, reason: entry ? '符号链接、冲突索引或子模块不能作为普通文件预览。' : '此版本中不存在该文件。' };
+    if (match?.[1] === '160000') return { name, label, mode: '160000', inline: `Subproject commit ${match[2]}\n` };
+    return match ? { name, label, root: cwd, blob: match[2], mode: match[1] } : { name, label, missing: !entry, reason: entry ? '符号链接、冲突索引或子模块不能作为普通文件预览。' : '此版本中不存在该文件。' };
   }
   return Promise.all([side(before, oldPath, '变更前'), side(after, newPath, '变更后', untrackedTree)]);
 }

@@ -1,0 +1,17 @@
+.git-commit-replay-dialog { display:flex; flex-direction:column; width:min(720px,calc(100vw - 40px)); max-height:calc(100vh - 64px); min-height:0; background:var(--zeus-product-panel); border:1px solid var(--zeus-product-line); border-radius:12px; color:var(--zeus-product-text); box-shadow:0 20px 70px #18203b33; }
+.git-commit-replay-dialog>header,.git-commit-replay-dialog>footer { display:flex; flex:none; align-items:center; gap:10px; padding:14px 18px; }
+.git-commit-replay-dialog>header { border-bottom:1px solid var(--zeus-product-line); }
+.git-commit-replay-dialog>header>strong { flex:1; }
+.git-commit-replay-dialog>footer { border-top:1px solid var(--zeus-product-line); justify-content:flex-end; flex-wrap:wrap; }
+.git-commit-replay-body { display:grid; gap:14px; min-height:0; overflow:auto; padding:18px; }
+.git-commit-replay-body p { margin:0; color:var(--zeus-product-muted); font-size:12px; line-height:1.6; }
+.git-commit-replay-body label { display:grid; gap:7px; }
+.git-commit-replay-body label.git-commit-replay-checkbox { display:flex; align-items:center; gap:8px; }
+.git-commit-replay-body select { width:100%; min-width:0; }
+.git-commit-replay-source { display:grid; gap:7px; min-width:0; padding:12px; border-radius:7px; background:var(--zeus-product-panel-muted); }
+.git-commit-replay-source code { overflow-wrap:anywhere; font-size:11px; user-select:text; }
+.git-commit-replay-source span { font-size:12px; color:var(--zeus-product-muted); }
+.git-commit-replay-body ul { display:grid; gap:5px; padding-left:20px; font-size:12px; }
+.git-commit-replay-body li { overflow-wrap:anywhere; }
+.git-commit-replay-body li small { margin-left:10px; white-space:nowrap; color:var(--zeus-product-muted); }
+.git-commit-replay-body .git-commit-replay-warning { color:#a76128; }

@@ -5,6 +5,7 @@ import { ArtifactStore, CommandDeliveryRepository, CommandDeliveryStoreError, ty
 import { createCommandValidation } from './commandApplicationPrimitives.js';
 
 export const gitCommandTypes = {
+  workbenchAction: 'git.workbench.repository.action',
   confirmationCreate: 'git.confirmation.create',
   confirmationConfirm: 'git.confirmation.confirm',
   confirmationReject: 'git.confirmation.reject',
@@ -113,7 +114,9 @@ export class GitCommandApplication {
     invoke(): Promise<TResult>;
     mutateAcceptedBusinessState(result: TResult): void;
   }): Promise<GitCommandMutationResult<TResult>> {
-    const activeKey = [input.parsed.command.commandId, input.parsed.command.commandType, input.parsed.command.scope.kind, input.parsed.command.scope.id, input.parsed.inputSha256, input.parsed.operationIdentity].join(':');
+    // Coalesce only the exact addressed delivery. A reused command ID with a
+    // different actor, envelope or destination must reach durable validation.
+    const activeKey = JSON.stringify([canonicalCommandInputJson(input.parsed.command), input.parsed.inputSha256, input.parsed.operationIdentity, input.destinationId, input.resourceId, input.externalOperationId]);
     const active = this.activeExternalExecutions.get(activeKey);
     if (active) return active as Promise<GitCommandMutationResult<TResult>>;
     const execution = this.executeExternalOnce(input).finally(() => this.activeExternalExecutions.delete(activeKey));
@@ -212,6 +215,7 @@ export class GitCommandApplication {
       if (!isCommandDeliveryStoreError(error) || error.code !== 'ASTRAGIT_COMMAND_DELIVERY_REPLAY_BLOCKED') throw error;
       const latest = this.options.deliveries.get(input.parsed.command.commandId)?.attempts.at(-1);
       if (!latest?.receipt || latest.outcome !== 'accepted') throw error;
+      if (latest.destinationKind !== 'external_operation' || latest.destinationId !== input.destinationId || latest.resourceId !== input.resourceId || latest.externalOperationId !== input.externalOperationId) throw new GitCommandApplicationError('ASTRAGIT_COMMAND_INVALID', 'Git 命令已绑定其他目的地或资源，不能在此处重放。请重新核对操作目标。', 409, true);
       return { state: 'accepted_replay', parsed: input.parsed, outbox: latest, receipt: latest.receipt };
     }
   }

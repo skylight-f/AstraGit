@@ -838,21 +838,22 @@ body {
 }
 
 .gitapp-diff-dialog > .project-git-diff-window {
-  display: block;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   min-width: 0;
   min-height: 0;
-  height: 100%;
+  height: auto;
   flex: 1 1 auto;
   overflow: hidden;
 }
 
-.gitapp-diff-dialog .project-git-diff-window-layout,
 .gitapp-diff-dialog .project-git-diff-window-layout > .project-git-diff-preview {
   height: 100%;
 }
 
 .gitapp-diff-dialog .project-git-diff-window-layout {
+  height: auto;
   grid-template-columns: 220px minmax(0, 1fr);
 }
 
@@ -880,3 +881,23 @@ body {
     display: none !important;
   }
 }
+.repository-setup-tabs { display:flex; gap:8px; margin:0 0 14px; flex-wrap:wrap; }
+.repository-setup-tabs button { padding:8px 14px; border:1px solid var(--ag-line); border-radius:8px; background:var(--ag-panel); color:var(--ag-ink); font:inherit; cursor:pointer; }
+.repository-setup-tabs button[aria-pressed=true] { background:var(--ag-accent-soft); color:var(--ag-accent); border-color:var(--ag-accent); }
+.repository-setup { border:1px solid var(--ag-line); border-radius:12px; padding:20px; background:var(--ag-panel); margin-bottom:24px; }
+.repository-setup fieldset { display:grid; gap:14px; border:0; padding:0; margin:0; min-width:0; }
+.repository-setup legend { font-size:16px; font-weight:650; margin-bottom:14px; }
+.repository-setup label { display:grid; gap:6px; font-size:12px; min-width:0; }
+.repository-setup input:not([type=checkbox]) { min-width:0; width:100%; box-sizing:border-box; height:36px; padding:6px 10px; border:1px solid var(--ag-line); border-radius:7px; font:inherit; background:var(--ag-panel); color:var(--ag-ink); }
+.repository-setup .repository-setup-check { display:flex; align-items:center; gap:8px; }
+.repository-setup-check input { accent-color:var(--ag-accent); }
+.repository-setup small,.repository-setup-progress p { color:var(--ag-muted); line-height:1.5; overflow-wrap:anywhere; }
+.repository-setup-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.repository-setup details { display:grid; gap:8px; }
+.repository-setup details label { margin-top:10px; }
+.repository-setup summary { cursor:pointer; font-size:12px; }
+.repository-setup fieldset > button { justify-self:start; }
+.repository-setup-progress { margin-top:18px; border-top:1px solid var(--ag-line); padding-top:16px; font-size:12px; }
+.repository-setup-progress pre { max-height:200px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:var(--ag-bg); padding:12px; border-radius:7px; font:11px/1.5 ui-monospace,monospace; }
+.repository-setup-progress > div { display:flex; gap:8px; flex-wrap:wrap; }
+@media(max-width:650px) { .repository-setup-grid { grid-template-columns:1fr; } }

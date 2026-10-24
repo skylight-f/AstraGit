@@ -62,6 +62,10 @@ import type { GitApiClient } from './features/git/gitApiClient.js';
 
 /** 工作台所需 DashboardClient 能力子集；独立应用不组合全站 client。 */
 export interface DashboardClient extends GitApiClient {
+  startRepositorySetup(input: import('@astragit/shared').RepositorySetupInput): Promise<import('@astragit/shared').RepositorySetupJob>;
+  loadRepositorySetup(id: string): Promise<import('@astragit/shared').RepositorySetupJob>;
+  loadRepositorySetups(): Promise<import('@astragit/shared').RepositorySetupJob[]>;
+  cancelRepositorySetup(id: string): Promise<import('@astragit/shared').RepositorySetupJob>;
   loadProjects(): Promise<GitAppProject[]>;
   createProject(input: { name?: string; localPath: string }): Promise<GitAppProject>;
   removeProject(projectId: string): Promise<{ ok: boolean }>;

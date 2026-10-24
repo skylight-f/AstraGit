@@ -5,6 +5,22 @@ adapter were extracted from Zeus on 2026-10-09, under Apache-2.0. Their package
 scope, application identity, and composition have been adapted for AstraGit.
 See `LICENSE`. These are local source files; no Zeus checkout is required.
 
+## Git Flow AVH 1.12.3
+
+Source: https://github.com/petervanderdoes/gitflow-avh/tree/1.12.3
+
+The readable shell sources are included in `vendor/git-flow-avh` and distributed
+as `Contents/Resources/git-flow-avh` in the macOS application. The complete
+upstream `LICENSE` is included there, covering the BSD licenses of Peter van der
+Does and Vincent Driessen and the LGPL-2.1 license of gitflow-shFlags. Original
+copyright and license headers are retained in every source file.
+
+AstraGit's 2026-10-23 adaptation pins the feature-finish recursive rebase call
+to the bundled launcher. The source location, upstream archive checksum,
+upstream file checksums, shipped file checksums and adaptation are recorded
+in `manifest.json`. The distributed scripts remain directly readable and
+replaceable. No binary-only copy of this tool is distributed.
+
 The JSON snapshots in `packages/ai-runtime/src/catalogs` and thinking-level
 selection in `catalogModel.ts` are derived from `@earendil-works/pi-ai` 0.87.1.
 Only the model fields used by AstraGit are retained. These snapshots describe

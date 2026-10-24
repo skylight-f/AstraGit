@@ -1,14 +1,62 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
+import type { Writable } from 'node:stream';
 import {
+  getProjectGitStagePreview, parseGitStagePreviewInput, parseGitLargeFileReview,
+  getProjectGitLineDiff, parseGitLineDiffInput, parseGitLineChange,
+  getProjectGitLfsState, getProjectGitLfsPreview, parseGitLfsChange,
+  getProjectGitFlowState, getProjectGitFlowPreview, parseGitFlowChange,
   discoverGitRepositories,
+  getProjectGitExternalToolSettings,
+  getProjectGitExternalToolPreview,
+  parseGitExternalToolInput,
+  parseGitExternalToolConfiguration,
+  getProjectGitSubmodules,
+  getProjectGitSubmodulePreview,
+  parseGitSubmoduleChange,
   executeProjectGitAction,
   getProjectGitCommitDetail,
   getProjectGitComparisonDiff,
+  getProjectGitRevisionsDiff,
+  getProjectGitArchivePreview, writeProjectGitArchive, getProjectGitCommitReplayPreview, parseGitCommitReplayInput,
+  getProjectGitCommitReplaySeriesPreview, parseGitCommitReplaySeriesInput,
   getProjectGitHistory,
+  getProjectGitHistorySearchScope,
+  queryProjectGitHistoryScope,
+  validateHistorySearch,
+  type GitHistorySearchQuery,
+  type GitHistorySearchScope,
+  type GitHistorySearchPage,
+  getProjectGitTrackedFiles,
+  getProjectGitFileHistory,
+  getProjectGitFileRevision,
+  getProjectGitPatchPreview,
+  getProjectGitPatchExport,
+  getProjectGitMailboxPreview,
+  getProjectGitTags,
+  getProjectGitTagTarget,
+  type GitTagQuery,
+  type GitPatchInput,
+  type GitPatchExportInput,
+  type GitTrackedFileQuery,
+  type GitFileHistoryQuery,
+  type GitFileRevisionQuery,
   getProjectGitRepositorySnapshot,
+  getProjectGitRepositorySettings,
+  getProjectGitCommitTemplate,
+  parseGitCommitTemplateChange,
+  getProjectGitResetPreview,
+  getProjectGitSkipPreview,
+  getProjectGitIgnorePreview,
+  getProjectGitFileLocation,
+  getProjectGitStopTrackingPreview,
+  getProjectGitIgnoredFiles,
+  getProjectGitInteractiveRebasePreview,
+  type GitIgnoredQuery,
+  type GitIgnoreScope,
+  type GitResetMode,
   readProjectGitConflict,
   saveProjectGitConflict,
   redactGitOutput,
@@ -71,6 +119,8 @@ interface ResolvedProjectGitRepository {
 /** 工作台服务：只从简化项目列表解析可信路径，再发现仓库。 */
 export class ProjectGitWorkbenchService {
   private readonly activeRepositories = new Map<string, AbortController>();
+  private readonly readQueries = new Set<AbortController>();
+  private readonly historyScopes = new Map<string, { scope: GitHistorySearchScope; identity: string; lastRead: number }>();
 
   constructor(private readonly projects: ProjectStore, private readonly operations: OperationHistoryStore) {}
 
@@ -96,6 +146,185 @@ export class ProjectGitWorkbenchService {
     return getProjectGitHistory(resolved.repository.localPath, offset, ref);
   }
 
+  async searchHistory(projectId: string, repositoryId: string, query: GitHistorySearchQuery, signal?: AbortSignal): Promise<GitHistorySearchPage> {
+    const settings = validateHistorySearch(query);
+    return this.withReadQuery(signal, async combined => {
+      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
+      const identity = JSON.stringify([projectId, repositoryId, resolved.repository.localPath, settings]);
+      for (const [id, entry] of this.historyScopes) if (Date.now() - entry.lastRead > 30 * 60_000) this.historyScopes.delete(id);
+      const [existing, position] = query.cursor?.split(':') ?? [];
+      const offset = position === undefined ? 0 : Number(position);
+      if (!Number.isSafeInteger(offset) || offset < 0 || offset > 2_147_483_000) throw projectGitError('ASTRAGIT_GIT_HISTORY_QUERY_INVALID', '历史分页位置无效。');
+      const id = existing ?? randomUUID();
+      let entry = existing ? this.historyScopes.get(existing) : undefined;
+      if (existing && (!entry || entry.identity !== identity)) throw projectGitError('ASTRAGIT_GIT_HISTORY_QUERY_EXPIRED', '历史查询已过期或范围变化，请重新载入。');
+      if (!entry) {
+        entry = { scope: await getProjectGitHistorySearchScope(resolved.repository.localPath, settings.ref, combined), identity, lastRead: Date.now() };
+        this.historyScopes.set(id, entry);
+        while (this.historyScopes.size > 64) this.historyScopes.delete(this.historyScopes.keys().next().value!);
+      } else { this.historyScopes.delete(id); this.historyScopes.set(id, entry); }
+      entry.lastRead = Date.now();
+      const page = await queryProjectGitHistoryScope(resolved.repository.localPath, entry.scope, query, offset, combined);
+      return { ...page, scopeId: id, nextCursor: page.hasMore ? `${id}:${offset + page.commits.length}` : null };
+    });
+  }
+
+  async loadTrackedFiles(projectId: string, repositoryId: string, query: GitTrackedFileQuery, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitTrackedFiles(resolved.repository.localPath, query, combined); });
+  }
+  async loadFileHistory(projectId: string, repositoryId: string, query: GitFileHistoryQuery, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitFileHistory(resolved.repository.localPath, query, combined); });
+  }
+  async loadFileRevision(projectId: string, repositoryId: string, query: GitFileRevisionQuery, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitFileRevision(resolved.repository.localPath, query, combined); });
+  }
+
+  async loadPatchPreview(projectId: string, repositoryId: string, input: GitPatchInput, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitPatchPreview(resolved.repository.localPath, input, combined); });
+  }
+  async exportPatch(projectId: string, repositoryId: string, input: GitPatchExportInput, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitPatchExport(resolved.repository.localPath, input, combined); });
+  }
+
+  async loadMailboxPreview(projectId: string, repositoryId: string, input: import('@astragit/git-core').GitMailboxInput, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitMailboxPreview(resolved.repository.localPath, input, combined); });
+  }
+  async loadTags(projectId: string, repositoryId: string, query: GitTagQuery, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitTags(resolved.repository.localPath, query, combined); });
+  }
+  async loadTagTarget(projectId: string, repositoryId: string, revision: string, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitTagTarget(resolved.repository.localPath, revision, combined); });
+  }
+
+  async loadExternalToolSettings(projectId: string, repositoryId: string, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitExternalToolSettings(resolved.repository.localPath, combined); });
+  }
+  async loadLfs(projectId: string, repositoryId: string, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitLfsState(resolved.repository.localPath, combined); });
+  }
+  async loadFlow(projectId: string, repositoryId: string, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitFlowState(resolved.repository.localPath, combined); });
+  }
+  async previewFlow(projectId: string, repositoryId: string, value: unknown, signal?: AbortSignal) {
+    const change = parseGitFlowChange(value);
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitFlowPreview(resolved.repository.localPath, change, combined); });
+  }
+  async previewStage(projectId: string, repositoryId: string, input: unknown, signal?: AbortSignal) {
+    const value = parseGitStagePreviewInput(input);
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return this.withRepositoryGate(resolved, owned => getProjectGitStagePreview(resolved.repository.localPath, value, AbortSignal.any([owned, combined]))); });
+  }
+  async lineDiff(projectId: string, repositoryId: string, input: unknown, signal?: AbortSignal) {
+    const value = parseGitLineDiffInput(input);
+    // This reader verifies state before/after and writes only disposable objects.
+    // It must not reserve the mutation gate during periodic diff refreshes.
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitLineDiff(resolved.repository.localPath, value, combined); });
+  }
+  async previewLfs(projectId: string, repositoryId: string, value: unknown, signal?: AbortSignal) {
+    const change = parseGitLfsChange(value);
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitLfsPreview(resolved.repository.localPath, change, combined); });
+  }
+  async previewExternalTool(projectId: string, repositoryId: string, value: unknown, signal?: AbortSignal) {
+    const input = parseGitExternalToolInput(value);
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitExternalToolPreview(resolved.repository.localPath, input, combined); });
+  }
+
+  async loadSubmodules(projectId: string, repositoryId: string, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitSubmodules(resolved.repository.localPath, combined); });
+  }
+  async previewSubmodule(projectId: string, repositoryId: string, input: unknown, signal?: AbortSignal) {
+    const change = parseGitSubmoduleChange(input);
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitSubmodulePreview(resolved.repository.localPath, change, combined); });
+  }
+
+  async loadSettings(projectId: string, repositoryId: string) {
+    const resolved = await this.resolveRepository(projectId, repositoryId);
+    return getProjectGitRepositorySettings(resolved.repository.localPath);
+  }
+
+  async loadCommitTemplate(projectId: string, repositoryId: string, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => {
+      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
+      return this.withRepositoryGate(resolved, owned => getProjectGitCommitTemplate(resolved.repository.localPath, AbortSignal.any([owned, combined])));
+    });
+  }
+
+  async loadResetPreview(projectId: string, repositoryId: string, revision: string, mode: GitResetMode, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => {
+      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
+      return this.withRepositoryGate(resolved, owned => getProjectGitResetPreview(resolved.repository.localPath, revision, mode, AbortSignal.any([owned, combined])));
+    });
+  }
+
+  async resolveFileLocation(projectId: string, repositoryId: string, path: string, intent: import('@astragit/git-core').GitFileIntent) {
+    const resolved = await this.resolveRepository(projectId, repositoryId);
+    return getProjectGitFileLocation(resolved.repository.localPath, path, intent);
+  }
+
+  async loadIgnorePreview(projectId: string, repositoryId: string, scope: GitIgnoreScope, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => {
+      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
+      return this.withRepositoryGate(resolved, owned => getProjectGitIgnorePreview(resolved.repository.localPath, scope, AbortSignal.any([owned, combined])));
+    });
+  }
+
+  async loadInteractiveRebasePreview(projectId: string, repositoryId: string, baseRef: string, ontoRef?: string, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => {
+      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
+      return this.withRepositoryGate(resolved, owned => getProjectGitInteractiveRebasePreview(resolved.repository.localPath, baseRef, ontoRef, AbortSignal.any([owned, combined])));
+    });
+  }
+
+  async loadStopTrackingPreview(projectId: string, repositoryId: string, paths: string[], signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => {
+      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
+      return this.withRepositoryGate(resolved, owned => getProjectGitStopTrackingPreview(resolved.repository.localPath, paths, AbortSignal.any([owned, combined])));
+    });
+  }
+
+  async loadIgnoredFiles(projectId: string, repositoryId: string, query: GitIgnoredQuery, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => {
+      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
+      return getProjectGitIgnoredFiles(resolved.repository.localPath, query, combined);
+    });
+  }
+
+  private async withReadQuery<T>(signal: AbortSignal | undefined, read: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const controller = new AbortController(); this.readQueries.add(controller);
+    try { return await read(signal ? AbortSignal.any([controller.signal, signal]) : controller.signal); }
+    finally { this.readQueries.delete(controller); }
+  }
+
+  async loadArchivePreview(projectId: string, repositoryId: string, input: unknown, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return getProjectGitArchivePreview(resolved.repository.localPath, input, combined); });
+  }
+
+  async loadCommitReplayPreview(projectId: string, repositoryId: string, input: unknown, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => {
+      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
+      return this.withRepositoryGate(resolved, owned => getProjectGitCommitReplayPreview(resolved.repository.localPath, parseGitCommitReplayInput(input), AbortSignal.any([combined, owned])));
+    });
+  }
+
+  async loadCommitReplaySeriesPreview(projectId: string, repositoryId: string, input: unknown, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => {
+      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
+      return this.withRepositoryGate(resolved, owned => getProjectGitCommitReplaySeriesPreview(resolved.repository.localPath, parseGitCommitReplaySeriesInput(input), AbortSignal.any([combined, owned])));
+    });
+  }
+
+  async writeArchive(projectId: string, repositoryId: string, input: unknown, output: Writable, signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return writeProjectGitArchive(resolved.repository.localPath, input, output, combined); });
+  }
+
+  cancelReadQueries() { for (const controller of this.readQueries) controller.abort(); this.historyScopes.clear(); }
+
+  async loadSkipPreview(projectId: string, repositoryId: string, kind: 'rebase' | 'cherry_pick' | 'revert' | 'am', signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => {
+      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
+      return this.withRepositoryGate(resolved, owned => getProjectGitSkipPreview(resolved.repository.localPath, kind, AbortSignal.any([owned, combined])));
+    });
+  }
+
   async loadCommit(projectId: string, repositoryId: string, commitHash: string): Promise<ProjectGitCommitDetail> {
     const resolved = await this.resolveRepository(projectId, repositoryId);
     if (!commitHash.trim()) throw projectError('ASTRAGIT_COMMIT_REQUIRED', '必须选择一个提交。');
@@ -106,6 +335,13 @@ export class ProjectGitWorkbenchService {
     const resolved = await this.resolveRepository(projectId, repositoryId);
     if (!ref.trim()) throw projectError('ASTRAGIT_REF_REQUIRED', '必须选择一个比较分支。');
     return getProjectGitComparisonDiff(resolved.repository.localPath, ref, mode);
+  }
+
+  async loadRevisionsComparison(projectId: string, repositoryId: string, revisions: [string, string], signal?: AbortSignal) {
+    return this.withReadQuery(signal, async combined => {
+      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
+      return getProjectGitRevisionsDiff(resolved.repository.localPath, revisions, combined);
+    });
   }
 
   async readConflict(projectId: string, repositoryId: string, path: string): Promise<ProjectGitConflictFile> {
@@ -249,11 +485,11 @@ export class ProjectGitWorkbenchService {
     finally { this.activeRepositories.delete(path); }
   }
 
-  private async resolveRepository(projectId: string, repositoryId: string): Promise<ResolvedProjectGitRepository> {
+  private async resolveRepository(projectId: string, repositoryId: string, signal?: AbortSignal): Promise<ResolvedProjectGitRepository> {
     const project = this.requireProject(projectId);
     const normalizedRepositoryId = repositoryId.trim();
     if (!normalizedRepositoryId) throw projectError('ASTRAGIT_REPOSITORY_REQUIRED', '必须选择一个项目仓库。');
-    const repositories = await discoverGitRepositories(project.localPath);
+    const repositories = await discoverGitRepositories(project.localPath, 6, signal);
     const repository = repositories.find((candidate) => stableRepositoryId(project.id, candidate.relativePath) === normalizedRepositoryId);
     if (!repository) throw projectError('ASTRAGIT_REPOSITORY_NOT_FOUND', '所选仓库已不属于当前项目，请刷新 Git 工作台。');
     return { id: normalizedRepositoryId, project, repository };
@@ -288,23 +524,71 @@ export async function loadNavigationMetadata(cwd: string): Promise<{ isSubmodule
   return { isSubmodule: Boolean(parent.stdout.trim()), subtreePaths };
 }
 
-function parseProjectGitAction(value: unknown): ProjectGitAction {
+export function parseProjectGitAction(value: unknown): ProjectGitAction {
   if (!isRecord(value) || typeof value.type !== 'string') throw projectGitError('ASTRAGIT_ACTION_INVALID', '必须选择受支持的 Git 动作。');
   const stringValue = (key: string): string | undefined => (typeof value[key] === 'string' ? value[key].trim() || undefined : undefined);
+  const exactString = (key: string): string | undefined => (typeof value[key] === 'string' ? value[key] : undefined);
   const paths = (): string[] => {
     const candidate = value.paths;
     if (!Array.isArray(candidate) || candidate.some((path) => typeof path !== 'string')) throw projectGitError('ASTRAGIT_PATH_INVALID', 'Git 路径必须是字符串数组。');
     return candidate;
   };
   switch (value.type) {
+    case 'interactive_rebase': {
+      const steps = value.steps;
+      if (!Array.isArray(steps) || !steps.length || steps.length > 2000 || steps.some(step => !isRecord(step) || typeof step.sha !== 'string' || typeof step.action !== 'string' || !['pick', 'reword', 'edit', 'squash', 'fixup', 'drop'].includes(step.action) || (step.message !== undefined && typeof step.message !== 'string'))) throw projectGitError('ASTRAGIT_GIT_REBASE_PLAN_INVALID', '交互变基计划无效。');
+      const groups = value.groupMessages;
+      if (groups !== undefined && (!isRecord(groups) || Object.values(groups).some(message => typeof message !== 'string'))) throw projectGitError('ASTRAGIT_GIT_REBASE_MESSAGE_INVALID', '合并说明无效。');
+      return { type: 'interactive_rebase', baseSha: stringValue('baseSha') ?? '', ontoSha: stringValue('ontoSha') ?? '', expectedFingerprint: stringValue('expectedFingerprint') ?? '', steps: steps.map(step => ({ sha: step.sha as string, action: step.action as import('@astragit/git-core').GitRebasePlanAction, ...(step.message !== undefined ? { message: step.message as string } : {}) })), groupMessages: groups as Record<string, string> | undefined, allowFlattenMerges: value.allowFlattenMerges === true, allowOverwriteObstacles: value.allowOverwriteObstacles === true };
+    }
+    case 'amend_rebase_step':
+      if (typeof value.message !== 'string') throw projectGitError('ASTRAGIT_GIT_REBASE_MESSAGE_INVALID', '请填写完整提交说明。');
+      return { type: 'amend_rebase_step', message: value.message, expectedHeadSha: stringValue('expectedHeadSha') ?? '', expectedIndexFingerprint: stringValue('expectedIndexFingerprint') ?? '', expectedStepFingerprint: stringValue('expectedStepFingerprint') ?? '' };
+    case 'stop_tracking':
+      return { type: value.type, paths: paths(), force: value.force === true, expectedFingerprint: stringValue('expectedFingerprint') ?? '' };
+    case 'stage_ignored':
+      return { type: value.type, paths: paths(), largeFileReview: parseGitLargeFileReview(value.largeFileReview) };
+    case 'ignore': {
+      if (value.scope !== 'repository' && value.scope !== 'local' && value.scope !== 'global') throw projectError('ASTRAGIT_GIT_IGNORE_INVALID', '忽略范围无效。');
+      if (!Array.isArray(value.patterns) || !value.patterns.every(pattern => typeof pattern === 'string')) throw projectError('ASTRAGIT_GIT_IGNORE_INVALID', '忽略规则必须是字符串数组。');
+      return { type: value.type, scope: value.scope, patterns: value.patterns, expectedFingerprint: stringValue('expectedFingerprint') ?? '' };
+    }
+    case 'reset_revision':
+      if (value.mode !== 'soft' && value.mode !== 'mixed' && value.mode !== 'hard') throw projectError('ASTRAGIT_GIT_RESET_MODE_INVALID', '重置方式无效。');
+      return { type: value.type, mode: value.mode, targetSha: stringValue('targetSha') ?? '', expectedFingerprint: stringValue('expectedFingerprint') ?? '', discardNestedRepositories: value.discardNestedRepositories === true };
+    case 'skip_integration':
+      if (value.kind !== 'rebase' && value.kind !== 'cherry_pick' && value.kind !== 'revert' && value.kind !== 'am') throw projectError('ASTRAGIT_GIT_INTEGRATION_CHANGED', '只有变基、拣选、反向提交或邮件补丁可以跳过当前步骤。');
+      return { type: value.type, kind: value.kind, expectedFingerprint: stringValue('expectedFingerprint') ?? '', discardNestedRepositories: value.discardNestedRepositories === true };
+    case 'set_identity_field':
+      if ((value.field !== 'name' && value.field !== 'email') || (value.value !== null && typeof value.value !== 'string')) throw projectError('ASTRAGIT_ACTION_INVALID', '提交身份设置无效。');
+      return { type: value.type, field: value.field, value: value.value, expectedSettingsFingerprint: stringValue('expectedSettingsFingerprint') ?? '' };
+    case 'configure_commit_template':
+      return parseGitCommitTemplateChange(value);
+    case 'configure_remote': {
+      const operations = ['add', 'rename', 'remove', 'set_fetch_url', 'set_push_url', 'clear_push_url'] as const;
+      if (!operations.includes(value.operation as typeof operations[number])) throw projectError('ASTRAGIT_ACTION_INVALID', '远程设置操作无效。');
+      return { type: value.type, operation: value.operation as typeof operations[number], name: stringValue('name') ?? '', value: stringValue('value'), expectedSettingsFingerprint: stringValue('expectedSettingsFingerprint') ?? '' };
+    }
+    case 'amend_commit':
+      return { type: 'amend_commit', message: typeof value.message === 'string' ? value.message : '', expectedHeadSha: stringValue('expectedHeadSha') ?? '', expectedBranch: stringValue('expectedBranch') ?? '', expectedIndexFingerprint: stringValue('expectedIndexFingerprint') ?? '' };
     case 'subtree':
       if (value.operation !== 'add' && value.operation !== 'pull' && value.operation !== 'push') throw projectGitError('ASTRAGIT_ACTION_INVALID', '不支持的子树操作。');
       return { type: 'subtree', operation: value.operation, path: typeof value.path === 'string' ? value.path : '', remote: stringValue('remote') ?? '', branch: stringValue('branch') ?? '' };
+    case 'external_tool':
+      return { type: 'external_tool', input: parseGitExternalToolInput(value.input), expectedFingerprint: stringValue('expectedFingerprint') ?? '' };
+    case 'manage_lfs':
+      return { type: 'manage_lfs', change: parseGitLfsChange(value.change), expectedFingerprint: stringValue('expectedFingerprint') ?? '' };
+    case 'manage_flow':
+      return { type: 'manage_flow', change: parseGitFlowChange(value.change), expectedFingerprint: stringValue('expectedFingerprint') ?? '' };
+    case 'configure_external_tool':
+      return { type: 'configure_external_tool', configuration: parseGitExternalToolConfiguration(value.configuration), expectedFingerprint: stringValue('expectedFingerprint') ?? '' };
+    case 'manage_submodule':
+      return { type: 'manage_submodule', change: parseGitSubmoduleChange(value.change), expectedFingerprint: stringValue('expectedFingerprint') ?? '' };
     case 'submodule_update':
       return { type: 'submodule_update', path: typeof value.path === 'string' ? value.path : '' };
     case 'continue_integration':
     case 'abort_integration':
-      if (value.kind !== 'merge' && value.kind !== 'rebase') throw projectGitError('ASTRAGIT_ACTION_INVALID', '恢复动作必须指定合并或变基。');
+      if (value.kind !== 'merge' && value.kind !== 'rebase' && value.kind !== 'cherry_pick' && value.kind !== 'revert' && value.kind !== 'am') throw projectGitError('ASTRAGIT_ACTION_INVALID', '恢复动作必须指定实际进行中的整合类型。');
       return { type: value.type, kind: value.kind };
     case 'fetch':
       return { type: 'fetch', remote: stringValue('remote') };
@@ -313,15 +597,24 @@ function parseProjectGitAction(value: unknown): ProjectGitAction {
     case 'rename_branch':
       return { type: 'rename_branch', branchName: stringValue('branchName') ?? '', newName: stringValue('newName') ?? '' };
     case 'create_tag':
-      return { type: 'create_tag', tagName: stringValue('tagName') ?? '', revision: stringValue('revision') ?? '', message: stringValue('message') };
+      if ((value.annotated !== undefined && typeof value.annotated !== 'boolean') || (value.message !== undefined && typeof value.message !== 'string')) throw projectGitError('ASTRAGIT_GIT_TAG_OPTIONS_INVALID', '标签类型或说明无效。');
+      return { type: 'create_tag', tagName: exactString('tagName') ?? '', revision: exactString('revision') ?? '', message: exactString('message'), annotated: value.annotated as boolean | undefined, expectedTargetSha: exactString('expectedTargetSha') };
     case 'push_tag':
-      return { type: 'push_tag', tagName: stringValue('tagName') ?? '', remote: stringValue('remote') ?? '' };
+      return { type: 'push_tag', tagName: exactString('tagName') ?? '', remote: exactString('remote') ?? '', expectedTagObjectSha: exactString('expectedTagObjectSha'), expectedRemotePushFingerprint: exactString('expectedRemotePushFingerprint') };
     case 'delete_tag':
-      return { type: 'delete_tag', tagName: stringValue('tagName') ?? '' };
+      return { type: 'delete_tag', tagName: exactString('tagName') ?? '', expectedTagObjectSha: exactString('expectedTagObjectSha') };
+    case 'delete_remote_tag':
+      return { type: 'delete_remote_tag', tagName: exactString('tagName') ?? '', remote: exactString('remote') ?? '', expectedRemotePushFingerprint: exactString('expectedRemotePushFingerprint') ?? '', expectedTargets: value.expectedTargets as Array<string | null> };
     case 'stage':
-      return { type: 'stage', paths: paths() };
+      return { type: 'stage', paths: paths(), largeFileReview: parseGitLargeFileReview(value.largeFileReview) };
     case 'unstage':
       return { type: 'unstage', paths: paths() };
+    case 'import_mailbox':
+      return { type: 'import_mailbox', mailbox: value.mailbox as unknown as import('@astragit/git-core').GitMailboxInput, expectedFingerprint: stringValue('expectedFingerprint') ?? '' };
+    case 'import_patch':
+      return { type: 'import_patch', patch: value.patch as unknown as GitPatchInput, expectedFingerprint: stringValue('expectedFingerprint') ?? '' };
+    case 'apply_line_changes':
+      return { type: value.type, input: parseGitLineChange(value.input), largeFileReview: parseGitLargeFileReview(value.largeFileReview) };
     case 'apply_patch':
       return {
         type: 'apply_patch',
@@ -370,19 +663,30 @@ function parseProjectGitAction(value: unknown): ProjectGitAction {
       return { type: 'update', strategy: value.strategy, smart: value.smart === true };
     }
     case 'checkout':
-      return { type: 'checkout', branchName: stringValue('branchName') ?? '', smart: value.smart === true };
+      return { type: 'checkout', branchName: stringValue('branchName') ?? '', smart: value.smart === true, stashBeforeCheckout: value.stashBeforeCheckout === true };
     case 'checkout_revision':
-      return { type: 'checkout_revision', revision: stringValue('revision') ?? '', smart: value.smart === true };
+      return { type: 'checkout_revision', revision: stringValue('revision') ?? '', smart: value.smart === true, stashBeforeCheckout: value.stashBeforeCheckout === true };
     case 'create_branch':
-      return { type: 'create_branch', branchName: stringValue('branchName') ?? '', baseRef: stringValue('baseRef'), trackRemote: value.trackRemote === true, smart: value.smart === true };
+      return { type: 'create_branch', branchName: stringValue('branchName') ?? '', baseRef: stringValue('baseRef'), trackRemote: value.trackRemote === true, smart: value.smart === true, stashBeforeCheckout: value.stashBeforeCheckout === true };
     case 'delete_branch':
-      return { type: 'delete_branch', branchName: stringValue('branchName') ?? '' };
+      if (value.force !== undefined && typeof value.force !== 'boolean') throw projectGitError('ASTRAGIT_ACTION_INVALID', '删除分支的强制选项无效。');
+      return { type: 'delete_branch', branchName: stringValue('branchName') ?? '', force: value.force === true, expectedTargetHeadSha: stringValue('expectedTargetHeadSha') };
+    case 'delete_remote_branch':
+      return { type: 'delete_remote_branch', remote: stringValue('remote') ?? '', branchName: stringValue('branchName') ?? '', expectedTargetHeadSha: stringValue('expectedTargetHeadSha') ?? '', expectedRemotePushFingerprint: stringValue('expectedRemotePushFingerprint') ?? '' };
+    case 'set_upstream':
+      if ((value.upstreamRef !== null && typeof value.upstreamRef !== 'string') || (value.expectedUpstreamRef !== null && typeof value.expectedUpstreamRef !== 'string')) throw projectGitError('ASTRAGIT_ACTION_INVALID', '上游分支设置参数无效。');
+      return { type: 'set_upstream', branchName: stringValue('branchName') ?? '', upstreamRef: value.upstreamRef === null ? null : stringValue('upstreamRef') ?? '', expectedUpstreamRef: value.expectedUpstreamRef === null ? null : stringValue('expectedUpstreamRef') ?? '', expectedTargetHeadSha: stringValue('expectedTargetHeadSha') ?? '' };
+    case 'cherry_pick_series':
+      if (typeof value.expectedFingerprint !== 'string' || !/^[a-f0-9]{64}$/u.test(value.expectedFingerprint)) throw projectError('ASTRAGIT_GIT_REPLAY_INVALID', '批量拣选确认无效，请重新预览。');
+      return { type: 'cherry_pick_series', input: parseGitCommitReplaySeriesInput(value.input), expectedFingerprint: value.expectedFingerprint };
     case 'revert':
-      return { type: 'revert', revision: stringValue('revision') ?? '' };
-    case 'cherry_pick':
-      return { type: 'cherry_pick', revision: stringValue('revision') ?? '' };
+    case 'cherry_pick': {
+      const input = parseGitCommitReplayInput({ kind: value.type, revision: stringValue('revision') ?? '', ...(value.mainline !== undefined ? { mainline: value.mainline } : {}), ...(value.commit !== undefined ? { commit: value.commit } : {}), ...(value.includeSourceId !== undefined ? { includeSourceId: value.includeSourceId } : {}) });
+      if (value.expectedFingerprint !== undefined && (typeof value.expectedFingerprint !== 'string' || !/^[a-f0-9]{64}$/u.test(value.expectedFingerprint))) throw projectError('ASTRAGIT_GIT_REPLAY_INVALID', '提交整合确认已失效，请重新预览。');
+      return { type: value.type, revision: input.revision, ...(input.mainline !== undefined ? { mainline: input.mainline } : {}), ...(value.commit !== undefined ? { commit: input.commit } : {}), ...(value.includeSourceId !== undefined ? { includeSourceId: input.includeSourceId } : {}), ...(value.expectedFingerprint !== undefined ? { expectedFingerprint: value.expectedFingerprint } : {}) };
+    }
     case 'merge':
-      return { type: 'merge', branchName: stringValue('branchName') ?? '' };
+      return { type: 'merge', branchName: stringValue('branchName') ?? '', ...(typeof value.commitMerge === 'boolean' ? { commitMerge: value.commitMerge } : {}), ...(typeof value.includeMergeLog === 'boolean' ? { includeMergeLog: value.includeMergeLog } : {}), ...(typeof value.noFastForward === 'boolean' ? { noFastForward: value.noFastForward } : {}), expectedHeadSha: stringValue('expectedHeadSha'), expectedBranch: stringValue('expectedBranch'), expectedSourceHeadSha: stringValue('expectedSourceHeadSha') };
     case 'rebase':
       return { type: 'rebase', branchName: stringValue('branchName') ?? '' };
     case 'stash':
@@ -402,14 +706,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** 错误身份和脱敏命令诊断穿过服务边界；不能只留下概括消息。 */
-export function gitFailureDiagnostics(error: unknown): Record<string, string | number | boolean> {
+export function gitFailureDiagnostics(error: unknown): Record<string, string | number | boolean | string[]> {
   if (!isRecord(error)) return {};
-  const result: Record<string, string | number | boolean> = {};
+  const result: Record<string, string | number | boolean | string[]> = {};
   for (const key of ['details', 'command', 'stdout', 'stderr', 'operationStage', 'operationStatus', 'savedStash', 'blockedBy'] as const) {
     if (typeof error[key] === 'string') result[key] = redactGitOutput(error[key]).slice(0, 65_536);
   }
   if (typeof error.exitCode === 'number') result.exitCode = error.exitCode;
   if (error.interrupted === true) result.interrupted = true;
+  if (Array.isArray(error.affectedFiles)) result.affectedFiles = error.affectedFiles.filter((path): path is string => typeof path === 'string' && Boolean(path) && !path.includes('\0') && !path.startsWith('/') && !/^[A-Za-z]:[\\/]/u.test(path) && !path.split('/').includes('..')).slice(0, 200).map(path => path.slice(0, 4096));
+  if (typeof error.affectedFileCount === 'number' && Number.isSafeInteger(error.affectedFileCount) && error.affectedFileCount >= 0) result.affectedFileCount = error.affectedFileCount;
   return result;
 }
 

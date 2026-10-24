@@ -1,15 +1,47 @@
 /* 与 Zeus 差异视图一致：整行红绿背景、替换片段加深、真实行号及等高补位。 */
+.project-git-diff-parent { flex-shrink:0; margin:0; padding:5px 12px; color:var(--zeus-product-muted); background:var(--zeus-product-panel-muted); font-size:11px; }
+.project-git-diff-window > .project-git-diff-preview.is-fill { height:auto; }
+.project-git-diff-preview > header > .project-git-diff-stage { flex:none; width:auto; max-width:120px; min-width:0; padding:3px 6px; font:inherit; color:inherit; border:1px solid var(--zeus-control-border); border-radius:5px; background-color:var(--zeus-control-bg); }
 .astragit-text-diff {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: minmax(0, var(--git-diff-columns, 50%)) 6px minmax(0, 1fr);
   background: var(--zeus-product-line);
   color: var(--zeus-product-text);
   --diff-addition: var(--zeus-code-addition-text, #369766);
   --diff-deletion: #d14b4b;
 }
+.astragit-text-diff > .astragit-diff-pane.is-right {
+  grid-column: 3;
+}
 .astragit-text-diff.is-unified {
   grid-template-columns: minmax(0, 1fr);
+}
+.project-git-diff-preview > .project-git-diff-side-by-side {
+  position: relative;
+  overflow: visible;
+  margin-inline-end: var(--git-diff-scrollbar, 0px);
+}
+.project-git-diff-side-by-side > .project-git-diff-side-head {
+  grid-template-columns: minmax(0, var(--git-diff-columns, 50%)) 6px minmax(0, 1fr);
+}
+.project-git-diff-hunks {
+  margin-inline-end: calc(-1 * var(--git-diff-scrollbar, 0px));
+}
+.project-git-diff-side-by-side > .git-separator-diff-columns {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: var(--git-diff-columns, 50%);
+  background: transparent;
+  /* Keep the complete divider draggable across hunk headers as well as code. */
+  z-index: 4;
+}
+.project-git-diff-hunk-header {
+  position: relative;
+  z-index: 3;
+}
+.project-git-diff-window-layout.has-resizable-files,
+.gitapp-diff-dialog .project-git-diff-window-layout.has-resizable-files {
+  grid-template-columns: minmax(0, var(--git-diff-window-files, 24%)) 6px minmax(0, 1fr);
 }
 .astragit-diff-pane {
   min-inline-size: 0;
@@ -82,3 +114,6 @@
   background: var(--zeus-product-panel-muted);
   color: var(--zeus-product-muted);
 }
+
+.project-git-diff-external-actions { display:flex; justify-content:flex-end; gap:6px; flex:none; padding:6px 10px; border-bottom:1px solid var(--zeus-product-line); }
+.project-git-diff-external-actions>button { font:inherit; padding:4px 8px; border:1px solid var(--zeus-control-border); border-radius:5px; background:var(--zeus-control-bg); color:var(--zeus-product-text); cursor:pointer; }

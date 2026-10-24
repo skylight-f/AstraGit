@@ -12,8 +12,11 @@ export interface UserFacingErrorCause {
   details?: string;
   /** Git 明确报告会被覆盖的文件种类，不能由任意错误正文推断。 */
   blockedBy?: 'tracked' | 'untracked' | 'both';
+  /** Git 明确报告的受影响路径，仅用于展示和定位文件。 */
+  affectedFiles?: string[];
+  affectedFileCount?: number;
   /** 后端核实的执行状态；刷新失败不能被解释成 Git 动作失败。 */
-  operationStatus?: 'completed' | 'conflict' | 'unknown_after_write';
+  operationStatus?: 'completed' | 'conflict' | 'unknown_after_write' | 'failed_before_write';
   /** 包装错误保留的底层原因。 */
   cause?: UserFacingErrorCause;
 }
@@ -35,6 +38,200 @@ type ErrorExplanation = readonly [zh: string, en: string, action?: UserFacingErr
 
 /** 跨页面、原生窗口和通知共用的原因目录。每组只合并具有相同产品含义的错误。 */
 const explanations: ReadonlyArray<readonly [codes: readonly string[], explanation: ErrorExplanation]> = [
+  [['ASTRAGIT_GIT_PATCH_SERIES_INVALID'], ['提交序列范围无效，请重新选择提交或起止版本；邮箱序列需要包含完整提交，不能限定部分文件。', 'The commit-series scope is invalid. Select commits or a revision range again. A mailbox needs complete commits and cannot be restricted to selected files.']],
+  [['ASTRAGIT_GIT_PATCH_SERIES_MERGE'], ['邮箱补丁不能保留合并提交。请只选择非合并提交，或切换到普通差异格式导出合并后的内容。', 'A mailbox cannot preserve merge commits. Select non-merge commits or use a regular diff to export the merged contents.']],
+  [['ASTRAGIT_GIT_PATCH_SERIES_TOO_LARGE'], ['序列超过 2000 个提交，请缩小范围后分批导出。', 'The series exceeds 2,000 commits. Narrow the scope and export it in smaller batches.']],
+  [['ASTRAGIT_GIT_MAILBOX_INVALID', 'ASTRAGIT_GIT_MAILBOX_ENCODING'], ['无法完整解析邮箱补丁、作者或提交说明，请检查文件内容与编码，或使用普通文件差异导入。', 'The mailbox, authors or commit messages could not be parsed completely. Review its contents and encoding, or import a regular file diff.']],
+  [['ASTRAGIT_GIT_MAILBOX_CHANGED'], ['仓库、邮件内容或导入选项已变化，本次未开始导入。请重新预览并核对提交顺序。', 'The repository, mailbox or import options changed. No import was started. Preview again and review the commit order.', 'check']],
+  [['ASTRAGIT_GIT_MAILBOX_BLOCKED'], ['当前仓库有本地修改、目标路径被占用或已有整合未结束，尚未开始导入。请先处理下方具体路径或当前整合。', 'Local changes, occupied target paths or an active integration prevent the import from starting. Review the affected paths or current integration first.']],
+  [['ASTRAGIT_GIT_MAILBOX_PAUSED'], ['邮件补丁导入已暂停，前面的提交可能已经完成。请核对当前步骤，处理并暂存修改后继续，或选择跳过、终止；不要从头重复导入。', 'Mailbox import paused; earlier commits may already have completed. Review the current step, resolve and stage changes, then continue, skip or abort. Do not import the whole series again.', 'check']],
+  [['ASTRAGIT_GIT_LINES_INVALID', 'ASTRAGIT_GIT_LINES_PATH'], ['逐行操作范围无效，本次未应用。请重新选择当前仓库内的实际增删行。', 'The selected-line scope is invalid. Nothing was applied. Select actual changed lines in the current repository.']],
+  [['ASTRAGIT_GIT_LINES_CHANGED'], ['文件、分支、暂存区、属性或配置已变化，本次未应用所选行。请重新读取差异后再选择，不要重复使用旧选择。', 'The file, branch, index, attributes or configuration changed. Selected lines were not applied. Reload the diff and select again; do not reuse the old selection.', 'check']],
+  [['ASTRAGIT_GIT_LINES_READ', 'ASTRAGIT_GIT_LINES_CHECK_FAILED'], ['逐行差异读取或 Git 校验未完整通过，本次未应用。请重新读取并查看 Git 详情；也可使用整文件操作或外部工具。', 'The selected-line diff could not be read or validated completely. Nothing was applied. Reload and review Git details, or use whole-file actions or external tools.']],
+  [['ASTRAGIT_GIT_LINES_TOO_LARGE'], ['文件或逐行差异超出完整核对范围，本次未应用。请使用整文件操作或外部工具，不会对截断内容执行操作。', 'The file or line diff exceeds the complete-review limit. Nothing was applied. Use whole-file actions or external tools; truncated contents are not applied.']],
+  [['ASTRAGIT_GIT_LINES_UNSUPPORTED'], ['文件类型、编码或 Git filter 不支持当前逐行操作，本次未应用。请使用整文件操作或外部工具。', 'The file type, encoding or Git filter is unsupported for this line operation. Nothing was applied. Use whole-file actions or external tools.']],
+  [['ASTRAGIT_GIT_LINES_CONFLICT'], ['文件仍有未解决的冲突，本次未应用所选行。请先使用冲突编辑器处理。', 'The file still has unresolved conflicts. Selected lines were not applied. Use the conflict editor first.']],
+  [['ASTRAGIT_GIT_LINES_EMPTY'], ['当前选择没有可应用的文本更改，本次未应用。请重新读取并选择实际增删行。', 'The selection has no applicable text changes. Nothing was applied. Reload and select actual changed lines.']],
+  [['ASTRAGIT_GIT_STAGE_INVALID', 'ASTRAGIT_GIT_STAGE_PATH'], ['暂存范围或大文件提醒选项无效，本次未暂存。请重新选择仓库内文件及有效阈值。', 'The staging scope or large-file warning options are invalid. Nothing was staged. Select repository files and a valid threshold.']],
+  [['ASTRAGIT_GIT_STAGE_READ', 'ASTRAGIT_GIT_STAGE_TOO_LARGE'], ['无法完整核对暂存文件及属性，本次未暂存。请缩小范围或查看 Git 详情后重试。', 'Staging files and attributes could not be reviewed completely. Nothing was staged. Narrow the scope or review Git details before retrying.']],
+  [['ASTRAGIT_GIT_STAGE_CHANGED'], ['确认后暂存范围、文件、属性、配置或分支已变化，本次未暂存。请重新读取文件并确认。', 'The staging scope, files, attributes, configuration or branch changed after review. Nothing was staged. Reload the files and review again.', 'check']],
+  [['ASTRAGIT_GIT_STAGE_LARGE_FILES'], ['所选范围包含尚未由 LFS 跟踪的大文件，本次未暂存。请配置 LFS，或明确选择按普通 Git 暂存。', 'The selection includes large files not tracked by LFS. Nothing was staged. Set up LFS or explicitly choose ordinary Git staging.']],
+  [['ASTRAGIT_GIT_STAGE_LFS_SETUP'], ['所选文件已声明使用 LFS，但 Git 未配置 LFS clean/process，本次未暂存。请先在 Git LFS 管理中初始化或修复 filters，再重新暂存。', 'Selected files declare LFS, but Git has no LFS clean/process configured. Nothing was staged. Initialize or repair filters in the Git LFS manager, then stage again.', 'settings']],
+  [['ASTRAGIT_GIT_LFS_INVALID', 'ASTRAGIT_GIT_LFS_PATH', 'ASTRAGIT_GIT_LFS_CONFIG'], ['Git LFS 规则、路径或配置无效，请核对 .gitattributes 和具体原因。', 'The Git LFS rule, path or configuration is invalid. Review .gitattributes and the details.']],
+  [['ASTRAGIT_GIT_LFS_UNAVAILABLE'], ['未找到系统 Git LFS，请安装独立的 git-lfs 后重新读取。不会使用其他应用内部的程序。', 'System Git LFS was not found. Install git-lfs independently and reload. Other applications’ internal tools are not used.', 'settings']],
+  [['ASTRAGIT_GIT_LFS_INIT_REQUIRED'], ['当前仓库尚未初始化 Git LFS。请明确初始化后再读取跟踪规则或传输内容，打开视图不会自动修改仓库配置。', 'Git LFS is not initialized for this repository. Initialize it explicitly before reading tracking rules or transferring contents; opening the view does not change repository configuration.', 'settings']],
+  [['ASTRAGIT_GIT_LFS_READ'], ['无法完整读取 Git LFS 状态，请核对工具版本、JSON 查询支持和 Git 详情。', 'Git LFS state could not be read completely. Review the tool version, JSON query support and Git details.']],
+  [['ASTRAGIT_GIT_LFS_CHANGED', 'ASTRAGIT_GIT_LFS_RULE_MISSING'], ['Git LFS 规则、配置、分支、暂存区或文件已变化，操作尚未开始。请重新读取并确认范围。', 'Git LFS rules, configuration, branch, index or files changed. The operation was not started. Reload and review the scope.', 'check']],
+  [['ASTRAGIT_GIT_LFS_INTEGRATION', 'ASTRAGIT_GIT_LFS_CONFLICT'], ['当前整合或属性文件冲突尚未完成，请先处理后再执行此 LFS 操作。', 'An active integration or attribute-file conflict must be completed before this LFS operation.']],
+  [['ASTRAGIT_GIT_LFS_REMOTE', 'ASTRAGIT_GIT_LFS_EMPTY'], ['请选择实际远程及已有提交的 LFS 版本，再执行内容传输。', 'Select an existing remote and an LFS version with commits before transferring contents.']],
+  [['ASTRAGIT_GIT_LFS_HOOK'], ['现有钩子无法由内置流程修改。请选择保留钩子，再手动整合 git lfs pre-push 调用。', 'The existing hook cannot be modified by this flow. Keep it and integrate git lfs pre-push manually.']],
+  [['ASTRAGIT_GIT_LFS_OUTCOME_UNKNOWN'], ['Git LFS 操作未确认完成，配置、缓存、工作区或远端可能已部分更新。请刷新并核对实际状态，不要直接重复操作。', 'The Git LFS result is unconfirmed. Configuration, cache, worktree or remote contents may have partially changed. Reload and review the actual state before repeating the operation.', 'check']],
+  [['ASTRAGIT_GIT_FLOW_UNAVAILABLE', 'ASTRAGIT_GIT_FLOW_VERSION', 'ASTRAGIT_GIT_FLOW_RESOURCE_INVALID'], ['应用内置 Git Flow 不可用或资源校验失败，本次未开始。请修复或重新安装 AstraGit，再重新读取。', 'Bundled Git Flow is unavailable or its resources failed verification. The operation was not started. Repair or reinstall AstraGit, then reload.', 'check']],
+  [['ASTRAGIT_GIT_FLOW_INVALID', 'ASTRAGIT_GIT_FLOW_BASE', 'ASTRAGIT_GIT_FLOW_REMOTE', 'ASTRAGIT_GIT_FLOW_MESSAGE', 'ASTRAGIT_GIT_FLOW_TEMP'], ['Git Flow 名称、基础分支、远程或标签说明无效，请核对选项和详情后重新预览。', 'Git Flow names, base branch, remote or tag message are invalid. Review the options and details, then preview again.']],
+  [['ASTRAGIT_GIT_FLOW_INIT_REQUIRED'], ['当前仓库尚未初始化 Git Flow，请先核对生产/开发分支与命名前缀并明确初始化。', 'Git Flow is not initialized. Review production/development branches and naming prefixes, then initialize explicitly.', 'settings']],
+  [['ASTRAGIT_GIT_FLOW_READ', 'ASTRAGIT_GIT_FLOW_TOO_LARGE'], ['无法完整读取 Git Flow 状态，请查看工具、文件范围和具体原因。', 'Git Flow state could not be read completely. Review the tool, file scope and details.']],
+  [['ASTRAGIT_GIT_FLOW_CHANGED'], ['Git Flow 的分支、标签、配置、文件或选项已变化，本次未开始。请重新读取并确认。', 'Git Flow branches, tags, configuration, files or options changed. The operation was not started. Reload and review.', 'check']],
+  [['ASTRAGIT_GIT_FLOW_EXISTS', 'ASTRAGIT_GIT_FLOW_MISSING', 'ASTRAGIT_GIT_FLOW_TAG_EXISTS'], ['所选 Git Flow 分支或版本已经存在、已删除或尚未完成，请重新读取并选择实际分支与版本。', 'The selected Git Flow branch or version already exists, was deleted or is still unfinished. Reload and select the actual branch and version.', 'check']],
+  [['ASTRAGIT_GIT_FLOW_DIRTY', 'ASTRAGIT_GIT_FLOW_INTEGRATION', 'ASTRAGIT_GIT_FLOW_CONFLICT'], ['当前本地修改或提交整合需要先处理。请提交/贮藏修改，或解决并继续、终止已有整合，再重新预览 Git Flow。', 'Local changes or an active integration need attention first. Commit or stash changes, or resolve and continue or abort the existing integration, then preview Git Flow again.']],
+  [['ASTRAGIT_GIT_FLOW_WORKTREE'], ['Git Flow 要修改的分支正在其他工作区使用。本次未开始，请到对应工作区切换分支后重新预览。', 'A branch Git Flow needs to modify is in use by another worktree. The operation was not started. Switch that worktree away and preview again.']],
+  [['ASTRAGIT_GIT_FLOW_PAUSED'], ['Git Flow 已暂停，部分分支或标签可能已完成。请先处理冲突并继续当前整合，再重新预览并完成原 Git Flow 分支；中止当前合并不会撤销先前已完成的步骤。', 'Git Flow paused; some branches or tags may already be complete. Resolve conflicts and continue the current integration, then preview and finish the original Git Flow branch again. Aborting this merge does not undo earlier completed steps.', 'check']],
+  [['ASTRAGIT_GIT_FLOW_CHECKOUT_BLOCKED'], ['本地文件会被目标分支覆盖，Git 拒绝了新分支检出。Git Flow 可能已写入分支配置；请核对文件，提交或贮藏本地修改后重新预览。', 'Local files would be overwritten, so Git refused to check out the new branch. Git Flow may already have written branch configuration. Review the files, commit or stash local changes, then preview again.', 'check']],
+  [['ASTRAGIT_GIT_FLOW_OUTCOME_UNKNOWN', 'ASTRAGIT_GIT_FLOW_RESULT'], ['Git Flow 未确认全部完成，分支、标签、配置或远程可能已部分更新。请刷新并核对具体结果，不要直接重复执行。', 'Git Flow did not confirm full completion. Branches, tags, configuration or remotes may have partially changed. Reload and review the actual result before repeating the operation.', 'check']],
+  [['ASTRAGIT_GIT_EXTERNAL_TOOL_INVALID', 'ASTRAGIT_GIT_EXTERNAL_TOOL_PATH'], ['外部工具参数或文件范围无效，请重新选择仓库内的文件与版本。', 'The external tool options or file scope are invalid. Select repository files and revisions again.']],
+  [['ASTRAGIT_GIT_EXTERNAL_TOOL_REQUIRED', 'ASTRAGIT_GIT_EXTERNAL_TOOL_UNAVAILABLE'], ['尚未选择可用的外部工具，请打开外部工具设置，核对安装、工具名称、命令和可执行路径。', 'No available external tool was selected. Open external tool settings and review the installation, tool name, command and executable path.', 'settings']],
+  [['ASTRAGIT_GIT_EXTERNAL_TOOL_CHANGED'], ['文件、分支、暂存区或工具配置已变化，请重新读取并核对版本后再启动。', 'Files, branch, index or tool settings changed. Reload and review the versions before launching.', 'check']],
+  [['ASTRAGIT_GIT_EXTERNAL_TOOL_READ', 'ASTRAGIT_GIT_EXTERNAL_TOOL_UNSUPPORTED'], ['未能完整读取所选版本或该文件类型不适合当前工具，请查看具体文件与 Git 原因。', 'The selected versions could not be read completely, or the file type is unsuitable for this tool. Review the file and Git details.']],
+  [['ASTRAGIT_GIT_EXTERNAL_TOOL_TOO_LARGE'], ['所选文件版本过大，请缩小比较范围或使用外部工具自身的文件打开功能。', 'The selected file versions are too large. Narrow the comparison or open files directly in the external tool.']],
+  [['ASTRAGIT_GIT_EXTERNAL_TOOL_MARKERS_REMAIN', 'ASTRAGIT_GIT_EXTERNAL_TOOL_UNRESOLVED'], ['外部工具返回后仍有冲突或冲突标记，请回到内置编辑器核对结果后再标记为已解决。', 'Conflicts or conflict markers remain after the external tool returned. Review the result in the built-in editor before marking it resolved.', 'check']],
+  [['ASTRAGIT_GIT_EXTERNAL_TOOL_OUTCOME_UNKNOWN'], ['外部工具未完整完成，工作区或配置可能已有变化。请关闭仍打开的外部窗口，刷新并核对文件与暂存状态；不要直接重复启动或假定冲突已解决。', 'The external tool did not complete; worktree or configuration changes may have occurred. Close any remaining external windows, reload and review files and index state. Do not relaunch blindly or assume conflicts are resolved.', 'check']],
+  [['ASTRAGIT_GIT_SUBMODULE_INVALID', 'ASTRAGIT_GIT_SUBMODULE_PATH', 'ASTRAGIT_GIT_SUBMODULE_URL', 'ASTRAGIT_GIT_SUBMODULE_CONFIG'], ['子模块选项、路径或配置无效，请核对目录、地址和 .gitmodules，具体原因见详情。', 'The submodule options, path or configuration are invalid. Review the directory, URL and .gitmodules; see details for the cause.']],
+  [['ASTRAGIT_GIT_SUBMODULE_NOT_FOUND', 'ASTRAGIT_GIT_SUBMODULE_CHANGED'], ['父仓库、子模块或选项已变化，本次未开始操作。请重新读取并核对目标。', 'The parent repository, submodule or options changed. The operation was not started. Reload and review the target.', 'check']],
+  [['ASTRAGIT_GIT_SUBMODULE_DIRTY', 'ASTRAGIT_GIT_SUBMODULE_CONFIG_DIRTY', 'ASTRAGIT_GIT_SUBMODULE_BLOCKED'], ['本地修改或未结束的整合阻止子模块操作。请核对下方路径，保存内容后再处理；移除登记时可选择保留目录。', 'Local changes or an active integration prevent this submodule operation. Review the paths below and save the contents first; registration removal can retain the directory.']],
+  [['ASTRAGIT_GIT_SUBMODULE_ADOPT_REQUIRED'], ['目标已是 Git 仓库。若要登记当前仓库，请选择“登记现有仓库”并重新预览。', 'The destination is already a Git repository. Select “Register an existing repository” and preview again to register it.']],
+  [['ASTRAGIT_GIT_SUBMODULE_READ'], ['无法完整读取子模块，请重新载入并查看 Git 详情。', 'Submodule state could not be read completely. Reload and review the Git details.']],
+  [['ASTRAGIT_GIT_SUBMODULE_OUTCOME_UNKNOWN'], ['子模块操作未完整完成，配置、索引或工作区可能已有变化。请刷新父仓库与子仓库核对，处理冲突或 Git 原因后再决定下一步；不要直接重复操作。', 'The submodule operation did not complete; configuration, index or worktree changes may have occurred. Reload the parent and child repositories, review conflicts or the Git cause, then decide the next step. Do not repeat the operation blindly.', 'check']],
+  [['ASTRAGIT_GIT_TAG_INVALID', 'ASTRAGIT_GIT_TAG_QUERY_INVALID', 'ASTRAGIT_GIT_TAG_OPTIONS_INVALID'], ['标签名称、类型或查询条件无效，请重新检查后操作。', 'The tag name, type or query is invalid. Review the options before continuing.']],
+  [['ASTRAGIT_GIT_TAG_EXISTS'], ['该本地标签已存在，现有标签未替换。请选择其他名称，或先核对已有标签。', 'This local tag already exists and was not replaced. Choose another name or review the existing tag.']],
+  [['ASTRAGIT_GIT_TAG_TARGET_INVALID'], ['标签目标不存在或不是提交，请重新选择有效的目标版本。', 'The tag target does not exist or is not a commit. Select a valid target revision.']],
+  [['ASTRAGIT_GIT_TAG_TARGET_CHANGED'], ['目标分支已移动，本次未创建标签。请重新读取并核对目标提交。', 'The target branch moved. No tag was created. Reload and review the target commit.', 'check']],
+  [['ASTRAGIT_GIT_TAG_LOCAL_CHANGED', 'ASTRAGIT_GIT_TAG_NOT_FOUND'], ['本地标签已变化或不存在。请重新载入并核对标签对象，再执行推送或删除。', 'The local tag changed or is missing. Reload and review its object before pushing or deleting it.', 'check']],
+  [['ASTRAGIT_GIT_TAG_LIST_CHANGED'], ['标签对象、推送地址或筛选条件已变化，旧列表不能继续分页。请从第一页重新载入。', 'Tag objects, push destinations or filters changed. Reload from the first page before continuing.', 'check']],
+  [['ASTRAGIT_GIT_TAG_LIST_INVALID'], ['未能完整读取标签对象和版本，请重新载入并查看 Git 详情。', 'Tag objects and versions could not be read completely. Reload and review the Git details.']],
+  [['ASTRAGIT_GIT_TAG_REMOTE_REQUIRED', 'ASTRAGIT_GIT_REMOTE_CONFIG_INVALID'], ['远程推送地址或 Git 命令配置不可用，请先核对仓库设置。', 'Remote push destinations or Git command configuration are unavailable. Review repository settings first.', 'settings']],
+  [['ASTRAGIT_GIT_TAG_REMOTE_CHANGED', 'ASTRAGIT_GIT_TAG_REVIEW_REQUIRED'], ['远程推送地址或核对版本不可用，操作未执行。请重新读取远程标签并确认每个目标。', 'Push destinations or reviewed versions are unavailable. The operation was not performed. Reload remote tags and confirm each destination.', 'check']],
+  [['ASTRAGIT_GIT_TAG_REMOTE_VERSION_CHANGED'], ['服务器上的标签对象已变化，删除被拒绝。即使指向同一提交，也需要重新核对标签版本。', 'The server tag object changed, so deletion was refused. Review the tag version again even if it points to the same commit.', 'check']],
+  [['ASTRAGIT_GIT_TAG_REMOTE_REJECTED'], ['服务器拒绝删除标签，请检查标签保护、权限或服务端检查，具体原因见 Git 详情。', 'The server refused tag deletion. Check tag protection, permissions or server checks; see Git details for the cause.']],
+  [['ASTRAGIT_GIT_TAG_REMOTE_OUTCOME_UNKNOWN'], ['无法确认全部推送目标的标签删除结果，部分目标可能已完成。请逐一重新读取服务器并核对，不要直接重复删除。', 'Tag deletion could not be confirmed for every push destination; some may have completed. Reload and review each server before attempting another deletion.', 'check']],
+  [['ASTRAGIT_GIT_PATCH_IMPORT_INVALID', 'ASTRAGIT_GIT_PATCH_EXPORT_INVALID'], ['补丁内容、编码或范围无效，请重新选择文件和选项，再预览核对。', 'The patch contents, encoding or scope are invalid. Select the file and options again, then preview them.']],
+  [['ASTRAGIT_GIT_PATCH_PATH_INVALID'], ['补丁涉及仓库外路径、Git 元数据或符号链接祖先，不能通过内置导入处理。请检查补丁路径和前缀层数。', 'The patch involves outside paths, Git metadata or a symbolic-link ancestor. Review the paths and strip count before importing.']],
+  [['ASTRAGIT_GIT_PATCH_PATH_ENCODING'], ['补丁文件名不是有效 UTF-8，无法在界面中完整核对，请使用支持该编码的外部 Git 工具。', 'Patch filenames are not valid UTF-8. Use an external Git tool that supports their encoding.']],
+  [['ASTRAGIT_GIT_PATCH_TOO_LARGE'], ['补丁超过 8 MiB，请缩小文件或版本范围，分批导出和应用。', 'The patch exceeds 8 MiB. Narrow the file or revision scope and process it in smaller batches.']],
+  [['ASTRAGIT_GIT_PATCH_EMPTY'], ['所选范围没有可导出或应用的文件变动，请重新选择范围。', 'The selected scope has no file changes to export or apply. Select another scope.']],
+  [['ASTRAGIT_GIT_PATCH_PREVIEW_CHANGED', 'ASTRAGIT_GIT_PATCH_EXPORT_CHANGED'], ['仓库、文件、暂存区或补丁选项已变化。请重新生成预览，核对范围后再操作。', 'The repository, files, index or patch options changed. Generate a new preview and review its scope before continuing.', 'check']],
+  [['ASTRAGIT_GIT_PATCH_CHECK_FAILED'], ['补丁与当前内容或路径不匹配，本次未应用。请查看具体文件、路径前缀层数和 Git 原因，再重新预览。', 'The patch does not match the current contents or paths. It was not applied. Review the files, strip count and Git details, then preview again.']],
+  [['ASTRAGIT_GIT_PATCH_FILE_INVALID', 'ASTRAGIT_GIT_PATCH_FILE_CHANGED'], ['补丁文件读取或保存内容无效，或文件已变化，请重新选择或生成补丁。', 'The patch file or save contents are invalid, or the file changed. Select or generate the patch again.']],
+  [['ASTRAGIT_GIT_PATCH_DESKTOP_REQUIRED'], ['请在 AstraGit 桌面应用中选择或保存补丁文件。', 'Choose or save patch files in the AstraGit desktop app.']],
+  [['ASTRAGIT_GIT_REPLAY_INVALID', 'ASTRAGIT_GIT_REPLAY_PARENT_INVALID'], ['请核对提交版本、父级来源和提交选项。', 'Review the commit, mainline parent and commit options.']],
+  [['ASTRAGIT_GIT_REPLAY_PARENT_REQUIRED'], ['该提交有多个父级，请选择拣选或反向提交的来源，再核对文件范围。', 'This commit has multiple parents. Select the mainline parent and review the files before cherry-picking or reverting.']],
+  [['ASTRAGIT_GIT_REPLAY_PREVIEW_CHANGED'], ['提交来源、父级、选项或本地内容已变化，请重新预览后执行。', 'The source commit, parent, options or local contents changed. Preview again before applying.']],
+  [['ASTRAGIT_GIT_REPLAY_MANUAL_COMMIT_REQUIRED'], ['本次序列不自动提交。请先解决并暂存冲突，提交已应用的内容，再继续剩余提交。', 'This replay sequence does not commit automatically. Resolve and stage conflicts, commit the applied changes, then continue the remaining commits.']],
+  [['ASTRAGIT_GIT_REPLAY_INDEX_DIRTY'], ['立即提交要求暂存区与当前提交一致。请先提交或贮藏现有暂存内容，或选择不立即提交。', 'Automatic commits require the index to match HEAD. Commit or stash existing staged contents first, or turn off automatic commits.']],
+  [['ASTRAGIT_GIT_REPLAY_IN_PROGRESS', 'ASTRAGIT_GIT_REPLAY_CONFLICTED'], ['当前存在未完成的整合或冲突，请先解决、继续或终止当前操作。', 'An integration or conflict is already in progress. Resolve, continue or abort it before starting another operation.']],
+  [['ASTRAGIT_GIT_ARCHIVE_INVALID', 'ASTRAGIT_GIT_ARCHIVE_FILE_INVALID'], ['请核对源码存档的版本、格式、相对目录及保存位置。', 'Check the source archive revision, format, relative folder and save location.']],
+  [['ASTRAGIT_GIT_ARCHIVE_REVISION_INVALID'], ['所选版本不存在、不是提交或仓库尚无提交，请重新选择。', 'The revision is missing, is not a commit, or the repository has no commits yet. Choose another revision.']],
+  [['ASTRAGIT_GIT_ARCHIVE_READ_FAILED'], ['Git 未能完整生成源码存档，请查看具体原因后重新核对版本。', 'Git could not create the complete source archive. Review the details and recheck the revision.']],
+  [['ASTRAGIT_GIT_ARCHIVE_TIMEOUT'], ['源码存档超时，请稍后重试。', 'Source archiving timed out. Try again later.']],
+  [['ASTRAGIT_GIT_ARCHIVE_BUSY'], ['已有源码存档正在导出，请等待完成或取消。', 'A source archive is already being exported. Wait for it to finish or cancel it.']],
+  [['ASTRAGIT_GIT_ARCHIVE_SAVE_FAILED'], ['源码存档未能完成保存，请检查空间、权限和目标位置。', 'The source archive could not be saved. Check available space, permissions and the destination.']],
+  [['ASTRAGIT_GIT_ARCHIVE_DESKTOP_REQUIRED'], ['请在 AstraGit 桌面应用中保存源码存档。', 'Save source archives in the AstraGit desktop app.']],
+  [['ASTRAGIT_GIT_ARCHIVE_NOT_AVAILABLE'], ['应用正在退出，源码存档尚未开始，请重新打开应用后再试。', 'The app is quitting and archiving has not started. Reopen the app and try again.']],
+  [['ASTRAGIT_GIT_PATCH_READ_FAILED', 'ASTRAGIT_GIT_PATCH_READ_INVALID', 'ASTRAGIT_GIT_PATCH_READ_REVISION_INVALID'], ['无法解析补丁或读取所选版本，请检查补丁格式、版本范围和 Git 详情。', 'The patch or selected revision could not be read. Review the patch format, revision scope and Git details.']],
+  [['ASTRAGIT_GIT_PATCH_READ_TIMEOUT', 'ASTRAGIT_GIT_PATCH_READ_TOO_LARGE', 'ASTRAGIT_GIT_PATCH_READ_ENCODING'], ['补丁读取超时、内容过大或路径编码不受支持，请缩小范围并重新预览，或使用外部 Git 工具。', 'The patch read timed out, was too large, or used unsupported filename encoding. Narrow the scope and preview again, or use an external Git tool.']],
+  [['ASTRAGIT_GIT_HISTORY_QUERY_INVALID'], ['历史搜索条件或分页范围无效，请重新选择字段与分支范围。', 'The history search or page scope is invalid. Select the field and branch scope again.']],
+  [['ASTRAGIT_GIT_HISTORY_QUERY_EXPIRED'], ['历史查询已过期、应用服务已重启或条件已变化。请重新载入历史，建立新的完整查询范围。', 'The history query expired, the app service restarted, or its filters changed. Reload history to start a new complete scope.', 'retry']],
+  [['ASTRAGIT_GIT_HISTORY_QUERY_CHANGED'], ['Git 替代对象已变化，旧范围不能继续分页。请重新载入历史，核对新的提交关系。', 'Git replacement objects changed. Reload history to review the new commit relationships before continuing.', 'check']],
+  [['ASTRAGIT_GIT_HISTORY_QUERY_FAILED'], ['无法完整读取历史搜索结果，请重新载入并查看 Git 详情。', 'History search results could not be read completely. Reload and review the Git details.']],
+  [['ASTRAGIT_GIT_HISTORY_QUERY_TOO_LARGE'], ['本页提交元数据超出读取范围，请缩小分支范围或搜索条件。', 'The commit metadata exceeds the page read limit. Narrow the branch scope or search.']],
+  [['ASTRAGIT_GIT_HISTORY_QUERY_REVISION_INVALID'], ['历史分支或版本已不存在，或不是提交。请刷新并重新选择范围。', 'The history branch or revision is missing or is not a commit. Refresh and select the scope again.']],
+  [['ASTRAGIT_GIT_HISTORY_QUERY_TIMEOUT'], ['搜索完整历史超时，请缩小分支范围或使用更具体的条件。', 'Searching the complete history timed out. Narrow the branch scope or use a more specific search.', 'retry']],
+  [['ASTRAGIT_GIT_HISTORY_QUERY_ENCODING'], ['提交元数据不是有效 UTF-8，无法完整显示历史搜索结果。请使用支持该编码的外部 Git 工具查看。', 'Commit metadata is not valid UTF-8. Use an external Git tool supporting that encoding to view the complete results.']],
+  [['ASTRAGIT_GIT_FILE_HISTORY_INVALID'], ['请选择当前仓库内的文件与有效历史范围，不能读取 Git 元数据或仓库外路径。', 'Select a file and valid history range in this repository. Git metadata and outside paths cannot be read.']],
+  [['ASTRAGIT_GIT_FILE_HISTORY_REVISION_INVALID'], ['所选版本不存在或不是提交，请重新选择历史版本。', 'The selected revision does not exist or is not a commit. Select another revision.']],
+  [['ASTRAGIT_GIT_DIFF_READ_FAILED'], ['无法完整读取 Git 差异或文件清单。请重新载入并检查 Git 详情，不能据此判断仓库没有变动。', 'The Git diff or file list could not be read completely. Reload and inspect the Git details; this does not mean the repository is unchanged.', 'retry']],
+  [['ASTRAGIT_GIT_DIFF_TOO_LARGE'], ['差异超过内置读取范围，请减少选择的文件或使用外部工具比较。', 'The diff exceeds the built-in read limit. Select fewer files or compare with an external tool.']],
+  [['ASTRAGIT_GIT_DIFF_TIMEOUT'], ['读取差异超时，请缩小范围后重新载入。', 'Reading the diff timed out. Narrow the scope and reload.', 'retry']],
+  [['ASTRAGIT_GIT_DIFF_ENCODING'], ['差异内容或文件名不是有效 UTF-8，无法完整显示。请使用支持该编码的外部工具。', 'Diff contents or filenames are not valid UTF-8. Use an external tool supporting that encoding.']],
+  [['ASTRAGIT_GIT_DIFF_INCOMPLETE'], ['差异未完整读取，不能导出补丁。请缩小到所需文件并重新读取，或使用外部 Git 工具导出。', 'The diff is incomplete and cannot be exported as a patch. Narrow the scope and reload, or export with an external Git tool.']],
+  [['ASTRAGIT_GIT_DIFF_MIXED_STAGES'], ['同一文件包含不同暂存阶段的差异，不能直接拼接导出。请在补丁导出中明确选择已暂存、未暂存或工作区范围。', 'The same file has changes from different staging states. Choose Staged, Unstaged or Working tree in patch export rather than concatenating these patches.']],
+  [['ASTRAGIT_GIT_COMPARISON_INVALID'], ['请选择当前仓库中两个有效提交，明确比较的起点与终点。', 'Select two valid commits in this repository and specify the comparison direction.']],
+  [['ASTRAGIT_GIT_STATE_READ_FAILED'], ['无法完整读取仓库状态、分支或引用，不能确认工作区干净。请重新载入并查看 Git 详情。', 'Repository state, branches or refs could not be read completely. A clean worktree has not been confirmed. Reload and review the Git details.', 'retry']],
+  [['ASTRAGIT_GIT_STATE_LOCATION'], ['仓库目录已移动、不存在或不是目录。请在项目中重新选择实际仓库位置。', 'The repository folder moved, is missing, or is not a directory. Select its current location in the project.']],
+  [['ASTRAGIT_GIT_STATE_ACCESS_DENIED'], ['无法访问仓库目录或 Git 元数据。请检查目录访问权限后重新载入。', 'The repository folder or Git metadata could not be accessed. Review folder permissions and reload.']],
+  [['ASTRAGIT_GIT_STATE_OWNERSHIP'], ['Git 因目录所有权拒绝读取仓库。请核对仓库归属与 Git 详情后再处理。', 'Git refused to read the repository because of folder ownership. Review its ownership and Git details before proceeding.']],
+  [['ASTRAGIT_GIT_INDEX_CORRUPT'], ['Git 暂存区索引无法读取，可能已损坏。请保留工作区文件并查看 Git 详情，修复前不要继续提交或切换。', 'The Git index could not be read and may be corrupt. Preserve working files and review the Git details before committing or switching.']],
+  [['ASTRAGIT_GIT_STATE_TOO_LARGE'], ['仓库状态或引用清单超出内置读取范围，未返回不完整清单。请使用外部 Git 工具检查后再操作。', 'Repository state or refs exceed the built-in read limit. No incomplete list was returned. Inspect with an external Git tool before proceeding.']],
+  [['ASTRAGIT_GIT_STATE_TIMEOUT'], ['读取 Git 仓库状态超时，请检查仓库及后台 Git 进程后重新载入。', 'Reading repository state timed out. Check the repository and background Git processes, then reload.', 'retry']],
+  [['ASTRAGIT_GIT_STATE_ENCODING'], ['仓库路径、引用或提交元数据不是有效 UTF-8，内置界面无法完整核对。请使用支持该编码的外部工具。', 'Repository paths, refs or commit metadata are not valid UTF-8. Review them with an external tool supporting that encoding.']],
+  [['ASTRAGIT_GIT_SMART_STATUS_UNCONFIRMED'], ['更新后的仓库状态未确认，先前本地修改仍保留为贮藏；没有继续自动恢复或删除贮藏。请刷新并核对分支、文件和贮藏后再决定下一步，避免重复更新或恢复。', 'Repository state after the update is unconfirmed. Earlier local changes remain saved as a stash; automatic restoration and stash deletion did not continue. Refresh and review the branch, files and stash before proceeding. Avoid repeating the update or restoration.', 'check']],
+  [['ASTRAGIT_GIT_FILE_HISTORY_CHANGED'], ['读取期间文件、暂存区、当前提交或筛选范围发生变化。请重新载入，避免把旧归属对应到新内容。', 'The file, index, current commit or search scope changed during the read. Reload to avoid showing old attribution against new contents.', 'check']],
+  [['ASTRAGIT_GIT_FILE_HISTORY_FAILED'], ['无法完整读取文件历史或代码归属，请重新载入并查看 Git 详情。', 'File history or line attribution could not be read completely. Reload and review the Git details.']],
+  [['ASTRAGIT_GIT_FILE_HISTORY_TOO_LARGE'], ['历史元数据或差异超出内置读取范围，请缩小版本范围或使用外部 Git 工具查看。', 'History metadata or diff exceeds the built-in read limit. Narrow the revision range or use an external Git tool.']],
+  [['ASTRAGIT_GIT_FILE_HISTORY_TIMEOUT'], ['读取文件历史超时，请缩小范围或稍后重新载入。', 'Reading file history timed out. Narrow the scope or reload later.', 'retry']],
+  [['ASTRAGIT_GIT_FILE_HISTORY_ENCODING'], ['文件名或提交元数据不是有效 UTF-8，内置历史无法完整显示；请使用支持该编码的外部工具查看。', 'A filename or commit metadata is not valid UTF-8. Use an external tool supporting that encoding to view the complete history.']],
+  [['ASTRAGIT_GIT_MERGE_FF_ONLY'], ['当前分支已经分叉，Git 的仅快进配置拒绝了合并。请查看历史，并在合并选项中确认是否允许创建合并提交。', 'The branches diverged, and Git’s fast-forward-only configuration refused the merge. Review the history and use Merge options to choose whether to allow a merge commit.']],
+  [['ASTRAGIT_GIT_MERGE_TARGET_CHANGED'], ['合入分支或提交已变化，本次未合并。请关闭合并窗口并刷新，重新确认目标。', 'The destination branch or commit changed. No merge was performed. Close the merge dialog, refresh and confirm the destination again.', 'check']],
+  [['ASTRAGIT_GIT_MERGE_SOURCE_CHANGED'], ['来源分支已变化，本次未合并。请关闭合并窗口并刷新，重新确认来源。', 'The source branch changed. No merge was performed. Close the merge dialog, refresh and confirm the source again.', 'check']],
+  [['ASTRAGIT_GIT_TRACKING_PATH_INVALID'], ['请选择当前仓库内的有效文件或目录，不能操作 Git 元数据或仓库外路径。', 'Select valid files or directories within this repository, excluding Git metadata and outside paths.']],
+  [['ASTRAGIT_GIT_TRACKING_INDEX_INVALID'], ['无法完整读取暂存区条目，请刷新并检查 Git 索引后再操作。', 'The index entries could not be read completely. Refresh and inspect the Git index before continuing.']],
+  [['ASTRAGIT_GIT_STOP_TRACKING_NOT_TRACKED'], ['所选路径已不在索引中，请刷新后重新选择仍在跟踪的文件。', 'Some selected paths are no longer in the index. Refresh and select tracked files again.']],
+  [['ASTRAGIT_GIT_STOP_TRACKING_CHANGED'], ['分支、目录范围或暂存版本已变化，本次未停止跟踪。请重新载入范围并确认。', 'The branch, directory scope or staged versions changed. Tracking was not stopped. Reload and confirm the scope again.', 'check']],
+  [['ASTRAGIT_GIT_STOP_TRACKING_STAGED'], ['Git 拒绝移除与磁盘及 HEAD 都不同的暂存版本。请先核对所选文件；确认舍弃这些索引版本时，可勾选强制移除。磁盘文件会保留。', 'Git refused to remove staged versions that differ from both disk and HEAD. Review the files, then explicitly enable force removal if you want to discard those index versions. Disk files are kept.']],
+  [['ASTRAGIT_GIT_IGNORED_QUERY_INVALID'], ['忽略文件查询范围无效，请重新选择目录或筛选条件。', 'The ignored-file query is invalid. Select a directory or filter again.']],
+  [['ASTRAGIT_GIT_IGNORED_LIST_INVALID'], ['无法完整解析 Git 的忽略信息，请刷新并查看 Git 日志。', 'Git’s ignore information could not be parsed completely. Refresh and inspect the Git log.']],
+  [['ASTRAGIT_GIT_IGNORED_PATH_CHANGED'], ['所选项或忽略规则已变化，请返回上级或刷新后重新选择。', 'The selected item or ignore rules changed. Go back or refresh and select it again.']],
+  [['ASTRAGIT_GIT_IGNORED_LIST_CHANGED'], ['忽略文件清单已变化，请重新载入后继续浏览。', 'The ignored-file list changed. Reload it before continuing.', 'check']],
+  [['ASTRAGIT_GIT_IGNORE_INVALID'], ['忽略规则或范围无效。请按 Git 忽略格式每行填写一条规则（最多 200 条、64 KiB）。', 'The ignore rules or scope are invalid. Enter one Git ignore rule per line, up to 200 rules and 64 KiB.']],
+  [['ASTRAGIT_GIT_IGNORE_FILE_INVALID'], ['忽略文件路径不适用。请查看目标路径及详情，修正规则文件类型或链接后重新载入。', 'The ignore file path is not usable. Review the path and details, fix its file type or links, then reload.']],
+  [['ASTRAGIT_GIT_IGNORE_CHANGED'], ['忽略文件或配置路径已变化，本次未追加规则。请重新载入并核对目标文件。', 'The ignore file or configured path changed. No rules were appended. Reload and review the destination file.']],
+  [['ASTRAGIT_GIT_IGNORE_OUTCOME_UNKNOWN'], ['规则文件保存结果未确认。请检查该文件和 Git 状态后再操作，不要直接重复追加规则。', 'The ignore file save could not be confirmed. Inspect the file and Git status before appending the rules again.', 'check']],
+  [['ASTRAGIT_GIT_FILE_ACTION_INVALID'], ['文件操作请求无效，请从当前仓库的文件菜单重新操作。', 'The file action is invalid. Use the current repository’s file menu.']],
+  [['ASTRAGIT_GIT_FILE_ACTION_UNAVAILABLE'], ['此功能需要在 AstraGit 桌面应用中使用。', 'This feature requires the AstraGit desktop app.']],
+  [['ASTRAGIT_GIT_FILE_OPEN_FAILED'], ['系统未能打开所选文件。请确认已安装适用的默认应用，并查看详情中的系统原因。', 'The system could not open the selected file. Check its default app and review the system error in the details.']],
+  [['ASTRAGIT_GIT_FILE_MISSING'], ['所选文件已不存在，无法打开。可使用“在 Finder 中定位”查看其所在目录。', 'The selected file is missing. Use Reveal in Finder to view its containing directory.']],
+  [['ASTRAGIT_GIT_FILE_NOT_FOUND'], ['该路径已不在仓库文件列表中，请刷新后重新选择。', 'The path is no longer in the repository file list. Refresh and select it again.']],
+  [['ASTRAGIT_GIT_REBASE_HEAD_REQUIRED'], ['仓库尚无提交，无法交互变基。请先创建第一次提交。', 'There are no commits to rebase. Create the first commit first.']],
+  [['ASTRAGIT_GIT_REBASE_RANGE_INVALID', 'ASTRAGIT_GIT_REBASE_BASE_NOT_ANCESTOR'], ['来源基点必须是当前 HEAD 的祖先；计划只整理此基点之后的提交。需要改变提交位置时，请另填“新基点”。', 'The source base must be an ancestor of the current HEAD. Only later commits are included. Use New base to change where they are replayed.']],
+  [['ASTRAGIT_GIT_REBASE_RANGE_TOO_LARGE'], ['本次提交范围或说明总量过大。请选择更近的来源基点，分批整理；单次最多 2000 个提交。', 'The commit range or total message data is too large. Choose a closer source base and split the work. Each plan supports up to 2000 commits.']],
+  [['ASTRAGIT_GIT_REBASE_PLAN_INVALID', 'ASTRAGIT_GIT_REBASE_MESSAGE_INVALID'], ['提交计划或说明不完整、包含无效内容或超过大小限制，未开始重放。请重新载入并核对；每项说明最多 128 KiB。', 'The plan or messages are incomplete, invalid, or too large. Replay did not start. Reload and review the plan. Each message supports up to 128 KiB.']],
+  [['ASTRAGIT_GIT_REBASE_FIRST_COMBINED'], ['第一个保留的提交没有前项，不能向前合并。请将它改为保留、改说明或暂停编辑。', 'The first retained commit has no previous commit to combine into. Choose Pick, Reword or Edit.']],
+  [['ASTRAGIT_GIT_REBASE_PREVIEW_CHANGED'], ['当前分支、提交、暂存区或磁盘内容已变化，尚未开始交互变基。请重新载入影响范围和计划后确认。', 'The branch, commits, index or disk contents changed. The interactive rebase did not start. Reload and review the scope and plan before confirming.', 'check']],
+  [['ASTRAGIT_GIT_REBASE_NO_COMMITS'], ['来源基点后没有可整理的提交。请选择要整理的首个提交之前的基点。', 'No commits follow this source base. Select a base before the first commit you want to organize.']],
+  [['ASTRAGIT_GIT_REBASE_LOCAL_CHANGES'], ['当前仓库还有未提交的跟踪修改，尚未开始变基。请先查看受影响文件，提交或贮藏后重新载入计划。', 'Tracked files have uncommitted changes. The rebase did not start. Review the affected files, commit or stash them, then reload the plan.']],
+  [['ASTRAGIT_GIT_REBASE_MERGES_CONFIRMATION_REQUIRED'], ['范围内含有合并提交。当前计划会线性重放，移除合并节点及仅存在于合并提交中的改动。请核对并明确确认。', 'The range contains merge commits. Linear replay removes merge nodes and changes made only in merge commits. Review and explicitly confirm this effect.']],
+  [['ASTRAGIT_GIT_REBASE_OBSTACLES_CONFIRMATION_REQUIRED'], ['重放路径与未跟踪、忽略文件或其他仓库数据重名。请先备份并核对预览，明确确认可能的覆盖或移除。', 'Replay paths overlap untracked or ignored files, or data in other repositories. Back up needed contents, review the preview, and explicitly confirm possible replacement or removal.']],
+  [['ASTRAGIT_GIT_REBASE_RECOVERY_INVALID', 'ASTRAGIT_GIT_REBASE_PLAN_CHANGED'], ['交互变基恢复数据或原生计划已变化，本次未继续重放。请核对 Git 状态；可以在外部 Git 中处理，或在应用中终止当前变基。', 'The rebase recovery data or native plan changed. This continuation did not replay commits. Review Git state. Handle it in external Git or abort the current rebase in the app.', 'check']],
+  [['ASTRAGIT_GIT_REBASE_EDIT_REQUIRED', 'ASTRAGIT_GIT_REBASE_EDIT_CHANGED'], ['当前不是有效的 edit 暂停步骤，或步骤、HEAD、暂存内容已变化。未修订提交；请刷新后重新打开当前步骤。', 'This is not a valid edit pause, or the step, HEAD or staged contents changed. No commit was amended. Refresh and reopen the current step.', 'check']],
+  [['ASTRAGIT_GIT_RESET_MODE_INVALID', 'ASTRAGIT_GIT_RESET_PATH_INVALID'], ['重置方式或文件路径无效，未执行重置。请重新选择提交与重置方式。', 'The reset mode or file path is invalid. No reset was attempted. Select the commit and reset mode again.']],
+  [['ASTRAGIT_GIT_RESET_PREVIEW_CHANGED'], ['当前分支、暂存区或文件内容已变化，未执行重置。请重新载入影响范围，核对后再确认。', 'The branch, index or file contents changed. No reset was attempted. Reload the affected scope and review it before confirming.', 'check']],
+  [['ASTRAGIT_GIT_INTEGRATION_PREVIEW_CHANGED'], ['当前整合步骤或文件内容已变化，未执行跳过。请重新载入当前步骤并确认要舍弃的处理结果。', 'The integration step or file contents changed. Nothing was skipped. Reload the current step and review the work that will be discarded.', 'check']],
+  [['ASTRAGIT_GIT_RESET_NESTED_CONFIRMATION_REQUIRED'], ['操作范围包含其他 Git 仓库的数据。请核对预览中的目录并明确确认影响后再操作。', 'This operation affects data in other Git repositories. Review the listed directories and explicitly confirm their impact.']],
+  [['ASTRAGIT_GIT_RESET_SOFT_UNMERGED'], ['当前合并尚未结束或暂存区仍有冲突，Git 不允许 soft 重置。请先处理当前整合，或明确选择 mixed／hard。', 'Git cannot soft reset during a merge or with an unmerged index. Handle the current integration first, or explicitly choose mixed or hard.']],
+  [['ASTRAGIT_GIT_RESET_OUTCOME_UNKNOWN'], ['重置命令已执行，但当前提交与确认目标不一致。请刷新并核对分支、文件与操作日志，不要直接重复重置。', 'The reset command ran, but the current commit differs from the reviewed target. Refresh and inspect the branch, files and operation log before repeating the reset.', 'check']],
+  [['ASTRAGIT_GIT_INDEX_ENTRY_NOT_UPTODATE'], ['Git 拒绝更新某些暂存条目。请检查本地内容及 assume-unchanged／skip-worktree 标记，并刷新核对分支和文件；不要直接重复丢弃操作。', 'Git refused to update some index entries. Inspect local contents and assume-unchanged/skip-worktree flags, then refresh and verify the branch and files before repeating a discard.', 'check']],
+  [['ASTRAGIT_GIT_BRANCH_NOT_MERGED'], ['分支尚未合入，普通删除已被阻止。请先查看提交；确认不再需要这些提交时，可在删除窗口勾选强制删除。', 'The branch is not fully merged, so normal deletion was blocked. Review its commits first. If they are no longer needed, select force deletion in the delete dialog.']],
+  [['ASTRAGIT_GIT_BRANCH_IN_USE'], ['分支正在当前或其他工作区中使用，不能删除。请先到对应工作区切换分支，再重新删除。', 'The branch is checked out in this or another worktree and cannot be deleted. Switch branches in that worktree before deleting it.']],
+  [['ASTRAGIT_GIT_BRANCH_REVIEW_CHANGED'], ['分支提交或跟踪关系已变化，本次修改未执行。请重新打开窗口，核对最新状态后再操作。', 'The branch commit or tracking relationship changed. No change was made. Reopen the dialog and review the current state.', 'check']],
+  [['ASTRAGIT_GIT_REMOTE_BRANCH_CHANGED'], ['远程分支的版本与确认时不同，删除已被阻止。请抓取并查看该分支的最新提交，重新确认后再删除。', 'The remote branch differs from the reviewed version, so deletion was blocked. Fetch and review its latest commits, then confirm deletion again.', 'check']],
+  [['ASTRAGIT_GIT_REMOTE_TARGET_CHANGED'], ['远程推送目标已变化，未执行删除。请重新打开删除窗口，核对目标地址后再操作。', 'The remote push destinations changed. Deletion was not attempted. Reopen the delete dialog and review the destination addresses.', 'check']],
+  [['ASTRAGIT_GIT_REMOTE_DELETE_REJECTED'], ['服务器拒绝删除分支。请展开 Git 日志，检查分支保护、默认分支限制或服务端检查结果。', 'The server rejected branch deletion. Expand the Git log and review branch protection, default-branch restrictions or server checks.']],
+  [['ASTRAGIT_GIT_REMOTE_DELETE_OUTCOME_UNKNOWN'], ['尚未确认远程删除的完整结果；部分目标可能已经执行。请逐一核对服务器分支，避免直接重复删除。', 'The complete remote deletion outcome is unconfirmed; some destinations may already have changed. Check each server branch before repeating deletion.', 'check']],
+  [['ASTRAGIT_GIT_UPSTREAM_SELF', 'ASTRAGIT_GIT_UPSTREAM_INVALID'], ['请选择已存在且不同于自身的本地或远程跟踪分支作为上游。', 'Choose an existing local or remote-tracking branch other than the branch itself as its upstream.']],
+  [['ASTRAGIT_GIT_SETTINGS_INVALID'], ['仓库设置参数无效，请重新载入设置后操作。', 'The repository settings request is invalid. Reload settings before continuing.']],
+  [['ASTRAGIT_GIT_SETTINGS_STALE'], ['仓库配置已变化，本次设置未保存。请重新载入设置，核对后再保存。', 'Repository configuration changed. These settings were not saved. Reload and review before saving again.', 'check']],
+  [['ASTRAGIT_GIT_TEMPLATE_STALE'], ['提交模板或仓库配置已变化，本次设置未保存。请重新载入后核对。', 'The commit template or repository configuration changed. Nothing was saved. Reload and review the template.', 'check']],
+  [['ASTRAGIT_GIT_TEMPLATE_READ_FAILED'], ['无法读取提交模板，请核对文件是否存在及读取权限；原有提交草稿保留。', 'The commit template could not be read. Check that the file exists and is readable. Existing commit drafts are kept.']],
+  [['ASTRAGIT_GIT_TEMPLATE_TOO_LARGE'], ['提交模板超过 30000 个字符或 128 KiB，请缩短后重试；不会截断模板。', 'The commit template exceeds 30,000 characters or 128 KiB. Shorten it and try again. Templates are never truncated.']],
+  [['ASTRAGIT_GIT_TEMPLATE_INVALID'], ['提交模板设置无效。请选择普通 UTF-8 文本文件，或重新载入后编辑；原模板文件不会被覆盖。', 'The commit template setting is invalid. Choose a regular UTF-8 text file, or reload and edit the template. Existing template files are not overwritten.']],
+  [['ASTRAGIT_GIT_IDENTITY_INVALID'], ['提交姓名或邮箱无效。请填写不含尖括号和换行的单行文字。', 'The identity is invalid. Enter a single line without angle brackets or line breaks.']],
+  [['ASTRAGIT_GIT_REMOTE_NAME_INVALID'], ['远程名称无效，请使用有效的 Git 远程名称。', 'The remote name is invalid. Enter a valid Git remote name.']],
+  [['ASTRAGIT_GIT_REMOTE_CHANGED'], ['远程已变化，或名称已被使用。请重新载入仓库设置后核对。', 'The remote changed, or its name is already in use. Reload repository settings and review.']],
+  [['ASTRAGIT_GIT_REMOTE_INHERITED'], ['此远程继承自仓库外的 Git 配置。请在原配置中修改；本窗口只修改当前仓库的配置。', 'This remote is inherited from Git configuration outside this repository. Edit its original configuration; this dialog only changes repository configuration.']],
+  [['ASTRAGIT_GIT_AMEND_HEAD_REQUIRED'], ['仓库还没有提交，无法修订上次提交。请先创建第一次提交。', 'There is no commit to amend. Create the first commit first.']],
+  [['ASTRAGIT_GIT_AMEND_MESSAGE_INVALID'], ['修订说明不能为空、包含无效字节或超过 128 KiB。请检查完整说明后再提交，原提交尚未修订。', 'The amendment message must be nonempty, contain no invalid bytes, and fit within 128 KiB. Review the full message before submitting. The original commit was not amended.']],
+  [['ASTRAGIT_GIT_AMEND_STALE'], ['当前分支、上次提交或暂存内容已变化，未执行修订。请重新打开修订窗口核对内容。', 'The branch, last commit or staged contents changed. Nothing was amended. Reopen the amend dialog and review the current contents.', 'check']],
+  [['ASTRAGIT_CLONE_DESTINATION_NOT_EMPTY'], ['克隆目标不是空目录，未执行克隆。请选择新目录或空目录，已有文件不会被覆盖。', 'The clone destination is not empty. Cloning did not start. Choose a new or empty folder; existing files are kept.']],
+  [['ASTRAGIT_REPOSITORY_ALREADY_INITIALIZED'], ['目标目录已经是 Git 仓库，未重新初始化。请直接打开该仓库，或选择其他目录。', 'The destination is already a Git repository and was not reinitialized. Open it directly or choose another folder.']],
+  [['ASTRAGIT_REPOSITORY_SETUP_INVALID'], ['创建仓库的参数无效。请检查绝对目录、仓库地址、初始分支和克隆深度后重试。', 'The setup options are invalid. Check the absolute destination, source address, initial branch and clone depth.']],
+  [['ASTRAGIT_GIT_REMOTE_URL_INVALID'], ['仓库地址无效。请输入有效的 HTTPS、SSH、Git 地址或本地仓库绝对路径。', 'The repository address is invalid. Enter an HTTPS, SSH or Git address, or an absolute local repository path.']],
+  [['ASTRAGIT_GIT_REMOTE_CREDENTIALS_IN_URL'], ['仓库地址不能包含密码、令牌或查询参数。请使用系统 Git 凭据助手或 SSH 密钥认证。', 'The repository address must not contain passwords, tokens or query parameters. Authenticate with the system Git credential helper or an SSH key.']],
+  [['ASTRAGIT_REPOSITORY_SETUP_CANCELLED'], ['仓库创建任务已停止。请检查目标目录，已生成的文件不会由应用自动删除。', 'Repository setup stopped. Review the destination; the app does not automatically delete generated files.']],
+  [['ASTRAGIT_REPOSITORY_SETUP_INTERRUPTED', 'ASTRAGIT_REPOSITORY_SETUP_UNCONFIRMED'], ['尚未确认上次仓库创建的最终状态。请检查目标目录和 Git 进程；不会自动重新执行。', 'The previous setup outcome is unconfirmed. Check the destination and Git processes; the operation will not be restarted automatically.', 'check']],
+  [['ASTRAGIT_REPOSITORY_SETUP_NOT_FOUND'], ['找不到对应的仓库创建任务。请重新连接并核对目标目录，不要重复创建。', 'The repository setup job could not be found. Reconnect and inspect the destination before starting another setup.', 'check']],
+  [['ASTRAGIT_REPOSITORY_SETUP_CONFLICT'], ['任务标识与创建参数不一致。请先核对原任务，不会用新参数重复执行。', 'The job identity was reused with different options. Review the original job; it will not run again with changed options.']],
+  [['ASTRAGIT_GIT_BRANCH_EXISTS'], ['本地分支名称已存在，未创建或切换分支。请使用不同名称，或在分支列表中切换到已有分支。', 'A local branch with this name already exists. No branch was created or switched. Choose another name, or switch to the existing branch in the branch list.']],
+  [['ASTRAGIT_GIT_CHECKOUT_INTEGRATION_ACTIVE'], ['当前提交整合尚未结束，分支未切换。请查看文件状态，继续或终止当前整合后再切换。', 'A commit integration is still in progress. The branch was not switched. Review File Status and continue or abort the integration first.']],
+  [['ASTRAGIT_GIT_CHECKOUT_STASH_OUTCOME_UNKNOWN'], ['贮藏步骤未确认完成，尚未执行分支切换。请刷新并检查工作区与贮藏列表，避免重复贮藏。', 'Stashing could not be confirmed, so the branch switch was not attempted. Refresh and review the working tree and stashes before trying again.', 'check']],
+  [['ASTRAGIT_GIT_CHECKOUT_FAILED_STASH_PRESERVED'], ['本地修改已保存在贮藏中，但尚未确认切换完成。请刷新核对当前分支，再到贮藏区查看；贮藏未自动恢复或删除。', 'Local changes were saved in a stash, but the switch is unconfirmed. Refresh to check the current branch and review Stashes. The stash was not restored or deleted.', 'check']],
   // 启动目录的诊断路径与维护命令留在详情，主提示只说明阻止启动的原因。
   [['ASTRAGIT_DATA_ROOT_OFFLINE_ADOPTION_REQUIRED'], ['无法确认本地数据目录的归属，启动已停止。', 'Startup stopped because the local data folder could not be identified.']],
   // 工作安排表单复用后端明确的校验原因，用户可按提示修正草稿。
@@ -252,7 +449,7 @@ const explanations: ReadonlyArray<readonly [codes: readonly string[], explanatio
   [['ASTRAGIT_GIT_ACTION_REFRESH_FAILED'], ['Git 操作已执行，但刷新最新仓库状态失败。请先刷新并核对当前状态，不要重复执行刚才的 Git 操作。', 'The Git action ran, but refreshing the latest repository state failed. Refresh and check the current state without repeating the Git action.', 'check']],
   [['ASTRAGIT_GIT_ACTION_STATE_READ_FAILED'], ['Git 命令已结束，但未能读取执行后的仓库状态，结果尚未确认。请先刷新仓库和操作历史并核对结果，不要重复执行刚才的 Git 操作。', 'The Git command ended, but its resulting repository state could not be read, so the result is unconfirmed. Refresh the repository and operation history to check the result without repeating the Git action.', 'check']],
   [['ASTRAGIT_GIT_EXECUTABLE_MISSING'], ['找不到 Git 程序。请安装 Git，并确认 AstraGit 可以访问该程序后重新操作。', 'The Git executable could not be found. Install Git and make sure AstraGit can access it before trying again.']],
-  [['ASTRAGIT_GIT_IDENTITY_REQUIRED'], ['Git 尚未配置提交者姓名或邮箱，本次提交未完成。请在仓库或全局 Git 配置中设置 user.name 和 user.email 后重新提交。', 'Git has no committer name or email configured, so the commit did not complete. Set user.name and user.email in the repository or global Git configuration, then commit again.']],
+  [['ASTRAGIT_GIT_IDENTITY_REQUIRED'], ['Git 尚未配置提交者姓名或邮箱，本次提交未完成。请打开仓库设置，保存姓名和邮箱后重新提交。', 'Git has no committer name or email configured, so the commit did not complete. Open repository settings, save a name and email, then commit again.']],
   [['ASTRAGIT_GIT_NOTHING_TO_COMMIT'], ['当前没有可提交的更改。请检查已暂存文件或所选提交范围。', 'There are no changes to commit in the current scope. Check the staged files or selected commit scope.']],
   [['ASTRAGIT_GIT_INDEX_LOCKED'], ['Git 无法取得仓库锁。可能有其他 Git 操作正在运行，也可能留下了旧锁文件。请先确认其他 Git 操作已结束，再按详情核查锁文件。', 'Git could not acquire a repository lock. Another Git operation may be running, or a stale lock may remain. Confirm that other Git operations have ended before inspecting the lock file shown in the details.']],
   [['ASTRAGIT_GIT_HOOK_SELECTION_CHANGED'], ['提交钩子暂存了未勾选的文件，本次提交已被阻止。请调整钩子，或刷新文件状态后重新确认提交范围。', 'A commit hook staged files outside your selection, so the commit was blocked. Adjust the hook, or refresh the file state and review the commit scope again.']],
@@ -269,14 +466,14 @@ const explanations: ReadonlyArray<readonly [codes: readonly string[], explanatio
   [['ASTRAGIT_GIT_CONFLICT_CONTENT_INVALID'], ['冲突结果不是有效的 UTF-8 文本、包含空字符或超出大小限制，无法保存。请检查草稿，或使用外部工具处理。', 'The conflict result is not valid UTF-8 text, contains a null character, or exceeds the size limit and cannot be saved. Review the draft or resolve it using an external tool.']],
   [['ASTRAGIT_GIT_CONFLICT_MARKERS_REMAIN'], ['结果中仍有未处理或格式不完整的冲突标记，不能标记为已解决。请继续处理所有冲突块，并检查手工编辑后的标记。', 'Unresolved or malformed conflict markers remain, so the file cannot be marked resolved. Resolve every conflict block and check any manually edited markers.']],
   [['ASTRAGIT_GIT_CONFLICT_READ_FAILED'], ['无法读取或核对当前冲突版本。请刷新仓库并重新载入冲突文件；已有草稿请先保留。', 'The current conflict versions could not be read or verified. Keep any existing draft, refresh the repository, and reload the conflict.', 'check']],
-  [['ASTRAGIT_GIT_UNMERGED_FILES', 'ASTRAGIT_GIT_CONFLICTS_REMAIN'], ['仓库仍有未解决的冲突，操作未能继续。请处理冲突文件，并在确认内容后暂存；如有正在进行的合并或变基，再继续或中止该流程。', 'The repository still has unresolved conflicts, so the action could not continue. Resolve the files and stage them after reviewing their contents. If a merge or rebase is in progress, continue or abort that operation.']],
+  [['ASTRAGIT_GIT_UNMERGED_FILES', 'ASTRAGIT_GIT_CONFLICTS_REMAIN'], ['仓库仍有未解决的冲突，操作未能继续。请处理冲突文件，并在确认内容后暂存；如有正在进行的提交整合，再继续或中止该流程。', 'The repository still has unresolved conflicts, so the action could not continue. Resolve the files and stage them after reviewing their contents. If a commit integration is in progress, continue or abort that operation.']],
   [['ASTRAGIT_GIT_LOCAL_CHANGES_BLOCKED'], ['本地修改或未跟踪文件会被此次操作覆盖，Git 已停止执行。请先提交、贮藏（未跟踪文件需勾选包含），或备份并移开相关文件，再重新操作。', 'Local changes or untracked files would be overwritten, so Git stopped the action. Commit or stash them (include untracked files when needed), or back up and move the affected files before trying again.']],
   [['ASTRAGIT_GIT_SMART_OPERATION_FAILED_RESTORED'], ['更新未完成，自动贮藏的本地修改已恢复。请刷新并核对仓库状态，再查看详情处理更新失败的原因。', 'The update did not complete, and the automatically stashed local changes were restored. Refresh and check the repository state, then review the details to resolve the update failure.', 'check']],
   [['ASTRAGIT_GIT_SMART_OPERATION_FAILED_STASH_PRESERVED'], ['更新未完成，自动贮藏的本地修改仍保留在贮藏中。请先核对当前分支和冲突状态，并查看详情中的贮藏记录；不要重复更新或删除该贮藏。', 'The update did not complete, and the automatically stashed local changes remain in the stash. Check the current branch and conflicts, then inspect the stash identified in the details. Do not repeat the update or delete that stash yet.', 'check']],
   [['ASTRAGIT_GIT_SMART_OPERATION_FAILED'], ['更新未完成。请刷新并核对当前分支、冲突及贮藏状态，再查看详情确认本地修改的保存与恢复情况。', 'The update did not complete. Refresh and check the current branch, conflicts, and stash, then inspect the details to confirm how local changes were saved or restored.', 'check']],
   [['ASTRAGIT_GIT_SMART_RESTORE_FAILED'], ['更新命令已完成，但本地修改尚未完整恢复，自动贮藏仍保留。请刷新并检查当前分支、文件及冲突状态，再按详情核查贮藏；不要重复更新或删除该贮藏。', 'The update command completed, but local changes were not fully restored. The automatic stash was preserved. Refresh and check the branch, files, and conflicts, then inspect the stash in the details. Do not repeat the update or delete that stash yet.', 'check']],
   [['ASTRAGIT_GIT_INTEGRATION_ACTIVE'], ['仓库正在进行合并、变基或其他提交整合，不能开始此次操作。请先查看文件状态，处理冲突后继续，或中止当前整合。', 'A merge, rebase, or another commit integration is in progress, so this action cannot start. Check the file state, resolve conflicts and continue, or abort the current integration.']],
-  [['ASTRAGIT_GIT_INTEGRATION_CHANGED'], ['合并或变基状态已变化，本次操作未继续。请刷新仓库状态后再选择对应操作。', 'The merge or rebase state changed, so this action did not continue. Refresh the repository state and select the appropriate action again.']],
+  [['ASTRAGIT_GIT_INTEGRATION_CHANGED'], ['提交整合状态已变化，本次操作未继续。请刷新仓库状态后再选择对应操作。', 'The commit integration state changed, so this action did not continue. Refresh the repository state and select the appropriate action again.']],
   [['ASTRAGIT_GIT_SELECTION_CHANGED'], ['所选文件、分支或提交已变化，本次操作未继续。请刷新文件和仓库状态，重新核对操作范围。', 'The selected files, branch, or commit changed, so this action did not continue. Refresh the file and repository state, then review the action scope again.', 'check']],
   [['ASTRAGIT_GIT_DIRTY'], ['工作区还有未提交修改，暂时不能执行此次操作。请先提交或贮藏修改，再重新操作。', 'The working tree has uncommitted changes, so this action cannot proceed. Commit or stash the changes before trying again.']],
   [['ASTRAGIT_GIT_PATH_REQUIRED'], ['请先选择要操作的文件。', 'Select the files to act on first.']],
@@ -391,7 +588,7 @@ const explanations: ReadonlyArray<readonly [codes: readonly string[], explanatio
   ],
   [
     ['ASTRAGIT_GIT_CHECKOUT_CONFLICTED'],
-    ['仓库在切换前已有未解决的冲突，本次切换未执行。请先处理冲突文件并暂存；如有正在进行的合并或变基，再继续或中止该流程。', 'The repository already had unresolved conflicts, so the checkout was not performed. Resolve and stage the conflicted files first. If a merge or rebase is in progress, continue or abort that operation.'],
+    ['仓库在切换前已有未解决的冲突，本次切换未执行。请先处理冲突文件并暂存；如有正在进行的提交整合，再继续或中止该流程。', 'The repository already had unresolved conflicts, so the checkout was not performed. Resolve and stage the conflicted files first. If a commit integration is in progress, continue or abort that operation.'],
   ],
   [
     ['ASTRAGIT_GIT_CHECKOUT_BRANCH_IN_USE'],
@@ -1201,7 +1398,11 @@ export function userFacingErrorCause(error: unknown, depth = 0): UserFacingError
   return {
     ...(code && /^[A-Za-z0-9_.:-]{1,128}$/u.test(code) ? { code } : {}),
     ...(value.blockedBy === 'tracked' || value.blockedBy === 'untracked' || value.blockedBy === 'both' ? { blockedBy: value.blockedBy } : {}),
-    ...(value.operationStatus === 'completed' || value.operationStatus === 'conflict' || value.operationStatus === 'unknown_after_write' ? { operationStatus: value.operationStatus } : {}),
+    ...(value.operationStatus === 'completed' || value.operationStatus === 'conflict' || value.operationStatus === 'unknown_after_write' || value.operationStatus === 'failed_before_write' ? { operationStatus: value.operationStatus } : {}),
+    // Canonical relative paths are data, not log prose: keep whitespace and
+    // newlines intact so the file can still be located in the refreshed status.
+    ...(Array.isArray(value.affectedFiles) ? { affectedFiles: value.affectedFiles.filter((path): path is string => typeof path === 'string' && Boolean(path) && !path.includes('\0') && !path.startsWith('/') && !/^[A-Za-z]:[\\/]/u.test(path) && !path.split('/').includes('..')).slice(0, 200).map(path => path.slice(0, 4096)) } : {}),
+    ...(typeof value.affectedFileCount === 'number' && Number.isSafeInteger(value.affectedFileCount) && value.affectedFileCount >= 0 ? { affectedFileCount: value.affectedFileCount } : {}),
     message: redactUserFacingErrorDetails(message),
     ...(typeof value.details === 'string'
       ? { details: redactUserFacingErrorDetails(value.details) }
@@ -1324,13 +1525,17 @@ export function describeUserFacingError(error: unknown, language: UserFacingErro
   // 动作后的读取失败必须保留已确认的执行事实，不能由底层读取异常改写成动作未执行。
   const postActionRead = chain.find((item) => item.code === 'ASTRAGIT_GIT_ACTION_REFRESH_FAILED' || item.code === 'ASTRAGIT_GIT_ACTION_STATE_READ_FAILED');
   // 恢复结果由外层流程核实；底层命令失败只说明原因，不能覆盖本地修改已恢复/仍在贮藏中的事实。
-  const recoveryOutcome = chain.find((item) => item.code === 'ASTRAGIT_GIT_SMART_OPERATION_FAILED_RESTORED' || item.code === 'ASTRAGIT_GIT_SMART_OPERATION_FAILED_STASH_PRESERVED' || item.code === 'ASTRAGIT_GIT_SMART_RESTORE_FAILED');
+  const recoveryOutcome = chain.find((item) => item.code === 'ASTRAGIT_GIT_SMART_OPERATION_FAILED_RESTORED' || item.code === 'ASTRAGIT_GIT_SMART_OPERATION_FAILED_STASH_PRESERVED' || item.code === 'ASTRAGIT_GIT_SMART_RESTORE_FAILED' || item.code === 'ASTRAGIT_GIT_SMART_STATUS_UNCONFIRMED');
   // 通用命令包装只说明失败，不能盖过其他层已经明确的业务原因。
   const genericGitCodes = new Set(['ASTRAGIT_GIT_COMMAND_FAILED', 'ASTRAGIT_GIT_ACTION_FAILED', 'ASTRAGIT_COMMAND_FAILED', 'ASTRAGIT_ACTION_FAILED']);
+  // Query wrappers explain the actual read domain; the shared native reader's
+  // historical helper name must not turn an index/diff failure into file history.
+  // A known outer write/recovery fact still takes precedence over this selection.
+  const gitQueryFailure = chain.find((item, index) => /^ASTRAGIT_GIT_(?:STATE_|DIFF_|INDEX_CORRUPT$)/u.test(item.code ?? '') && chain.slice(0, index).every(parent => !parent.code || genericGitCodes.has(parent.code)));
   const deepestFirst = [...chain].reverse();
   const specificFirst = [...deepestFirst.filter((item) => !genericGitCodes.has(item.code ?? '')), ...deepestFirst.filter((item) => genericGitCodes.has(item.code ?? ''))];
   // 只改变解释优先级，不改变下方对发送结果未知的保护。
-  const explanationChain = mutationOutcome ? [mutationOutcome] : conflictWriteUnconfirmed ? [conflictWriteUnconfirmed] : postActionRead ? [postActionRead] : readFailure ? [readFailure] : recoveryOutcome ? [recoveryOutcome] : specificFirst;
+  const explanationChain = mutationOutcome ? [mutationOutcome] : conflictWriteUnconfirmed ? [conflictWriteUnconfirmed] : postActionRead ? [postActionRead] : readFailure ? [readFailure] : recoveryOutcome ? [recoveryOutcome] : gitQueryFailure ? [gitQueryFailure] : specificFirst;
   const match =
     explanationChain.flatMap((item) => {
       /** 完整业务文案去除传输前缀后精确匹配，原始消息仍留在详情中。 */
@@ -1343,11 +1548,13 @@ export function describeUserFacingError(error: unknown, language: UserFacingErro
     .filter(Boolean)
     .join('\n');
   const zh = language === 'zh-CN';
+  const reportedOutcome = chain.find(item => item.operationStatus !== undefined)?.operationStatus;
   const unknownOutcome = Boolean(
     mutationOutcome ||
+      reportedOutcome === 'unknown_after_write' ||
       conflictWriteUnconfirmed ||
       postActionRead?.code === 'ASTRAGIT_GIT_ACTION_STATE_READ_FAILED' ||
-      (postActionRead?.code !== 'ASTRAGIT_GIT_ACTION_REFRESH_FAILED' && chain.some((item) => /OUTCOME_UNKNOWN|DELIVERY_UNCONFIRMED|REPLAY_BLOCKED|ACCEPTANCE_HYDRATION_PENDING|^ASTRAGIT_CODEX_RPC_PROTOCOL_ERROR$|^ASTRAGIT_GIT_(?:TIMEOUT|SWITCH_FAILED)$|^ASTRAGIT_TASK_REMOTE_VERIFICATION_FAILED$/u.test(item.code ?? ''))),
+      (postActionRead?.code !== 'ASTRAGIT_GIT_ACTION_REFRESH_FAILED' && chain.some((item) => /OUTCOME_UNKNOWN|DELIVERY_UNCONFIRMED|REPLAY_BLOCKED|ACCEPTANCE_HYDRATION_PENDING|^ASTRAGIT_CODEX_RPC_PROTOCOL_ERROR$|^ASTRAGIT_GIT_(?:TIMEOUT|SWITCH_FAILED|CHECKOUT_FAILED_STASH_PRESERVED)$|^ASTRAGIT_TASK_REMOTE_VERIFICATION_FAILED$/u.test(item.code ?? ''))),
   );
   return {
     message: match?.[zh ? 0 : 1] ?? fallbackMessage ?? describeUncataloguedError(chain, language),

@@ -87,14 +87,14 @@
 /* 操作提示脱离文档流，出现和消失均不改变工作台各面板高度。 */
 .git-operation-notice {
   position: absolute;
-  inset-block-end: 12px;
+  inset-block-end: var(--git-operation-notice-bottom, 12px);
   inset-inline-end: 12px;
   z-index: 10;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px 16px;
-  max-inline-size: calc(100% - 24px);
+  max-inline-size: min(620px, calc(100% - 24px));
   padding: 8px 10px;
   border: 1px solid var(--zeus-product-line);
   border-radius: 10px;
@@ -183,6 +183,9 @@
   font-size: 12px;
   white-space: nowrap;
 }
+.git-content-toolbar.is-history-toolbar { flex-wrap: wrap; }
+.git-content-toolbar.is-history-toolbar > select { flex: 0 1 auto; min-width: 90px; max-width: min(230px, 100%); }
+.git-content-toolbar.is-history-toolbar > label { flex: 1 1 180px; }
 .git-content-toolbar select {
   max-width: 230px;
   min-width: 100px;
@@ -537,3 +540,52 @@
 .git-reference-tree button.is-active {
   background: var(--zeus-source-list-selected);
 }
+.project-git-menu-action-dialog > .git-checkout-stash { display:flex; align-items:center; gap:8px; }
+.git-checkout-stash input { flex:0 0 auto; accent-color:var(--zeus-control-accent); }
+.git-checkout-dialog p { margin:0; }
+.git-amend-dialog label { display: grid; gap: 8px; }
+.git-amend-dialog .git-checkout-stash { display: flex; align-items: flex-start; }
+.git-amend-dialog textarea { width: 100%; min-height: 120px; resize: vertical; }
+.project-git-menu-action-dialog.git-ignore-dialog { width: min(640px, calc(100vw - 40px)); max-height: calc(100vh - 64px); overflow: auto; }
+.git-ignore-dialog > label { display: grid; gap: 6px; }
+.git-ignore-dialog textarea, .git-ignore-dialog select { width: 100%; }
+.git-ignore-dialog textarea { resize: vertical; min-height: 90px; font-family: ui-monospace, monospace; }
+.git-ignore-destination { display: grid; gap: 4px; }
+.git-ignore-destination code, .git-ignore-destination small { white-space: pre-wrap; overflow-wrap: anywhere; }
+.git-ignore-dialog .git-ignore-confirm { display: flex; align-items: flex-start; gap: 8px; }
+.git-ignore-confirm input { flex: 0 0 auto; accent-color: var(--zeus-control-accent); }
+.project-git-menu-action-dialog.git-revision-action-dialog { width: min(680px, calc(100vw - 40px)); max-height: calc(100vh - 64px); overflow: auto; }
+.git-revision-action-dialog > label { display: grid; gap: 7px; }
+.git-revision-action-dialog select { width: 100%; }
+.git-revision-action-dialog dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; margin: 0; }
+.git-revision-action-dialog dd { margin: 0; overflow-wrap: anywhere; }
+.git-revision-action-dialog details { border: 1px solid var(--zeus-product-line); border-radius: 6px; padding: 8px 10px; }
+.git-revision-action-dialog summary { cursor: pointer; }
+.git-revision-action-dialog ul { max-height: 130px; overflow: auto; margin-bottom: 0; padding-left: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.git-revision-action-dialog .git-revision-confirm { display: flex; align-items: flex-start; gap: 8px; }
+.git-revision-confirm input { flex: 0 0 auto; accent-color: var(--zeus-control-accent); }
+.git-revision-warning { color: var(--zeus-danger-text, #a64343); }
+.git-revision-action-dialog > footer { position: sticky; bottom: -1px; background: var(--zeus-control-bg); padding-top: 8px; flex-wrap: wrap; }
+.git-amend-files { max-height: 140px; overflow: auto; overflow-wrap: anywhere; padding-inline-start: 24px; }
+.project-git-menu-action-dialog.git-repository-settings { width: min(760px, calc(100vw - 40px)); max-height: calc(100vh - 64px); overflow: auto; }
+.git-repository-settings h3 { margin: 0 0 8px; font-size: 13px; }
+.git-repository-settings label { display: grid; gap: 6px; }
+.git-repository-settings .git-checkout-stash { display: flex; align-items: flex-start; }
+.git-settings-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.git-settings-identity { display: grid; gap: 6px; margin-block: 12px; }
+.git-settings-remote, .git-settings-editor { border: 1px solid var(--zeus-product-line); border-radius: 8px; padding: 12px; margin-block: 12px; overflow-wrap: anywhere; }
+.git-settings-editor { display: grid; gap: 10px; }
+.project-git-menu-action-dialog.git-branch-management { width: min(660px, calc(100vw - 40px)); max-height: calc(100vh - 64px); overflow: auto; }
+.git-branch-management .git-branch-choice { display: flex; align-items: flex-start; gap: 8px; }
+.git-branch-choice > input { flex: 0 0 auto; margin: 2px 0 0; }
+.git-branch-choice > span { min-width: 0; overflow-wrap: anywhere; }
+.git-branch-choice small { display: block; color: var(--zeus-product-text-muted); font-size: 11px; }
+.git-branch-delete-list { display: grid; gap: 8px; max-height: 260px; overflow: auto; border: 1px solid var(--zeus-product-line); border-radius: 8px; padding: 12px; }
+.git-branch-management li { overflow-wrap: anywhere; }
+.git-history-selection-tools { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:6px 12px; border-bottom:1px solid var(--zeus-product-line); font-size:11px; color:var(--zeus-product-muted); }
+.git-history-comparison-detail > code { display:block; margin-block:6px; overflow-wrap:anywhere; font-size:12px; }
+.project-git-commit-row.is-selected:not(.is-current) { background:var(--zeus-control-accent-soft,#f3edff); }
+.git-merge-parent-selection { display:grid; gap:8px; min-width:0; }
+.git-merge-parent-selection label { display:grid; gap:6px; color:var(--zeus-product-muted); font-size:12px; }
+.git-merge-parent-selection select { width:100%; min-width:0; }
+.git-merge-parent-selection p { margin:0; font-size:12px; }

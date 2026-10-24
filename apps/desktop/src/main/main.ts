@@ -8,6 +8,9 @@ import { startGitServer, type RunningGitServer } from '@astragit/git-server';
 import { resolveCliSearchPath } from '@astragit/ai-runtime';
 import { createReleaseUpdateService } from './releaseUpdateService.js';
 import { applicationIdentity } from './applicationIdentity.js';
+import { createRepositoryFileLauncher } from './repositoryFileLauncher.js';
+import { createPatchFileAccess } from './patchFileAccess.js';
+import { createArchiveFileAccess } from './archiveFileAccess.js';
 import { createHomebrewUpdateService } from './homebrewUpdateService.js';
 import { createHomebrewUpdateController, type HomebrewUpdateController } from './homebrewUpdateController.js';
 import { createAutomaticUpdateScheduler, type AutomaticUpdateScheduler } from './automaticUpdateScheduler.js';
@@ -16,11 +19,15 @@ import { startSystemProxyBridge, type SystemProxyBridge } from './systemProxyBri
 import { installSystemProxyEnvironment, type InstalledSystemProxyEnvironment } from './systemProxyEnvironment.js';
 
 let mainWindow: BrowserWindow | null = null;
+let archiveFiles: ReturnType<typeof createArchiveFileAccess> | null = null;
 let creatingWindow: Promise<void> | null = null;
 let gitServer: RunningGitServer | null = null;
 let serverInitialization: Promise<RunningGitServer> | null = null;
 let bootstrapToken = '';
 let shuttingDown = false;
+let developmentStopRequested = false;
+let setupQuitConfirmed = false;
+let setupQuitPromptOpen = false;
 let homebrewUpdates: HomebrewUpdateController | null = null;
 let automaticUpdates: AutomaticUpdateScheduler | null = null;
 let systemProxy: SystemProxyBridge | null = null;
@@ -54,11 +61,11 @@ const userDataPath = () => dataDirectory;
 if (development) {
   // A normal quit drains requests and storage before the dev supervisor restarts.
   process.on('message', message => {
-    if (message && typeof message === 'object' && 'type' in message && message.type === 'astragit:dev-stop') app.quit();
+    if (message && typeof message === 'object' && 'type' in message && message.type === 'astragit:dev-stop') { developmentStopRequested = true; app.quit(); }
   });
-  process.on('disconnect', () => app.quit());
-  process.on('SIGTERM', () => app.quit());
-  process.on('SIGINT', () => app.quit());
+  process.on('disconnect', () => { developmentStopRequested = true; app.quit(); });
+  process.on('SIGTERM', () => { developmentStopRequested = true; app.quit(); });
+  process.on('SIGINT', () => { developmentStopRequested = true; app.quit(); });
 }
 const releaseUpdate = createReleaseUpdateService({
   appPath: resolve(process.execPath, '../../..'), executablePath: process.execPath, dataDirectory,
@@ -105,7 +112,7 @@ async function initializeUpdates(): Promise<void> {
       if (url.origin !== 'https://github.com' || !url.pathname.startsWith('/skylight-f/AstraGit/releases')) throw new Error('更新页面来源无效。');
       await shell.openExternal(url.toString());
     },
-    canInstall: () => { if (development) throw new Error('开发应用不安装正式更新。'); },
+    canInstall: () => { if (development) throw new Error('开发应用不安装正式更新。'); if (gitServer?.hasActiveRepositorySetup()) throw new Error('仓库正在创建，请等待完成或停止任务后再更新。'); },
     onInstallReady: (activate) => {
       if (shuttingDown) return Promise.resolve(false);
       if (pendingUpgrade) return pendingUpgrade.result;
@@ -189,6 +196,7 @@ function closeServices(): Promise<void> {
       await updateSetup?.catch(() => {});
       automaticUpdates?.stop();
       const consumers = await Promise.allSettled([
+        archiveFiles?.close(),
         homebrewUpdates?.shutdown({ preserveHost: upgradeHandoff }),
         (async () => {
           const server = gitServer ?? await serverInitialization?.catch(() => null);
@@ -247,6 +255,39 @@ async function loadMainWindow(): Promise<void> {
     if (result.canceled || !result.filePaths[0]) return null;
     return resolve(result.filePaths[0]);
   });
+
+  const launchRepositoryFile = createRepositoryFileLauncher({ resolve: async (projectId, repositoryId, path, intent) => {
+    if (!gitServer || shuttingDown) throw new Error('AstraGit 本地 Git 服务尚未就绪，请稍后再试。');
+    return gitServer.resolveGitFileLocation(projectId, repositoryId, path, intent);
+  }, open: path => shell.openPath(path), openText: async path => { await execFile('/usr/bin/open', ['-b', 'com.apple.TextEdit', path], { timeout: 10_000 }); }, reveal: path => shell.showItemInFolder(path) });
+  ipcMain.removeHandler('astragit:file-action');
+  ipcMain.handle('astragit:file-action', (event, request: unknown) => {
+    if (event.sender !== mainWindow?.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) return { ok: false, error: { code: 'ASTRAGIT_GIT_FILE_ACTION_INVALID', message: '文件操作请求来源无效。' } };
+    return launchRepositoryFile(request);
+  });
+  const patchFiles = createPatchFileAccess({
+    chooseOpen: async () => { const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile'], filters: [{ name: 'Git patch', extensions: ['patch', 'diff', 'mbox'] }, { name: 'All files', extensions: ['*'] }] }); return result.canceled ? null : result.filePaths[0] ?? null; },
+    chooseSave: async name => { const result = await dialog.showSaveDialog(mainWindow!, { defaultPath: name, filters: [{ name: 'Git patch', extensions: ['patch', 'diff', 'mbox'] }] }); return result.canceled ? null : result.filePath ?? null; },
+  });
+  archiveFiles ??= createArchiveFileAccess({
+    chooseSave: async (name, format) => { const result = await dialog.showSaveDialog(mainWindow!, { defaultPath: name, filters: [{ name: 'Source archive', extensions: format === 'tar.gz' ? ['gz', 'tgz'] : [format] }] }); return result.canceled ? null : result.filePath ?? null; },
+    preview: (request, signal) => { if (!gitServer || shuttingDown) throw new Error('AstraGit 本地 Git 服务尚未就绪。'); return gitServer.previewGitArchive(request.projectId, request.repositoryId, request.input, signal); },
+    generate: (request, output, signal) => { if (!gitServer || shuttingDown) throw new Error('AstraGit 本地 Git 服务尚未就绪。'); return gitServer.writeGitArchive(request.projectId, request.repositoryId, request.input, output, signal); },
+  });
+  for (const kind of ['save', 'cancel'] as const) {
+    const name = `astragit:archive-file-${kind}`; ipcMain.removeHandler(name);
+    ipcMain.handle(name, (event, request: unknown) => {
+      if (event.sender !== mainWindow?.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) return { ok: false, error: { code: 'ASTRAGIT_GIT_ARCHIVE_INVALID', message: '源码存档请求来源无效。' } };
+      return kind === 'save' ? archiveFiles!.save(request) : archiveFiles!.cancel(request);
+    });
+  }
+  for (const kind of ['read', 'save'] as const) {
+    const name = `astragit:patch-file-${kind}`; ipcMain.removeHandler(name);
+    ipcMain.handle(name, (event, request: unknown) => {
+      if (event.sender !== mainWindow?.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) return { ok: false, error: { code: 'ASTRAGIT_GIT_PATCH_FILE_INVALID', message: '补丁文件操作来源无效。' } };
+      return kind === 'read' ? patchFiles.read() : patchFiles.save(request);
+    });
+  }
 
   const handle = (name: string, action: () => unknown) => {
     ipcMain.removeHandler(name);
@@ -322,6 +363,23 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (event) => {
+  if (!shuttingDown && gitServer?.hasActiveRepositorySetup() && !developmentStopRequested && !setupQuitConfirmed) {
+    event.preventDefault();
+    if (pendingUpgrade) { pendingUpgrade.resolve(false); pendingUpgrade = null; return; }
+    if (setupQuitPromptOpen) return;
+    setupQuitPromptOpen = true;
+    const zh = app.getLocale().startsWith('zh');
+    const options: Electron.MessageBoxOptions = {
+      type: 'warning', title: zh ? '仓库仍在创建' : 'Repository setup is running',
+      message: zh ? '停止仓库创建并退出 AstraGit？' : 'Stop repository setup and quit AstraGit?',
+      detail: zh ? '退出将停止当前克隆或初始化。已生成的目录由 Git 决定保留，应用不会自动清理；再次打开后可核对任务记录。' : 'Quitting stops the current clone or initialization. Git may leave a partial directory; the app will not clean it up. Review the task record after reopening.',
+      buttons: zh ? ['继续创建', '停止并退出'] : ['Keep running', 'Stop and quit'], defaultId: 0, cancelId: 0,
+    };
+    void (mainWindow && !mainWindow.isDestroyed() ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options)).then(result => {
+      if (result.response === 1) { setupQuitConfirmed = true; app.quit(); }
+    }).catch(error => console.error('[AstraGit] 无法确认退出', error)).finally(() => { setupQuitPromptOpen = false; });
+    return;
+  }
   if (pendingUpgrade && !shuttingDown) {
     event.preventDefault();
     if (activatingUpgrade) return;

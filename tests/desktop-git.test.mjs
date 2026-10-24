@@ -60,8 +60,16 @@ test('desktop client commits with restored hook tools and switches valid branche
   assert.equal(await git('branch', '--show-current'), 'feature/中文#123');
   assert.ok((await client.loadProjectGitHistory(project.id, repo.id, 0)).commits.length);
   await writeFile(join(repository, 'README.md'), 'uncommitted content must survive\n');
-  await assert.rejects(() => action({ type: 'checkout', branchName: 'main' }), error => error.error === 'ASTRAGIT_GIT_CHECKOUT_BLOCKED');
+  await assert.rejects(() => action({ type: 'checkout', branchName: 'main' }), error => {
+    assert.equal(error.error, 'ASTRAGIT_GIT_CHECKOUT_BLOCKED');
+    assert.deepEqual(error.affectedFiles, ['README.md']); assert.equal(error.affectedFileCount, 1);
+    return true;
+  });
   assert.equal(await readFile(join(repository, 'README.md'), 'utf8'), 'uncommitted content must survive\n');
   assert.equal(await git('branch', '--show-current'), 'feature/中文#123');
   assert.equal((await client.loadProjectGitOperations(project.id)).items[0].status, 'failed_before_write');
+  const stashedSwitch = await action({ type: 'checkout', branchName: 'main', stashBeforeCheckout: true });
+  assert.equal(stashedSwitch.result.branch, 'main'); assert.equal(stashedSwitch.result.outcome, 'completed');
+  assert.equal(await git('show', `${stashedSwitch.result.savedStash}:README.md`), 'uncommitted content must survive');
+  assert.equal(await git('rev-parse', 'refs/stash'), stashedSwitch.result.savedStash);
 });

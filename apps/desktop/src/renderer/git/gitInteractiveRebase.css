@@ -1,0 +1,26 @@
+.git-interactive-rebase { width:min(900px,94vw); max-height:90vh; display:flex; flex-direction:column; }
+.git-interactive-rebase > header,.git-interactive-rebase > footer { flex-shrink:0; }
+.git-rebase-scroll { min-height:0; overflow:auto; padding:0 2px; }
+.git-rebase-bases { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+.git-rebase-bases > label { flex:1 1 240px; }
+.git-rebase-bases input,.git-rebase-steps select,.git-rebase-scroll textarea { box-sizing:border-box; width:100%; min-width:0; font:inherit; padding:6px 8px; border:1px solid var(--zeus-control-border); border-radius:5px; color:inherit; background:var(--zeus-control-bg); }
+.git-rebase-scroll label { display:grid; gap:6px; }
+.git-rebase-scroll textarea { resize:vertical; }
+.git-rebase-identity { overflow-wrap:anywhere; }
+.git-rebase-steps { list-style:none; padding:0; }
+.git-rebase-steps > li { border:1px solid var(--zeus-product-line); border-radius:6px; margin:8px 0; padding:10px; }
+.git-rebase-steps > .is-dropped > details { text-decoration:line-through; opacity:.65; }
+.git-rebase-step-line { display:flex; align-items:center; gap:8px; }
+.git-rebase-drag { cursor:grab; user-select:none; padding:4px; }
+.git-rebase-order { min-width:2ch; color:var(--zeus-product-muted); }
+.git-rebase-step-line select { flex:1; }
+.git-rebase-step-line button { flex-shrink:0; border:1px solid var(--zeus-control-border); background:var(--zeus-control-bg); color:inherit; border-radius:4px; padding:3px 9px; cursor:pointer; }
+.git-rebase-steps summary { margin-top:8px; cursor:pointer; overflow-wrap:anywhere; }
+.git-rebase-steps small { color:var(--zeus-product-muted); }
+.git-rebase-steps pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:180px; overflow:auto; }
+.git-rebase-group-message { margin:14px 0; }
+.git-rebase-scroll .git-rebase-check { display:flex; align-items:flex-start; gap:8px; margin:12px 0; }
+.git-rebase-check input { flex-shrink:0; margin-top:2px; }
+.git-rebase-warning { padding:10px; border-radius:5px; background:var(--zeus-warning-bg,#fff6e9); color:var(--zeus-warning-text,#876127); line-height:1.6; overflow-wrap:anywhere; }
+.git-rebase-warning ul { max-height:160px; overflow:auto; padding-left:20px; }
+@media (max-width:600px) { .git-rebase-step-line { flex-wrap:wrap; } .git-rebase-step-line select { flex-basis:100%; order:1; } }

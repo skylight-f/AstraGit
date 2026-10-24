@@ -1219,6 +1219,11 @@ html[data-zeus-theme='dark'] body > .macos-ai-app {
   line-height: var(--zeus-type-line-default);
 }
 
+.macos-ai-app .application-error-context { min-width:0; font-size:12px; line-height:1.5; }
+.macos-ai-app .application-error-context p { margin:10px 0; }
+.macos-ai-app .application-error-context ul { max-height:180px; overflow:auto; margin:6px 0; padding:6px 8px 6px 25px; border:1px solid var(--zeus-product-line); border-radius:6px; }
+.macos-ai-app .application-error-context li { padding:3px 0; overflow-wrap:anywhere; }
+.macos-ai-app .application-error-context code { font-size:11px; white-space:pre-wrap; }
 .macos-ai-app .application-error-dialog-details {
   display: grid;
   gap: 0;
@@ -1254,6 +1259,7 @@ html[data-zeus-theme='dark'] body > .macos-ai-app {
 .macos-ai-app .application-error-dialog > footer {
   grid-column: 1 / -1;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--zeus-space-2);
   margin: var(--zeus-space-1) calc(0px - var(--zeus-dialog-padding)) calc(0px - var(--zeus-dialog-padding));

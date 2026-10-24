@@ -9,6 +9,10 @@ export function createDashboardClientLike(options: { baseUrl: string; apiToken: 
   const git: GitApiClient = createGitApiClient(transport);
   return {
     ...git,
+    startRepositorySetup: input => transport.request('/api/repository-setup', jsonRequest('POST', input)),
+    loadRepositorySetup: id => transport.request(`/api/repository-setup/${encodeURIComponent(id)}`),
+    loadRepositorySetups: () => transport.request('/api/repository-setup'),
+    cancelRepositorySetup: id => transport.request(`/api/repository-setup/${encodeURIComponent(id)}/cancel`, jsonRequest('POST', {})),
     loadProjects: () => transport.request<GitAppProject[]>('/api/projects'),
     createProject: (input) => transport.request<GitAppProject>('/api/projects', jsonRequest('POST', input)),
     removeProject: (projectId) => transport.request(`/api/projects/${encodeURIComponent(projectId)}`, { method: 'DELETE' }),

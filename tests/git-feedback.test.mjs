@@ -1,12 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { gitConflictMessage, gitFailureCode, gitFailureText, gitPostActionRefreshError } from '../apps/desktop/src/renderer/git/gitOperationFeedback.ts';
+import { gitConflictMessage, gitFailureCode, gitFailureContext, gitFailureText, gitPostActionRefreshError } from '../apps/desktop/src/renderer/git/gitOperationFeedback.ts';
 import { describeUserFacingError } from '../packages/shared/src/userFacingError.ts';
 import { AstraGitApiError, createLocalApiTransport } from '../apps/desktop/src/renderer/transport/localApiTransport.ts';
 
 const connection = { baseUrl: 'http://127.0.0.1:43123', apiToken: 'feedback-fixture-token' };
 const conflictSnapshot = (extra = {}) => ({ branch: 'feature/local', detached: false, conflictFiles: ['src/first.ts', 'src/second.ts'], integrationState: 'merge', ...extra });
 const conflictResult = (extra = {}) => ({ outcome: 'conflict', conflictFiles: ['src/first.ts'], ...extra });
+
+test('checkout recovery context shows verified files and never claims protection for an uncertain outer outcome', () => {
+  const error = { code: 'ASTRAGIT_GIT_CHECKOUT_BLOCKED', message: 'blocked', operationStatus: 'failed_before_write', affectedFiles: ['src/中文 文件.ts'], affectedFileCount: 1 };
+  const blocked = gitFailureContext(error, true);
+  assert.match(blocked.description, /分支未切换.*未被覆盖/u); assert.deepEqual(blocked.files, error.affectedFiles);
+  const unknown = gitFailureContext({ code: 'ASTRAGIT_LOCAL_API_MUTATION_OUTCOME_UNKNOWN', message: 'timeout', operationStatus: 'unknown_after_write', cause: error }, true);
+  assert.match(unknown.description, /尚未确认.*避免重复/u); assert.doesNotMatch(unknown.description, /未被覆盖|分支未切换/u);
+  assert.equal(gitFailureContext({ code: 'ASTRAGIT_GIT_COMMAND_FAILED', message: 'unknown' }, false).description, undefined);
+  assert.deepEqual(gitFailureContext({ ...error, affectedFiles: ['  leading.txt', 'line\nname.txt', '/Users/private/file.txt', '../escape'] }, false).files, ['  leading.txt', 'line\nname.txt']);
+});
 
 test('Git feedback serialization retains every error identity and redacts nested diagnostics', () => {
   const personalPath = '/Users/feedback-fixture/private/project/file.ts';
@@ -48,6 +58,20 @@ test('Git feedback preserves unconfirmed outcomes instead of replacing them with
   assert.match(gitFailureText(unknown), /ASTRAGIT_GIT_CHECKOUT_BLOCKED/u);
 });
 
+test('reported push rejection explains partial remote updates without disguising delivery uncertainty', () => {
+  const rejection = { code: 'ASTRAGIT_GIT_PUSH_NON_FAST_FORWARD', message: 'branch rejected', operationStatus: 'unknown_after_write' };
+  assert.equal(describeUserFacingError(rejection).outcomeUnconfirmed, true, 'other refs in the push may have changed');
+  assert.equal(gitFailureCode(rejection), rejection.code);
+  assert.match(gitFailureContext(rejection, true).description, /所报分支.*已被拒绝.*其他分支或标签.*可能已更新.*抓取并核对/u);
+  assert.match(gitFailureContext(rejection, false).description, /rejected the reported branch.*Other branches or tags.*may have been updated/u);
+  for (const code of ['ASTRAGIT_LOCAL_API_MUTATION_OUTCOME_UNKNOWN', 'ASTRAGIT_GIT_ACTION_STATE_READ_FAILED']) {
+    const unknown = { code, message: 'response incomplete', operationStatus: 'unknown_after_write', cause: rejection };
+    assert.equal(gitFailureCode(unknown), code);
+    assert.match(gitFailureContext(unknown, true).description, /尚未确认最终状态/u);
+    assert.doesNotMatch(gitFailureContext(unknown, true).description, /已被拒绝/u);
+  }
+});
+
 test('merge and stash conflicts describe their distinct continuation and preservation facts', () => {
   const merged = gitConflictMessage({ type: 'merge', branchName: 'feature/remote' }, conflictResult(), conflictSnapshot(), true);
   assert.match(merged, /合并已暂停.*2 个文件存在冲突/u);
@@ -60,6 +84,25 @@ test('merge and stash conflicts describe their distinct continuation and preserv
   assert.doesNotMatch(stashed, /已移除|再点击“继续”|点击“终止”/u);
   const english = gitConflictMessage({ type: 'apply_stash', stashRef: 'stash@{0}', pop: true }, conflictResult(), conflictSnapshot({ integrationState: null }), false);
   assert.match(english, /stash is retained.*Do not apply it again/u);
+});
+
+test('manual replay conflicts explain manual commits while native replay sequences retain Continue and Abort', () => {
+  for (const type of ['cherry_pick', 'revert']) {
+    const manual = { type, revision: 'HEAD', commit: false };
+    const snapshot = conflictSnapshot({ integrationState: null });
+    assert.match(gitConflictMessage(manual, conflictResult(), snapshot, true), /不自动提交.*自行填写提交说明并提交.*没有创建/u);
+    assert.match(gitConflictMessage(manual, conflictResult(), snapshot, false), /commit manually.*did not create a native sequence/u);
+    assert.match(gitConflictMessage({ ...manual, commit: true }, conflictResult(), conflictSnapshot({ integrationState: type }), true), /再点击“继续”.*点击“终止”/u);
+    assert.match(gitConflictMessage({ ...manual, commit: true }, conflictResult(), conflictSnapshot({ integrationState: type }), false), /choose Continue.*Choose Abort/u);
+  }
+  const reverse = { type: 'revert', revision: 'HEAD', commit: false };
+  assert.match(gitConflictMessage(reverse, conflictResult(), conflictSnapshot({ integrationState: 'revert' }), true), /未自动提交.*“继续”创建新提交.*“终止”/u);
+  assert.match(gitConflictMessage(reverse, conflictResult(), conflictSnapshot({ integrationState: 'revert' }), false), /No commit was created automatically.*Continue to create a commit.*Abort/u);
+});
+
+test('manual batch feedback requires committing the resolved prefix before continuing the native sequence', () => {
+  const snapshot = conflictSnapshot({ integrationState: 'cherry_pick', integrationNoCommit: true }); const action = { type: 'cherry_pick_series', input: { revisions: [], commit: false, includeSourceId: false } };
+  assert.match(gitConflictMessage(action, conflictResult(), snapshot, true), /手动提交已应用的内容.*“继续”处理剩余提交/u); assert.match(gitConflictMessage(action, conflictResult(), snapshot, false), /manually commit the applied changes.*Continue for the remaining/u);
 });
 
 test('restore-stage conflicts report that update ran and name only the stash that was actually retained', () => {
@@ -174,3 +217,46 @@ for (const [method, timeoutMs, code] of [
     assert.equal(calls, 1);
   });
 }
+
+const stopTrackingPreviewPath = '/api/projects/fixture/git/workbench/repositories/repo/stop-tracking-preview';
+test('read-only POST stop-tracking preview times out as a read, without implying a Git mutation', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => { t.mock.timers.reset(); t.mock.restoreAll(); });
+  let signal;
+  t.mock.method(globalThis, 'fetch', (_url, init) => {
+    signal = init.signal;
+    return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  });
+  const transport = createLocalApiTransport({ getConnection: () => connection });
+  const pending = transport.request(stopTrackingPreviewPath, { method: 'POST', body: JSON.stringify({ paths: ['folder'] }) }, { readOnly: true });
+  const rejected = assert.rejects(pending, error => error.error === 'ASTRAGIT_LOCAL_API_READ_TIMEOUT' && !describeUserFacingError(error).outcomeUnconfirmed);
+  t.mock.timers.tick(29_999); assert.equal(signal.aborted, false); t.mock.timers.tick(1); await rejected; assert.equal(signal.aborted, true);
+});
+
+test('only the declared read-only POST preview can replay after local service reconnect', async t => {
+  let calls = 0; let refreshed = 0; const received = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => { received.push([url, init.body]); if (++calls === 1) throw new TypeError('old connection'); return new Response(JSON.stringify({ total: 2 }), { headers: { 'content-type': 'application/json' } }); });
+  const transport = createLocalApiTransport({ getConnection: () => connection, refreshConnection: async () => { refreshed++; return { ...connection, baseUrl: 'http://127.0.0.1:9999' }; } });
+  const body = JSON.stringify({ paths: ['folder'] });
+  assert.deepEqual(await transport.request(stopTrackingPreviewPath, { method: 'POST', body }, { readOnly: true }), { total: 2 }); assert.equal(calls, 2); assert.equal(refreshed, 1); assert.equal(received[1][0], `http://127.0.0.1:9999${stopTrackingPreviewPath}`); assert.equal(received[1][1], body);
+});
+
+test('read-only transport declarations cannot turn Git action writes into replayable reads', async t => {
+  let calls = 0; t.mock.method(globalThis, 'fetch', async () => { calls++; return new Response('{}'); });
+  const transport = createLocalApiTransport({ getConnection: () => connection });
+  for (const [path, method] of [[stopTrackingPreviewPath, 'DELETE'], ['/api/projects/fixture/git/workbench/repositories/repo/action', 'POST'], [`${stopTrackingPreviewPath}/action`, 'POST']]) await assert.rejects(() => transport.request(path, { method }, { readOnly: true }), /Invalid read-only API route/u);
+  assert.equal(calls, 0);
+});
+
+
+test('interactive rebase previews keep read timeouts while real rebase writes allow thirty minutes and never replay', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] }); t.after(() => { t.mock.timers.reset(); t.mock.restoreAll(); });
+  let signal; let calls = 0; let reconnects = 0;
+  t.mock.method(globalThis, 'fetch', (_url, init) => { calls++; signal = init.signal; return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })); });
+  const transport = createLocalApiTransport({ getConnection: () => connection });
+  const mutationTransport = createLocalApiTransport({ getConnection: () => connection, refreshConnection: async () => { reconnects++; return connection; } });
+  const path = '/api/projects/fixture/git/workbench/repositories/repo/interactive-rebase';
+  let pending = transport.request(path + '-preview', { method: 'POST', body: JSON.stringify({ baseRef: 'HEAD~1' }) }, { readOnly: true }); let rejected = assert.rejects(pending, error => error.error === 'ASTRAGIT_LOCAL_API_READ_TIMEOUT'); t.mock.timers.tick(29_999); assert.equal(signal.aborted, false); t.mock.timers.tick(1); await rejected;
+  pending = mutationTransport.request(path, { method: 'POST', body: '{}' }); rejected = assert.rejects(pending, error => error.error === 'ASTRAGIT_LOCAL_API_MUTATION_OUTCOME_UNKNOWN'); t.mock.timers.tick(30 * 60_000 - 1); assert.equal(signal.aborted, false); t.mock.timers.tick(1); await rejected; assert.equal(calls, 2); assert.equal(reconnects, 0);
+  await assert.rejects(() => transport.request(path, { method: 'POST' }, { readOnly: true }), /Invalid read-only API route/u);
+});

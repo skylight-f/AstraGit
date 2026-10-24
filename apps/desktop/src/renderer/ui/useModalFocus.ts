@@ -1,9 +1,10 @@
 import { useLayoutEffect, type RefObject } from 'react';
+import { createModalBackgroundController } from './modalBackground.js';
 
 /** 活动模态层按打开顺序排列，只有最上层接受键盘焦点。 */
 const layers: HTMLElement[] = [];
-/** 保存背景的原始可访问状态，嵌套层不会互相覆盖恢复记录。 */
-const backgroundStates = new Map<HTMLElement, { inert: boolean; ariaHidden: string | null }>();
+/** 保存背景原始状态；当前活动弹窗不会继承上一层施加的临时隔离。 */
+const applyModalBackground = createModalBackgroundController<HTMLElement>();
 /** 可参与焦点移动的原生和自定义控件。 */
 const focusableSelector = 'button:not(:disabled), summary, a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
@@ -14,18 +15,7 @@ function focusableElements(root: HTMLElement): HTMLElement[] {
 
 /** 以最上层为准同步背景，关闭顺序变化时仍恢复最初状态。 */
 function syncModalBackground(): void {
-  const active = layers.at(-1);
-  for (const element of document.body.children) {
-    if (!(element instanceof HTMLElement)) continue;
-    if (!backgroundStates.has(element)) backgroundStates.set(element, { inert: element.inert, ariaHidden: element.getAttribute('aria-hidden') });
-    const original = backgroundStates.get(element)!;
-    const blocked = element.dataset.motionState === 'closing' || Boolean(active && element !== active && !element.contains(active));
-    element.inert = blocked || original.inert;
-    if (blocked) element.setAttribute('aria-hidden', 'true');
-    else if (original.ariaHidden === null) element.removeAttribute('aria-hidden');
-    else element.setAttribute('aria-hidden', original.ariaHidden);
-  }
-  if (!active) backgroundStates.clear();
+  applyModalBackground([...document.body.children].filter((element): element is HTMLElement => element instanceof HTMLElement), layers.at(-1));
 }
 
 /** 弹窗和抽屉共同隔离背景；退出开始即释放焦点，动画不会延迟后续操作。 */

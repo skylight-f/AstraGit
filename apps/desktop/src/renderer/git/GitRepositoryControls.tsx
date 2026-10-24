@@ -1,5 +1,6 @@
 import './gitWorkspace.css';
-import { gitBranchNameIssue } from '@astragit/shared';
+import { gitBranchNameIssue, splitGitRemoteBranch } from '@astragit/shared';
+import type { GitBranchManagementRequest } from './GitBranchManagementDialog.js';
 import { repositoryColor } from './repositoryColor.js';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -38,6 +39,7 @@ export function BranchSwitcher(props: {
   onOpenPush: () => void;
   onOpenNewBranch: (baseRef?: string) => void;
   onOpenRevision: () => void;
+  onManageBranch?: (request: GitBranchManagementRequest) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -337,6 +339,7 @@ export function BranchSwitcher(props: {
               onClose={() => setReferenceMenu(null)}
               onAction={closeMenus}
               onExecute={props.onExecute}
+              onManageBranch={props.onManageBranch}
               onOpenDiff={props.onOpenDiff}
             />
           ) : (
@@ -754,7 +757,7 @@ export function RemoteBranchCheckoutDialog(props: {
   const [mode, setMode] = useState<CheckoutMode>(() => (initialCandidates.length ? 'existing' : 'new'));
   const [remoteRef, setRemoteRef] = useState(props.initialRemoteRef);
   const [existingBranch, setExistingBranch] = useState(initialCandidates[0] ?? '');
-  const [branchName, setBranchName] = useState(() => remoteBranchLeaf(props.initialRemoteRef));
+  const [branchName, setBranchName] = useState(() => remoteBranchLeaf(props.initialRemoteRef, props.repository.snapshot.remotes));
   const [trackRemote, setTrackRemote] = useState(true);
   const existingCandidates = matchingLocalBranches(props.repository, remoteRef);
   const normalizedBranchName = branchName.trim();
@@ -764,7 +767,7 @@ export function RemoteBranchCheckoutDialog(props: {
     const nextCandidates = matchingLocalBranches(props.repository, nextRemoteRef);
     setRemoteRef(nextRemoteRef);
     setExistingBranch(nextCandidates[0] ?? '');
-    setBranchName(remoteBranchLeaf(nextRemoteRef));
+    setBranchName(remoteBranchLeaf(nextRemoteRef, props.repository.snapshot.remotes));
     if (mode === 'existing' && nextCandidates.length === 0) setMode('new');
   };
   const disabled = props.busy !== null || (mode === 'existing' ? !existingBranch || currentBranchSelected : !normalizedBranchName || branchAlreadyExists);
@@ -836,7 +839,7 @@ export function RemoteBranchCheckoutDialog(props: {
               const outcome =
                 mode === 'existing'
                   ? await props.onExecute(props.repository, { type: 'checkout', branchName: existingBranch }, props.zh ? '检出现有分支' : 'Checkout existing branch')
-                  : await props.onExecute(props.repository, { type: 'create_branch', branchName: normalizedBranchName, baseRef: remoteRef, trackRemote }, props.zh ? '检出远程分支' : 'Checkout remote branch');
+                  : await props.onExecute(props.repository, { type: 'create_branch', branchName: normalizedBranchName, baseRef: `refs/remotes/${remoteRef}`, trackRemote }, props.zh ? '检出远程分支' : 'Checkout remote branch');
               // A checkout followed by rebase may stop at conflicts. Reveal the conflict workbench in that case.
               if (outcome === 'completed' || outcome === 'conflict') (props.onComplete ?? props.onClose)();
             }}
@@ -850,12 +853,12 @@ export function RemoteBranchCheckoutDialog(props: {
 }
 
 export function matchingLocalBranches(repository: ProjectGitRepositoryWorkbenchItem, remoteRef: string): string[] {
-  const leaf = remoteBranchLeaf(remoteRef);
+  const leaf = remoteBranchLeaf(remoteRef, repository.snapshot.remotes);
   return repository.snapshot.localBranches.filter((branch) => repository.snapshot.branchUpstreams?.[branch] === remoteRef || branch === leaf);
 }
 
-export function remoteBranchLeaf(remoteRef: string): string {
-  return remoteRef.replace(/^[^/]+\//u, '');
+export function remoteBranchLeaf(remoteRef: string, remotes?: readonly string[]): string {
+  return remotes ? splitGitRemoteBranch(remoteRef, remotes)?.branch ?? remoteRef : remoteRef.replace(/^[^/]+\//u, '');
 }
 
 export function CheckoutRevisionDialog(props: {
@@ -1062,6 +1065,7 @@ export function BranchContextMenu(props: {
   busy: BusyState;
   onClose: () => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
+  onManageBranch?: (request: GitBranchManagementRequest) => void;
   onOpenDiff: (repository: ProjectGitRepositoryWorkbenchItem, filePath: string, options?: { comparisonRef?: string; comparisonMode?: 'current' | 'working-tree' }) => void;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -1081,9 +1085,10 @@ export function BranchContextMenu(props: {
   };
   const compare = (mode: 'current' | 'working-tree') => () => {
     closeMenus();
-    props.onOpenDiff(props.repository, '', { comparisonRef: props.branch, comparisonMode: mode });
+    props.onOpenDiff(props.repository, '', { comparisonRef: `refs/${props.kind === 'local' ? 'heads' : 'remotes'}/${props.branch}`, comparisonMode: mode });
   };
-  const remoteLeaf = remoteBranchLeaf(props.branch);
+  const remoteTarget = splitGitRemoteBranch(props.branch, props.repository.snapshot.remotes);
+  const remoteLeaf = remoteTarget?.branch ?? remoteBranchLeaf(props.branch);
   const checkoutAndRebase = async () => {
     const checkedOut = await props.onExecute(props.repository, { type: 'checkout', branchName: props.branch }, props.zh ? '签出分支' : 'Checkout branch');
     if (checkedOut === 'completed' && !props.repository.snapshot.detached)
@@ -1205,10 +1210,10 @@ export function BranchContextMenu(props: {
       {props.branch !== current && !props.repository.snapshot.detached ? (
         <>
           <hr />
-          <button type="button" role="menuitem" disabled={props.busy !== null} onClick={run({ type: 'rebase', branchName: props.branch }, props.zh ? '变基当前分支' : 'Rebase current branch')}>
+          <button type="button" role="menuitem" disabled={props.busy !== null} onClick={run({ type: 'rebase', branchName: `refs/${props.kind === 'local' ? 'heads' : 'remotes'}/${props.branch}` }, props.zh ? '变基当前分支' : 'Rebase current branch')}>
             {props.zh ? `将“${current}”变基到“${props.branch}”` : `Rebase '${current}' onto '${props.branch}'`}
           </button>
-          <button type="button" role="menuitem" disabled={props.busy !== null} onClick={run({ type: 'merge', branchName: props.branch }, props.zh ? `将“${props.branch}”合并到“${current}”` : `Merge '${props.branch}' into '${current}'`)}>
+          <button type="button" role="menuitem" disabled={props.busy !== null} onClick={run({ type: 'merge', branchName: `refs/${props.kind === 'local' ? 'heads' : 'remotes'}/${props.branch}` }, props.zh ? `将“${props.branch}”合并到“${current}”` : `Merge '${props.branch}' into '${current}'`)}>
             {props.zh ? `将“${props.branch}”合入“${current}”` : `Merge '${props.branch}' into '${current}'`}
           </button>
         </>
@@ -1216,10 +1221,10 @@ export function BranchContextMenu(props: {
       {props.kind === 'remote' && !props.repository.snapshot.detached ? (
         <>
           <hr />
-          <button type="button" role="menuitem" disabled={props.busy !== null} onClick={run({ type: 'pull', remote: props.branch.split('/')[0], targetBranch: remoteLeaf, strategy: 'rebase' }, props.zh ? '拉取并变基' : 'Pull with rebase')}>
+          <button type="button" role="menuitem" disabled={props.busy !== null || !remoteTarget} onClick={run({ type: 'pull', remote: remoteTarget?.remote, targetBranch: remoteLeaf, strategy: 'rebase' }, props.zh ? '拉取并变基' : 'Pull with rebase')}>
             {props.zh ? `拉取到“${current}”（变基）` : `Pull into '${current}' Using Rebase`}
           </button>
-          <button type="button" role="menuitem" disabled={props.busy !== null} onClick={run({ type: 'pull', remote: props.branch.split('/')[0], targetBranch: remoteLeaf, strategy: 'merge' }, props.zh ? '拉取并合并' : 'Pull with merge')}>
+          <button type="button" role="menuitem" disabled={props.busy !== null || !remoteTarget} onClick={run({ type: 'pull', remote: remoteTarget?.remote, targetBranch: remoteLeaf, strategy: 'merge' }, props.zh ? '拉取并合并' : 'Pull with merge')}>
             {props.zh ? `拉取到“${current}”（合并）` : `Pull into '${current}' Using Merge`}
           </button>
         </>
@@ -1227,11 +1232,13 @@ export function BranchContextMenu(props: {
       {props.kind === 'local' && props.branch !== current ? (
         <>
           <hr />
-          <button type="button" role="menuitem" disabled={props.busy !== null} onClick={() => setConfirmDelete(true)}>
+          <button type="button" role="menuitem" disabled={props.busy !== null || Boolean(props.repository.snapshot.checkedOutBranches?.includes(props.branch))} onClick={() => { if (props.onManageBranch) { closeMenus(); props.onManageBranch({ kind: 'delete-local', repository: props.repository, branchName: props.branch }); } else setConfirmDelete(true); }}>
             {props.zh ? '删除…' : 'Delete…'}
           </button>
         </>
       ) : null}
+      {props.onManageBranch && props.kind === 'local' ? <button type="button" role="menuitem" disabled={props.busy !== null} onClick={() => { closeMenus(); props.onManageBranch!({ kind: 'upstream', repository: props.repository, branchName: props.branch }); }}>{props.zh ? '设置上游分支…' : 'Set upstream branch…'}</button> : null}
+      {props.onManageBranch && props.kind === 'remote' && remoteTarget ? <button type="button" role="menuitem" disabled={props.busy !== null || !props.repository.snapshot.remoteBranchHeads?.[props.branch]} onClick={() => { closeMenus(); props.onManageBranch!({ kind: 'delete-remote', repository: props.repository, remote: remoteTarget.remote, branchName: remoteTarget.branch }); }}>{props.zh ? '删除远程分支…' : 'Delete remote branch…'}</button> : null}
     </MenuSurface>
   );
 }
@@ -1663,27 +1670,33 @@ export function PushDialog(props: {
 
 export function defaultPushTarget(repository: ProjectGitRepositoryWorkbenchItem): { remote: string; targetBranch: string } {
   const upstream = repository.snapshot.upstream;
-  const remote = repository.snapshot.remotes.find((name) => upstream?.startsWith(`${name}/`)) ?? repository.snapshot.remotes.find((name) => name === 'origin') ?? repository.snapshot.remotes[0] ?? '';
+  const remote = upstream ? splitGitRemoteBranch(upstream, repository.snapshot.remotes)?.remote ?? repository.snapshot.remotes.find(name => name === 'origin') ?? repository.snapshot.remotes[0] ?? '' : repository.snapshot.remotes.find(name => name === 'origin') ?? repository.snapshot.remotes[0] ?? '';
   return { remote, targetBranch: upstream?.startsWith(`${remote}/`) ? upstream.slice(remote.length + 1) : repository.snapshot.branch };
 }
 
 /** 合并前明确展示来源与目标，命令执行沿用统一的冲突处理。 */
 export function MergeBranchDialog(props: {
   repository: ProjectGitRepositoryWorkbenchItem;
+  initialBranch?: string;
   zh: boolean;
   busy: BusyState;
   onClose(): void;
   onExecute(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string): Promise<ExecutionOutcome>;
 }) {
-  const branches = [...props.repository.snapshot.localBranches, ...props.repository.snapshot.remoteBranches].filter((branch) => branch !== props.repository.snapshot.branch);
-  const [branch, setBranch] = useState(branches[0] ?? '');
+  const [repository] = useState(props.repository);
+  const [commitMerge, setCommitMerge] = useState(true);
+  const [includeMergeLog, setIncludeMergeLog] = useState(false);
+  const [noFastForward, setNoFastForward] = useState(false);
+  const submitting = useRef(false);
+  const branches = [...repository.snapshot.localBranches.filter(branch => repository.snapshot.detached || branch !== repository.snapshot.branch).map(branch => ({ value: `refs/heads/${branch}`, label: `${props.zh ? '本地' : 'Local'} · ${branch}` })), ...repository.snapshot.remoteBranches.map(branch => ({ value: `refs/remotes/${branch}`, label: `${props.zh ? '远程' : 'Remote'} · ${branch}` }))];
+  const [branch, setBranch] = useState(branches.some(item => item.value === props.initialBranch) ? props.initialBranch! : branches[0]?.value ?? '');
   return (
     <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" role="dialog" aria-label={props.zh ? '合并分支' : 'Merge branch'} onDismiss={props.onClose} dismissDisabled={props.busy !== null}>
       <section className="project-git-reference-dialog">
         <header>
           <strong>{props.zh ? '合并分支' : 'Merge branch'}</strong>
           <small>
-            {props.repository.name} · {props.zh ? '合入' : 'Into'} {props.repository.snapshot.branch}
+            {repository.name} · {props.zh ? '合入' : 'Into'} {repository.snapshot.branch}
           </small>
         </header>
         <main>
@@ -1693,7 +1706,7 @@ export function MergeBranchDialog(props: {
               ariaLabel={props.zh ? '来源分支' : 'Source branch'}
               value={branch}
               onChange={setBranch}
-              options={branches.map((ref) => ({ value: ref, label: ref }))}
+              options={branches}
               disabled={props.busy !== null}
               size="regular"
               searchable
@@ -1701,6 +1714,13 @@ export function MergeBranchDialog(props: {
               emptyLabel={props.zh ? '没有匹配的分支' : 'No matching branches'}
             />
           </label>
+          <fieldset className="project-git-sync-options" disabled={props.busy !== null}>
+            <legend>{props.zh ? '合并选项' : 'Merge options'}</legend>
+            <label><input type="checkbox" checked={commitMerge} onChange={event => setCommitMerge(event.currentTarget.checked)} />{props.zh ? '立即提交合并的改动' : 'Commit merged changes immediately'}</label>
+            <label><input type="checkbox" checked={includeMergeLog} onChange={event => setIncludeMergeLog(event.currentTarget.checked)} />{props.zh ? '包括被合并提交的信息内容' : 'Include merged commit messages'}</label>
+            <label><input type="checkbox" checked={noFastForward} onChange={event => setNoFastForward(event.currentTarget.checked)} />{props.zh ? '无论是否可以快进都创建合并提交' : 'Create a merge commit even when fast-forward is possible'}</label>
+            {!commitMerge ? <small>{props.zh ? '快进更新不会创建合并提交，也无法在提交前停下；需要保留待提交的合并结果时，请同时勾选“创建合并提交”。' : 'Fast-forward does not create a merge commit and cannot stop before committing. Also select “Create a merge commit” to leave a pending merge result.'}</small> : null}
+          </fieldset>
           {!branches.length ? <p>{props.zh ? '没有其他可合并的分支。' : 'No other branches to merge.'}</p> : null}
         </main>
         <footer>
@@ -1712,9 +1732,14 @@ export function MergeBranchDialog(props: {
             disabled={!branch || props.busy !== null}
             busy={props.busy?.action === 'merge'}
             onClick={async () => {
-              const result = await props.onExecute(props.repository, { type: 'merge', branchName: branch }, props.zh ? '合并分支' : 'Merge branch');
-              // Conflicts need the underlying file-status view; ordinary failures keep the selected source.
-              if (result === 'completed' || result === 'conflict') props.onClose();
+              if (submitting.current || props.busy !== null) return;
+              submitting.current = true;
+              try {
+                const expectedSourceHeadSha = branch.startsWith('refs/heads/') ? repository.snapshot.localBranchHeads?.[branch.slice(11)] : repository.snapshot.remoteBranchHeads?.[branch.slice(13)];
+                const result = await props.onExecute(repository, { type: 'merge', branchName: branch, commitMerge, includeMergeLog, noFastForward, expectedHeadSha: repository.snapshot.headSha, expectedBranch: repository.snapshot.branch, expectedSourceHeadSha }, props.zh ? '合并分支' : 'Merge branch');
+                // Conflicts and a pending no-commit merge both need the file-status view.
+                if (result === 'completed' || result === 'conflict') props.onClose();
+              } finally { submitting.current = false; }
             }}
           >
             {props.zh ? '合并' : 'Merge'}

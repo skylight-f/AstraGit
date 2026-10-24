@@ -21,6 +21,9 @@ export interface ApplicationErrorOptions {
   title?: string;
   /** 由业务场景提供真实处理入口，错误窗口不猜测恢复操作。 */
   action?: { label: string; onClick: () => void | Promise<void> };
+  /** 已核实的执行状态与受影响文件，直接展示，诊断日志仍单独折叠。 */
+  context?: { description?: string; files?: string[]; fileCount?: number };
+  actions?: Array<{ label: string; onClick: () => void | Promise<void> }>;
 }
 
 interface ApplicationErrorEntry {
@@ -38,6 +41,8 @@ interface ApplicationErrorEntry {
   detailTitle?: string;
   /** 保留当前错误对应的处理动作。 */
   action?: ApplicationErrorOptions['action'];
+  context?: ApplicationErrorOptions['context'];
+  actions?: ApplicationErrorOptions['actions'];
 }
 
 const listeners = new Set<() => void>();
@@ -171,9 +176,11 @@ export function reportApplicationError(error: unknown, options: ApplicationError
     showDetails: options.showDetails === true,
     detailTitle: options.detailTitle,
     details,
-    dedupeKey: `${options.title ?? copy.title}\n${detailsBody}`,
+    dedupeKey: `${options.title ?? copy.title}\n${detailsBody}\n${JSON.stringify(options.context ?? null)}`,
     code,
     action: options.action,
+    context: options.context,
+    actions: options.actions,
   };
   const duplicate = queue.some((candidate) => candidate.language === entry.language && candidate.dedupeKey === entry.dedupeKey);
   if (duplicate && options.showDetails) {
@@ -223,7 +230,8 @@ export function ApplicationErrorDialogHost(props: { language: ApplicationErrorLa
   useEffect(() => setDetailsOpen(current?.showDetails ?? false), [current?.id, current?.showDetails]);
   const copy = copyByLanguage[current?.language ?? props.language];
   /** 有明确恢复入口时让关闭保持次要层级，避免同一操作区出现两个主按钮。 */
-  const hasRecoveryAction = Boolean(current?.action || current?.code === 'ASTRAGIT_CODEX_LOGIN_REQUIRED' || current?.code === 'ASTRAGIT_NEW_PROJECT_MODEL_UNAVAILABLE');
+  const actions = [...(current?.actions ?? []), ...(current?.action ? [current.action] : [])];
+  const hasRecoveryAction = Boolean(actions.length || current?.code === 'ASTRAGIT_CODEX_LOGIN_REQUIRED' || current?.code === 'ASTRAGIT_NEW_PROJECT_MODEL_UNAVAILABLE');
   return (
     <MotionPresence>
       {current ? (
@@ -248,6 +256,10 @@ export function ApplicationErrorDialogHost(props: { language: ApplicationErrorLa
                   {current.summary}
                 </p>
               </header>
+              {current.context ? <section className="application-error-context" aria-label={current.language === 'zh-CN' ? '操作状态与受影响文件' : 'Operation state and affected files'}>
+                {current.context.description ? <p>{current.context.description}</p> : null}
+                {current.context.files?.length ? <><strong>{current.language === 'zh-CN' ? `受影响文件（${current.context.fileCount ?? current.context.files.length}）` : `Affected files (${current.context.fileCount ?? current.context.files.length})`}</strong><ul>{current.context.files.map(path => <li key={path}><code data-zeus-selectable="text">{path}</code></li>)}</ul>{(current.context.fileCount ?? 0) > current.context.files.length ? <small>{current.language === 'zh-CN' ? '仅显示前 200 个文件，完整列表请查看 Git 日志。' : 'Showing the first 200 files. See the Git log for the full list.'}</small> : null}</> : null}
+              </section> : null}
               <Collapsible open={detailsOpen}>
                 <section className="application-error-dialog-details" aria-labelledby="application-error-dialog-details-title">
                   <strong id="application-error-dialog-details-title">{current.detailTitle ?? copy.detailTitle}</strong>
@@ -272,22 +284,22 @@ export function ApplicationErrorDialogHost(props: { language: ApplicationErrorLa
                   {current.language === 'zh-CN' ? '连接模型' : 'Connect a model'}
                 </Button>
               ) : null}
-              {current.action ? (
+              {actions.map((action, index) => (
                 <Button
-                  variant="primary"
+                  key={action.label}
+                  variant={index === 0 ? 'primary' : 'secondary'}
                   size="regular"
                   onClick={() => {
                     /** 先关闭当前反馈，避免重复点击；失败继续使用统一错误出口。 */
-                    const action = current.action;
                     dismissCurrentError();
                     void Promise.resolve()
-                      .then(() => action?.onClick())
+                      .then(() => action.onClick())
                       .catch((error: unknown) => reportApplicationError(error, { language: current.language, title: current.title }));
                   }}
                 >
-                  {current.action.label}
+                  {action.label}
                 </Button>
-              ) : null}
+              ))}
               <Button variant={hasRecoveryAction ? 'secondary' : 'primary'} size="regular" onClick={dismissCurrentError} autoFocus>
                 {copy.close}
               </Button>

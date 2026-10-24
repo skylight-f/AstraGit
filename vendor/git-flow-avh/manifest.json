@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "version": "1.12.3",
+  "source": "https://github.com/petervanderdoes/gitflow-avh/tree/1.12.3",
+  "sourceArchive": "https://api.github.com/repos/petervanderdoes/gitflow-avh/tarball/1.12.3",
+  "sourceArchiveSha256": "12fefdfa90c0cef2711af048334bb3f5fd15638803ccaf9e791153ce96439b27",
+  "patches": [
+    {
+      "file": "git-flow-feature",
+      "description": "Pin recursive feature rebase to the bundled launcher rather than another git-flow found by Git."
+    }
+  ],
+  "files": {
+    "git-flow": {
+      "sha256": "45f50871215a87d9c130f04fac09663d01a46a7685f12656e51b55eda275f53d",
+      "upstreamSha256": "45f50871215a87d9c130f04fac09663d01a46a7685f12656e51b55eda275f53d",
+      "executable": true
+    },
+    "git-flow-init": {
+      "sha256": "6025b4b40f73b795adc732d057364944bbeab18154ae86e91595265d9ac9661a",
+      "upstreamSha256": "6025b4b40f73b795adc732d057364944bbeab18154ae86e91595265d9ac9661a",
+      "executable": false
+    },
+    "git-flow-feature": {
+      "sha256": "183df7f2a990913b2b0cbca856ae88d78fcbc892fa8c3715eceae938f94c7b88",
+      "upstreamSha256": "28de30ae158c0b84901ec8e1f6a3e4739c8af9162eea7ce1ebf242ac2d2abd2e",
+      "executable": false
+    },
+    "git-flow-bugfix": {
+      "sha256": "9810645bff1d7c717eeff0227b5cfe03283b22c0d7bc613f8580540c4daaf2fb",
+      "upstreamSha256": "9810645bff1d7c717eeff0227b5cfe03283b22c0d7bc613f8580540c4daaf2fb",
+      "executable": false
+    },
+    "git-flow-hotfix": {
+      "sha256": "867b4704b2a057302083218f80f04e463271199ea4f5bdaa36403875fe385339",
+      "upstreamSha256": "867b4704b2a057302083218f80f04e463271199ea4f5bdaa36403875fe385339",
+      "executable": false
+    },
+    "git-flow-release": {
+      "sha256": "8b4b4971ad7aadef78ad4bd729e2b9448abd48243a5a3fe273dd2b253085b389",
+      "upstreamSha256": "8b4b4971ad7aadef78ad4bd729e2b9448abd48243a5a3fe273dd2b253085b389",
+      "executable": false
+    },
+    "git-flow-support": {
+      "sha256": "9a7f57c979fc8fd91be5fe7e6fc747c4757ef2291f699641c99e6032392a9083",
+      "upstreamSha256": "9a7f57c979fc8fd91be5fe7e6fc747c4757ef2291f699641c99e6032392a9083",
+      "executable": false
+    },
+    "git-flow-version": {
+      "sha256": "c095d32bb968edb79fed28a1dc31e2e38a977f9df860ab5202f1e9cf5e3b8141",
+      "upstreamSha256": "c095d32bb968edb79fed28a1dc31e2e38a977f9df860ab5202f1e9cf5e3b8141",
+      "executable": false
+    },
+    "git-flow-log": {
+      "sha256": "095fbb6e4111455a05b37d63d3f7a3ae76bdeb94ee3e848ced1ed435d8d8dc93",
+      "upstreamSha256": "095fbb6e4111455a05b37d63d3f7a3ae76bdeb94ee3e848ced1ed435d8d8dc93",
+      "executable": false
+    },
+    "git-flow-config": {
+      "sha256": "e7128ee97d079aef924ba295d2ef695809935bb494ad14a6b826e3b57ee903f1",
+      "upstreamSha256": "e7128ee97d079aef924ba295d2ef695809935bb494ad14a6b826e3b57ee903f1",
+      "executable": false
+    },
+    "gitflow-common": {
+      "sha256": "4d6a8e0483f0d1e534f80c6c75a72a3e854d1d3895272c5460e7c6c43fef1a6f",
+      "upstreamSha256": "4d6a8e0483f0d1e534f80c6c75a72a3e854d1d3895272c5460e7c6c43fef1a6f",
+      "executable": false
+    },
+    "gitflow-shFlags": {
+      "sha256": "67e7e6ea92c834053b187f43a05740b656794791e992c213b3d80cadd5db051c",
+      "upstreamSha256": "67e7e6ea92c834053b187f43a05740b656794791e992c213b3d80cadd5db051c",
+      "executable": false
+    },
+    "LICENSE": {
+      "sha256": "a2fec91bad2bf8d62a6305f4869b3fe93579afde495ac749e3a2b54cb402f7aa",
+      "upstreamSha256": "a2fec91bad2bf8d62a6305f4869b3fe93579afde495ac749e3a2b54cb402f7aa",
+      "executable": false
+    }
+  }
+}

@@ -29,13 +29,21 @@ export function sendNativeQueryRouteError(reply: FastifyReply, error: unknown): 
           code.includes('NATIVE_DISABLED') ||
           code.includes('NOT_AVAILABLE') ||
           code.includes('STALE')
+          || code.endsWith('_CHANGED')
+          || code === 'ASTRAGIT_GIT_STOP_TRACKING_NOT_TRACKED'
+          || code === 'ASTRAGIT_GIT_HISTORY_QUERY_EXPIRED'
         ? 409
         : code.startsWith('ASTRAGIT_INVALID_') || code.endsWith('_INVALID') || code.endsWith('_REQUIRED') || code.includes('_UNSUPPORTED')
           ? 400
           : 500);
   return reply
     .code(statusCode)
-    .send({ error: code, message, ...(candidate?.cause ? { cause: userFacingErrorCause(candidate.cause) } : {}), ...(code.includes('STALE') || code.includes('RECOVERY_REQUIRED') ? { recoveryRequired: true } : {}) });
+    .send({ error: code, message, ...queryDiagnostics(error), ...(candidate?.cause ? { cause: userFacingErrorCause(candidate.cause) } : {}), ...(code.includes('STALE') || code.includes('RECOVERY_REQUIRED') ? { recoveryRequired: true } : {}) });
+}
+
+function queryDiagnostics(error: unknown) {
+  const value = userFacingErrorCause(error);
+  return { ...(value.details ? { details: value.details } : {}), ...(value.operationStatus ? { operationStatus: value.operationStatus } : {}), ...(value.affectedFiles ? { affectedFiles: value.affectedFiles } : {}), ...(value.affectedFileCount !== undefined ? { affectedFileCount: value.affectedFileCount } : {}) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

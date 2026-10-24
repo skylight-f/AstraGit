@@ -1,0 +1,13 @@
+.git-archive-dialog { display:flex; flex-direction:column; width:min(640px,calc(100vw - 40px)); max-height:calc(100vh - 64px); min-height:0; border:1px solid var(--zeus-product-line); border-radius:12px; background:var(--zeus-product-panel); color:var(--zeus-product-text); box-shadow:0 20px 70px #18203b33; }
+.git-archive-dialog>header,.git-archive-dialog>footer { display:flex; align-items:center; gap:10px; flex:none; padding:14px 18px; }
+.git-archive-dialog>header { border-bottom:1px solid var(--zeus-product-line); }
+.git-archive-dialog>header>strong { flex:1; }
+.git-archive-dialog>header>span,.git-archive-dialog p,.git-archive-dialog small { color:var(--zeus-product-muted); }
+.git-archive-dialog>form { display:flex; flex-direction:column; gap:14px; min-height:0; padding:18px; overflow:auto; }
+.git-archive-dialog label { display:grid; gap:7px; }
+.git-archive-dialog input,.git-archive-dialog select { width:100%; min-width:0; padding:7px 9px; color:inherit; background:var(--zeus-control-bg); border:1px solid var(--zeus-control-border); border-radius:6px; font:inherit; }
+.git-archive-dialog p { margin:0; line-height:1.6; font-size:12px; }
+.git-archive-revision,.git-archive-receipt { display:grid; gap:7px; padding:12px; background:var(--zeus-product-panel-muted); border-radius:7px; }
+.git-archive-dialog code { overflow-wrap:anywhere; font-size:11px; user-select:text; }
+.git-archive-dialog>footer { justify-content:flex-end; border-top:1px solid var(--zeus-product-line); flex-wrap:wrap; }
+.git-archive-dialog>footer>[role='status'] { margin-right:auto; font-size:12px; }

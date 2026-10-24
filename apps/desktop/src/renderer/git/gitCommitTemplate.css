@@ -1,0 +1,10 @@
+.git-template-settings { display: grid; gap: 8px; min-width: 0; }
+.git-template-settings p, .git-template-settings small { margin: 0; overflow-wrap: anywhere; }
+.git-template-settings label { display: grid; gap: 5px; min-width: 0; }
+.git-template-settings textarea { min-height: 100px; max-height: 280px; resize: vertical; }
+.git-template-settings :is(textarea, input, select) { width: 100%; box-sizing: border-box; }
+.git-template-control { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; max-width: 100%; }
+.git-template-feedback { font-size: 11px; overflow-wrap: anywhere; }
+.git-template-replace pre { max-height: min(40vh, 320px); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.source-git-template { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.source-git-template select { flex: 1; min-width: 100px; max-width: 100%; }

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { acceptConflictBlock, parseConflictBlocks, userFacingErrorCause, type ConflictBlockChoice } from '@astragit/shared';
 import type { DashboardClient, ProjectGitConflictFile, ProjectGitRepositorySnapshot } from '../apiClient.js';
 import { VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
 import { ModalPortal } from '../ui/ModalPortal.js';
 import { notifyProjectGitChanged } from './projectGitWorkbenchState.js';
+import { GitPaneSeparator } from './GitPaneSeparator.js';
 import './gitConflictEditor.css';
 
 import { ConflictTextEditorLoader as ConflictTextEditor } from './ConflictEditorBoundary.js';
@@ -17,6 +18,8 @@ interface ConflictEditorProps {
   filePath: string;
   zh: boolean;
   disabled?: boolean;
+  externalRevision?: number;
+  onExternalMerge?: () => void;
   onSaved: (result: { resolved: boolean; snapshot?: ProjectGitRepositorySnapshot }) => void | Promise<void>;
 }
 const memoryDrafts = new Map<string, Draft>();
@@ -61,6 +64,9 @@ function ConflictDocument(props: ConflictEditorProps) {
   const [reveal, setReveal] = useState({ offset: 0, token: 0 });
   const [undoChoice, setUndoChoice] = useState<Draft | null>(null);
   const [reloadConfirm, setReloadConfirm] = useState(false);
+  const mergeLayout = useRef<HTMLDivElement>(null);
+  const sideLayout = useRef<HTMLDivElement>(null);
+  const [paneBounds, setPaneBounds] = useState({ rows: { min: 20, max: 70 }, columns: { min: 20, max: 80 } });
   const [backup, setBackup] = useState(() => storedDraft(`${key}.backup`));
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flushDraft = () => {
@@ -119,8 +125,42 @@ function ConflictDocument(props: ConflictEditorProps) {
   const stale = requiresReload || Boolean(file && draft && file.fingerprint !== draft.fingerprint);
   const locked = busy || loading || props.disabled;
   const editable = Boolean(file?.editable && file.kind === 'text');
+  const previousExternal = useRef(props.externalRevision);
+  useEffect(() => {
+    if (previousExternal.current === props.externalRevision) return;
+    previousExternal.current = props.externalRevision;
+    if (latest.current?.dirty || latest.current?.draft.side) {
+      setRequiresReload(true); setFeedback(text('外部工具已返回，磁盘内容可能已变化。已保留内置草稿，请重新载入并核对；重新载入会保留备份。', 'The external tool returned and disk contents may have changed. Your built-in draft is retained. Reload and review; reloading keeps a backup.'));
+    } else void load(false);
+  }, [props.externalRevision]);
+
   const deleted = Boolean(draft && !draft.exists);
   const deletionUnconfirmed = deleted && !draft?.side;
+
+  useLayoutEffect(() => {
+    const layout = mergeLayout.current;
+    const sides = sideLayout.current;
+    if (!layout || !sides) return;
+    const measure = () => {
+      const height = layout.getBoundingClientRect().height;
+      const width = sides.getBoundingClientRect().width;
+      if (height <= 0 || width <= 0) return;
+      const sideMinimum = Math.min(120, Math.max(0, (width - 6) / 2));
+      const next = {
+        rows: { min: 100 / height * 100, max: (height - 146) / height * 100 },
+        columns: { min: sideMinimum / width * 100, max: (width - sideMinimum - 6) / width * 100 },
+      };
+      setPaneBounds(current => Object.keys(next).every(key => {
+        const axis = key as keyof typeof next;
+        return Math.abs(current[axis].min - next[axis].min) < 0.1 && Math.abs(current[axis].max - next[axis].max) < 0.1;
+      }) ? current : next);
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(layout);
+    observer.observe(sides);
+    measure();
+    return () => observer.disconnect();
+  }, [loading, editable]);
 
   function change(content: string, side?: Side, fromChoice = false, existsOverride?: boolean) {
     const value = latest.current;
@@ -220,9 +260,10 @@ function ConflictDocument(props: ConflictEditorProps) {
     </section>;
   };
   return <section className="git-conflict-editor" aria-label={text('合并编辑器', 'Merge editor')} aria-busy={loading || busy}>
-    <header className="git-conflict-heading"><div><strong title={props.filePath}>{props.filePath}</strong><small>{text('合并编辑器', 'Merge editor')}{document?.dirty ? text(' · 未保存', ' · Unsaved') : ''}</small></div><button type="button" disabled={locked} onClick={() => void reload()}>{text('重新载入', 'Reload')}</button></header>
+    <header className="git-conflict-heading">
+      <div><strong title={props.filePath}>{props.filePath}</strong><small>{text('合并编辑器', 'Merge editor')}{document?.dirty ? text(' · 未保存', ' · Unsaved') : ''}</small></div>{props.onExternalMerge ? <button type="button" disabled={locked} onClick={props.onExternalMerge}>{text('使用外部合并工具…', 'Use external merge tool…')}</button> : null}<button type="button" disabled={locked} onClick={() => void reload()}>{text('重新载入', 'Reload')}</button></header>
     {loading ? <p className="git-conflict-placeholder">{text('正在读取工作区及冲突的三个版本…', 'Loading the working tree and three conflict versions…')}</p> : file && editable ? <>
-      {stale ? <p className="git-conflict-warning" role="alert">{requiresReload ? text('保存未完成或结果尚未确认，本地草稿已保留。请重新载入并核对工作区和暂存区后再操作。', 'The save did not complete or its result is unconfirmed. Your draft is preserved. Reload and verify the working tree and index before continuing.') : text('文件或索引已在外部变化，本地草稿已保留。请复制草稿或重新载入并核对后再保存。', 'The file or index changed externally. Your local draft is preserved. Copy the draft or reload and review before saving.')}</p> : null}
+      {stale ? <p className="git-conflict-warning" role="alert">{requiresReload ? text('当前磁盘或暂存状态需要重新核对，本地草稿已保留。请重新载入后再保存。', 'The current disk or index state needs review. Your local draft is preserved. Reload before saving.') : text('文件或索引已在外部变化，本地草稿已保留。请复制草稿或重新载入并核对后再保存。', 'The file or index changed externally. Your local draft is preserved. Copy the draft or reload and review before saving.')}</p> : null}
       <div className="git-conflict-toolbar">
         <strong>{parsed.blocks.length ? text(`冲突 ${index + 1} / ${parsed.blocks.length}`, `Conflict ${index + 1} / ${parsed.blocks.length}`) : text('没有剩余冲突标记', 'No conflict markers remain')}</strong>
         <button type="button" disabled={locked || !parsed.blocks.length} onClick={() => navigate(-1)}>{text('上一处', 'Previous')}</button><button type="button" disabled={locked || !parsed.blocks.length} onClick={() => navigate(1)}>{text('下一处', 'Next')}</button>
@@ -235,12 +276,17 @@ function ConflictDocument(props: ConflictEditorProps) {
         <button type="button" disabled={locked || !undoChoice} onClick={() => { if (undoChoice) { const prior = undoChoice; change(prior.content, prior.side, true, prior.exists); setUndoChoice(null); } }}>{text('撤销上次选择', 'Undo last choice')}</button>
       </div>
       {!parsed.hasMarkers && !draft?.side ? <p className="git-conflict-hint">{text('请核对工作区结果后标记为已解决。当前/传入按 Git 索引阶段显示；变基时“当前”代表目标基线。', 'Review the working tree result before marking it resolved. Current/incoming follow Git index stages; during rebase, current is the target baseline.')}</p> : null}
-      <div className="git-conflict-sides">{editor('current')}{editor('incoming')}</div>
-      {block?.base !== null && block?.base !== undefined ? <details className="git-conflict-base"><summary>{text('查看共同祖先', 'View base')}</summary><pre>{block.base}</pre></details> : null}
       {!parsed.blocks.length && (!file.worktreeExists || file.indexStages.some(stage => stage.stage === 2) !== file.indexStages.some(stage => stage.stage === 3)) ? <div className="git-conflict-file-actions"><strong>{text('文件删除冲突：', 'File deletion conflict:')}</strong><button type="button" disabled={locked || !file.canAcceptCurrent} onClick={() => chooseFile('current')}>{text('采用当前版本', 'Use current version')}</button><button type="button" disabled={locked || !file.canAcceptIncoming} onClick={() => chooseFile('incoming')}>{text('采用传入版本', 'Use incoming version')}</button></div> : null}
+      <div ref={mergeLayout} className="git-conflict-merge-layout">
+        <div className="git-conflict-inputs">
+          <div ref={sideLayout} className="git-conflict-sides">{editor('current')}<GitPaneSeparator name="conflict-current" label={text('调整当前与传入版本宽度', 'Resize current and incoming versions')} initial={50} min={paneBounds.columns.min} max={paneBounds.columns.max} />{editor('incoming')}</div>
+          {block?.base !== null && block?.base !== undefined ? <details className="git-conflict-base"><summary>{text('查看共同祖先', 'View base')}</summary><pre>{block.base}</pre></details> : null}
+        </div>
+        <GitPaneSeparator name="conflict-versions" label={text('调整版本对照与合并结果高度', 'Resize version comparison and merge result')} axis="y" initial={42} min={paneBounds.rows.min} max={paneBounds.rows.max} />
       <section className="git-conflict-result" aria-label={text('合并结果', 'Merge result')}><header><strong>{text('合并结果', 'Merge result')}</strong><small>{text('可以直接编辑 · ⌘/Ctrl+S 保存工作区', 'Edit directly · ⌘/Ctrl+S saves the working tree')}</small></header>
         {deleted ? <div className="git-conflict-delete-result"><strong>{deletionUnconfirmed ? text('工作区文件不存在，请明确选择结果', 'The working file is missing. Choose a result explicitly') : text('合并结果：删除此文件', 'Merge result: delete this file')}</strong><p>{deletionUnconfirmed ? text('请选择采用某一侧的版本，或改为保留空文件。不会把缺失文件默认为空文件。', 'Choose a version or keep an empty file. A missing file will not be treated as an empty file.') : text('保存后才删除工作区文件，标记已解决后才更新索引。', 'The working file is deleted only when saved. The index is updated only when marked resolved.')}</p><button type="button" disabled={locked} onClick={() => change('')}>{text('改为保留空文件', 'Keep an empty file instead')}</button></div> : <ConflictTextEditor zh={props.zh} path={props.filePath} label={text('合并结果代码', 'Merge result code')} content={draft?.content ?? ''} readOnly={Boolean(locked)} onChange={value => change(value)} onSave={() => void save(false)} reveal={reveal} regions={parsed.blocks.map(value => ({ start: value.start, end: value.end, kind: 'conflict' }))} />}
       </section>
+      </div>
       {parsed.issues.length ? <p className="git-conflict-warning" role="alert">{text(`第 ${parsed.issues[0]!.line} 行的冲突标记不完整。请手动整理后再标记为已解决。`, `Conflict markers at line ${parsed.issues[0]!.line} are incomplete. Edit them before marking the file resolved.`)}</p> : null}
       <footer className="git-conflict-footer"><span>{parsed.blocks.length ? text(`剩余 ${parsed.blocks.length} 处冲突`, `${parsed.blocks.length} conflicts remaining`) : text('核对结果后完成此文件', 'Review the result to complete this file')}</span><button type="button" disabled={locked || stale || deletionUnconfirmed || !document?.dirty} onClick={() => void save(false)}>{text('保存工作区', 'Save working tree')}</button><button type="button" className="git-conflict-complete" disabled={locked || stale || deletionUnconfirmed || !parsed.canComplete} onClick={() => void save(true)}>{text('保存并标记为已解决', 'Save and mark resolved')}</button></footer>
     </> : file ? <div className="git-conflict-unsupported"><h3>{text('此冲突不能在文本编辑器中处理', 'This conflict cannot be resolved in the text editor')}</h3><p>{file.kind === 'binary' ? text('文件包含二进制或非 UTF-8 内容。', 'The file contains binary or non-UTF-8 content.') : file.kind === 'gitlink' ? text('此项是子模块引用冲突。', 'This is a submodule reference conflict.') : file.kind === 'symlink' ? text('此项是符号链接冲突。', 'This is a symbolic link conflict.') : file.kind === 'too_large' ? text('文件超出内置编辑器的大小限制。', 'The file exceeds the built-in editor size limit.') : text('此文件类型不支持内置文本合并。', 'This file type does not support built-in text merging.')}</p><p>{text('请在外部工具中处理并暂存，完成后重新载入仓库。不会用文本覆盖此文件。', 'Resolve and stage it in an external tool, then reload the repository. This file will not be overwritten with text.')}</p></div> : null}

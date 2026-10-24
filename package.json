@@ -15,9 +15,10 @@
     "lint": "eslint .",
     "typecheck": "pnpm --filter '@astragit/git-server...' -r build && pnpm --filter '@astragit/*' -r --if-present typecheck",
     "build": "pnpm --filter '@astragit/*' -r --if-present build",
-    "build:app": "pnpm check:isolation && pnpm check:icons && pnpm build && node scripts/package-macos.mjs",
-    "build:release": "pnpm check:isolation && pnpm check:icons && pnpm build && node scripts/package-macos.mjs --release",
-    "verify:publish": "pnpm check:lockfile && pnpm check:isolation && pnpm check:icons && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "build:app": "pnpm check:isolation && pnpm check:icons && pnpm check:git-flow && pnpm build && node --import tsx scripts/package-macos.mjs",
+    "build:release": "pnpm check:isolation && pnpm check:icons && pnpm check:git-flow && pnpm build && node --import tsx scripts/package-macos.mjs --release",
+    "verify:publish": "pnpm check:lockfile && pnpm check:isolation && pnpm check:icons && pnpm check:git-flow && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "check:git-flow": "node --import tsx scripts/check-git-flow.mjs"
   },
   "packageManager": "pnpm@10.31.0",
   "engines": {

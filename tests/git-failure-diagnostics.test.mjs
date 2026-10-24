@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { executeProjectGitAction } from '../packages/git-core/dist/index.js';
+import { executeProjectGitAction, getProjectGitRepositorySnapshot } from '../packages/git-core/dist/index.js';
 import { ProjectGitWorkbenchService } from '../packages/git-server/dist/projectGitWorkbenchService.js';
 import { ProjectStore } from '../packages/git-server/dist/projectStore.js';
 import { OperationHistoryStore } from '../packages/git-server/dist/operationHistoryStore.js';
@@ -35,10 +35,11 @@ test('checkout distinguishes local changes, untracked overwrite, missing branch 
   await f.put('file.txt', 'local work\n');
   await rejectsCode(() => f.action({ type: 'checkout', branchName: 'feature' }), 'ASTRAGIT_GIT_CHECKOUT_BLOCKED', error => {
     assert.equal(error.blockedBy, 'tracked'); assert.equal(error.operationStatus, 'failed_before_write'); assert.match(error.details, /file\.txt/u);
+    assert.deepEqual(error.affectedFiles, ['file.txt']); assert.equal(error.affectedFileCount, 1);
   });
   assert.equal(await f.git('branch', '--show-current'), 'main'); assert.equal(await readFile(join(f.repository, 'file.txt'), 'utf8'), 'local work\n');
   await f.git('restore', 'file.txt'); await f.put('target.txt', 'untracked work\n');
-  await rejectsCode(() => f.action({ type: 'checkout', branchName: 'feature' }), 'ASTRAGIT_GIT_CHECKOUT_BLOCKED', error => assert.equal(error.blockedBy, 'untracked'));
+  await rejectsCode(() => f.action({ type: 'checkout', branchName: 'feature' }), 'ASTRAGIT_GIT_CHECKOUT_BLOCKED', error => { assert.equal(error.blockedBy, 'untracked'); assert.deepEqual(error.affectedFiles, ['target.txt']); });
   await rm(join(f.repository, 'target.txt'));
   await rejectsCode(() => f.action({ type: 'checkout', branchName: 'missing' }), 'ASTRAGIT_GIT_BRANCH_NOT_FOUND');
   await f.put('file.txt', 'main change\n'); await f.git('add', '.'); await f.git('commit', '-m', 'main');
@@ -47,9 +48,27 @@ test('checkout distinguishes local changes, untracked overwrite, missing branch 
   const before = await f.git('status', '--porcelain');
   await rejectsCode(() => f.action({ type: 'checkout', branchName: 'feature', smart: true }), 'ASTRAGIT_GIT_CHECKOUT_CONFLICTED', error => {
     assert.equal(error.operationStage, 'preflight'); assert.equal(error.operationStatus, 'failed_before_write'); assert.match(error.details, /UU file\.txt/u);
+    assert.deepEqual(error.affectedFiles, ['file.txt']);
   });
   await rejectsCode(() => f.action({ type: 'merge', branchName: 'feature' }), 'ASTRAGIT_GIT_UNMERGED_FILES');
   assert.equal(await f.git('status', '--porcelain'), before);
+});
+
+test('checkout affected files decode Git quoted UTF-8, tabs and newlines without listing unrelated modifications', async t => {
+  const f = await fixture(t);
+  const paths = ['中文 文件.txt', 'tab\tname.txt', 'line\nname.txt', '  leading.txt'];
+  for (const path of paths) await f.put(path, 'base\n');
+  await f.git('add', '.'); await f.git('commit', '-m', 'paths');
+  await f.git('switch', '-c', 'target');
+  for (const path of paths) await f.put(path, 'target\n');
+  await f.git('add', '.'); await f.git('commit', '-m', 'target'); await f.git('switch', 'main');
+  for (const path of [...paths, 'file.txt']) await f.put(path, 'keep local work\n');
+  await rejectsCode(() => f.action({ type: 'checkout', branchName: 'target' }), 'ASTRAGIT_GIT_CHECKOUT_BLOCKED', error => {
+    assert.deepEqual(new Set(error.affectedFiles), new Set(paths));
+    assert.equal(error.affectedFileCount, paths.length);
+  });
+  assert.equal(await f.git('branch', '--show-current'), 'main');
+  for (const path of [...paths, 'file.txt']) assert.equal(await readFile(join(f.repository, path), 'utf8'), 'keep local work\n');
 });
 
 test('commit failures retain exact causes and sanitized raw command diagnostics', async t => {
@@ -71,6 +90,47 @@ test('commit failures retain exact causes and sanitized raw command diagnostics'
   assert.equal(await f.git('rev-parse', 'HEAD'), head);
 });
 
+test('explicit stash-and-switch retains tracked index/worktree versions and untracked files without restoring on the target', async t => {
+  const f = await fixture(t);
+  await f.git('switch', '-c', 'target'); await f.put('file.txt', 'target\n'); await f.git('add', '.'); await f.git('commit', '-m', 'target'); await f.git('switch', 'main');
+  await f.put('file.txt', 'staged\n'); await f.git('add', 'file.txt'); await f.put('file.txt', 'staged and unstaged\n'); await f.put('new.txt', 'untracked\n');
+  const result = await f.action({ type: 'checkout', branchName: 'target', stashBeforeCheckout: true });
+  assert.equal(result.outcome, 'completed'); assert.equal(result.branch, 'target'); assert.match(result.savedStash, /^[a-f0-9]{40,64}$/u);
+  assert.equal(await f.git('status', '--porcelain'), ''); assert.equal(await readFile(join(f.repository, 'file.txt'), 'utf8'), 'target\n');
+  assert.equal(await f.git('rev-parse', 'refs/stash'), result.savedStash);
+  assert.equal(await f.git('show', `${result.savedStash}^2:file.txt`), 'staged');
+  assert.equal(await f.git('show', `${result.savedStash}:file.txt`), 'staged and unstaged');
+  assert.equal(await f.git('show', `${result.savedStash}^3:new.txt`), 'untracked');
+});
+
+test('stash-and-switch validates missing targets before stashing and preserves the stash when a post-checkout hook fails after switching', async t => {
+  const f = await fixture(t); await f.git('branch', 'target'); await f.put('file.txt', 'local work\n');
+  await rejectsCode(() => f.action({ type: 'checkout', branchName: 'missing', stashBeforeCheckout: true }), 'ASTRAGIT_GIT_BRANCH_NOT_FOUND');
+  assert.equal(await f.git('stash', 'list'), ''); assert.equal(await readFile(join(f.repository, 'file.txt'), 'utf8'), 'local work\n');
+  await f.put('.git/hooks/post-checkout', '#!/bin/sh\nexit 1\n'); await chmod(join(f.repository, '.git/hooks/post-checkout'), 0o755);
+  await rejectsCode(() => f.action({ type: 'checkout', branchName: 'target', stashBeforeCheckout: true }), 'ASTRAGIT_GIT_CHECKOUT_FAILED_STASH_PRESERVED', error => {
+    assert.match(error.savedStash, /^[a-f0-9]{40,64}$/u); assert.equal(error.operationStatus, 'unknown_after_write');
+  });
+  assert.equal(await f.git('branch', '--show-current'), 'target'); assert.equal(await f.git('status', '--porcelain'), '');
+  assert.equal(await f.git('show', 'refs/stash:file.txt'), 'local work');
+});
+
+test('creating a duplicate branch is refused before the explicit stash step', async t => {
+  const f = await fixture(t); await f.put('file.txt', 'keep work\n');
+  await rejectsCode(() => f.action({ type: 'create_branch', branchName: 'main', stashBeforeCheckout: true }), 'ASTRAGIT_GIT_BRANCH_EXISTS');
+  assert.equal(await f.git('stash', 'list'), ''); assert.equal(await readFile(join(f.repository, 'file.txt'), 'utf8'), 'keep work\n');
+});
+
+test('checkout refuses a resolved but unfinished merge before stashing or switching', async t => {
+  const f = await fixture(t);
+  await f.git('switch', '-c', 'target'); await f.put('file.txt', 'target\n'); await f.git('add', '.'); await f.git('commit', '-m', 'target');
+  await f.git('switch', 'main'); await f.put('file.txt', 'main\n'); await f.git('add', '.'); await f.git('commit', '-m', 'main');
+  await f.action({ type: 'merge', branchName: 'target' }); await f.put('file.txt', 'resolved\n'); await f.git('add', 'file.txt');
+  await rejectsCode(() => f.action({ type: 'checkout', branchName: 'target', stashBeforeCheckout: true }), 'ASTRAGIT_GIT_CHECKOUT_INTEGRATION_ACTIVE', error => assert.equal(error.operationStatus, 'failed_before_write'));
+  assert.equal(await f.git('branch', '--show-current'), 'main'); assert.equal(await f.git('stash', 'list'), '');
+  assert.equal(await readFile(join(f.repository, 'file.txt'), 'utf8'), 'resolved\n');
+});
+
 test('merge and rebase conflicts are returned as preserved integration state rather than generic failures', async t => {
   for (const type of ['merge', 'rebase']) {
     await t.test(type, async sub => {
@@ -90,6 +150,27 @@ test('stash pop conflicts keep the stash and report an integration conflict', as
   await f.put('file.txt', 'new committed\n'); await f.git('add', '.'); await f.git('commit', '-m', 'new');
   const result = await f.action({ type: 'apply_stash', stashRef: 'stash@{0}', pop: true });
   assert.equal(result.outcome, 'conflict'); assert.equal(result.operationStage, 'integration'); assert.equal(await f.git('rev-parse', 'refs/stash'), stash);
+});
+
+test('cherry-pick and revert conflicts expose their real integration type and can continue or abort', async t => {
+  for (const type of ['cherry_pick', 'revert']) for (const recovery of ['continue_integration', 'abort_integration']) await t.test(`${type} ${recovery}`, async sub => {
+    const f = await fixture(sub);
+    let revision;
+    if (type === 'cherry_pick') {
+      await f.git('switch', '-c', 'incoming'); await f.put('file.txt', 'incoming\n'); await f.git('add', '.'); await f.git('commit', '-m', 'incoming'); revision = await f.git('rev-parse', 'HEAD'); await f.git('switch', 'main');
+    } else {
+      await f.put('file.txt', 'change to revert\n'); await f.git('add', '.'); await f.git('commit', '-m', 'change'); revision = await f.git('rev-parse', 'HEAD');
+    }
+    await f.put('file.txt', 'current contents\n'); await f.git('add', '.'); await f.git('commit', '-m', 'current'); const before = await f.git('rev-parse', 'HEAD');
+    const conflicted = await f.action({ type, revision }); assert.equal(conflicted.outcome, 'conflict');
+    assert.equal((await getProjectGitRepositorySnapshot(f.repository)).integrationState, type);
+    await rejectsCode(() => f.action({ type: 'continue_integration', kind: 'merge' }), 'ASTRAGIT_GIT_INTEGRATION_CHANGED');
+    if (recovery === 'continue_integration') { await f.put('file.txt', 'reviewed result\n'); await f.git('add', 'file.txt'); }
+    assert.equal((await f.action({ type: recovery, kind: type })).outcome, 'completed');
+    assert.equal((await getProjectGitRepositorySnapshot(f.repository)).integrationState, null);
+    assert.equal(await readFile(join(f.repository, 'file.txt'), 'utf8'), recovery === 'continue_integration' ? 'reviewed result\n' : 'current contents\n');
+    if (recovery === 'abort_integration') assert.equal(await f.git('rev-parse', 'HEAD'), before);
+  });
 });
 
 test('pull conflicts, rejected push and smart update restore conflicts carry different outcomes', async t => {

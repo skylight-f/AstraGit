@@ -56,12 +56,12 @@ export function ModalPortal(props: ModalPortalProps) {
     }
   }
 
-  /** 遮罩与内容共同退出，隐藏期间不拦截背景操作。 */
+  /** 退出表面立即撤销模态声明，避免 Chromium 继续隐藏下面已恢复的弹窗。 */
   const modalSurface = (
     <div
       ref={rootRef}
       role={props.role}
-      aria-modal="true"
+      aria-modal={open || undefined}
       aria-label={props['aria-label']}
       aria-labelledby={props['aria-labelledby']}
       aria-describedby={props['aria-describedby']}

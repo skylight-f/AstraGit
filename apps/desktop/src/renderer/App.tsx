@@ -13,6 +13,8 @@ import { ZeusSelect } from './ZeusSelect.js';
 import { Button } from './ui/Button.js';
 import { ApplicationErrorDialogHost, reportApplicationError, useApplicationErrorDialog } from './ui/ApplicationErrorDialog.js';
 import { resolveProjectWorkspaceTabs, writeProjectWorkspaceTabs } from './projectWorkspacePersistence.js';
+import { useRepositorySetup } from './useRepositorySetup.js';
+import { RepositorySetupForm } from './RepositorySetupForm.js';
 
 import './styles.css';
 import './ui/primitives.css';
@@ -44,6 +46,7 @@ export function App(props: AppProps) {
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null);
   const [slots, setSlots] = useState<ProjectSlot[]>([]);
   const [showList, setShowList] = useState(false);
+  const [projectAddMode, setProjectAddMode] = useState<'open' | 'clone' | 'init'>('open');
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [draftPath, setDraftPath] = useState('');
@@ -58,7 +61,6 @@ export function App(props: AppProps) {
   });
   const [sourceVisited, setSourceVisited] = useState<Record<string, boolean>>({});
   const [sourceBatchBusy, setSourceBatchBusy] = useState(false);
-  const applicationUpdates = useApplicationUpdates(language, sourceBatchBusy);
   const tabDrag = useRef<{ id: string; pointerId: number; button: HTMLButtonElement; x: number; y: number; started: boolean; target: { id: string; side: 'before' | 'after' } | null } | null>(null);
   const dragEndedAt = useRef(-Infinity);
   const [draggingSlotId, setDraggingSlotId] = useState<string | null>(null);
@@ -176,6 +178,13 @@ export function App(props: AppProps) {
     },
     [applyWorkbench],
   );
+
+  const repositorySetup = useRepositorySetup(props.client, async id => {
+    const list = await refresh();
+    const project = list.find(project => project.id === id);
+    if (project) await openProject(project);
+  });
+  const applicationUpdates = useApplicationUpdates(language, sourceBatchBusy || repositorySetup.busy);
 
   const endTabDrag = () => {
     const drag = tabDrag.current;
@@ -403,7 +412,8 @@ export function App(props: AppProps) {
               {activeProject.localPath}
             </div>
             <button type="button" className="gitapp-settings-trigger" onClick={() => openSettings()}>{zh ? '设置' : 'Settings'}</button>
-            <ReleaseUpdateButton zh={zh} update={applicationUpdates} disabled={sourceBatchBusy} onInspect={() => openSettings('updates')} />
+            {repositorySetup.busy ? <Button variant="secondary" size="compact" onClick={() => { setProjectAddMode(repositorySetup.job?.kind ?? 'clone'); setShowList(true); }}>{zh ? '仓库创建中…' : 'Repository setup…'}</Button> : null}
+            <ReleaseUpdateButton zh={zh} update={applicationUpdates} disabled={sourceBatchBusy || repositorySetup.busy} onInspect={() => openSettings('updates')} />
           </header>
 
           <div className="gitapp-workbench-host" key={activeProject.id}>
@@ -435,7 +445,8 @@ export function App(props: AppProps) {
             <ReleaseUpdateButton zh={zh} update={applicationUpdates} onInspect={() => openSettings('updates')} />
           </header>
 
-          <section className="gitapp-add" aria-label={zh ? '添加项目' : 'Add project'}>
+          <nav className="repository-setup-tabs" aria-label={zh ? '添加仓库方式' : 'Add repository method'}>{(['open', 'clone', 'init'] as const).map(mode => <button type="button" key={mode} aria-pressed={projectAddMode === mode} onClick={() => setProjectAddMode(mode)}>{mode === 'open' ? (zh ? '打开已有项目' : 'Open existing project') : mode === 'clone' ? (zh ? '克隆仓库' : 'Clone repository') : zh ? '初始化仓库' : 'Initialize repository'}</button>)}</nav>
+          {projectAddMode !== 'open' ? <RepositorySetupForm key={projectAddMode} kind={projectAddMode} zh={zh} setup={repositorySetup} /> : <section className="gitapp-add" aria-label={zh ? '添加项目' : 'Add project'}>
             <label>
               <span>{zh ? '项目名称（可选）' : 'Name (optional)'}</span>
               <input value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder={zh ? '默认取目录名' : 'Defaults to folder name'} />
@@ -452,7 +463,7 @@ export function App(props: AppProps) {
             <Button type="button" disabled={busy} onClick={() => void addProject()}>
               {busy ? (zh ? '打开中…' : 'Opening…') : zh ? '添加并打开' : 'Add & open'}
             </Button>
-          </section>
+          </section>}
 
           <section className="gitapp-projects" aria-label={zh ? '项目列表' : 'Projects'}>
             <div className="gitapp-section-title">
@@ -489,7 +500,7 @@ export function App(props: AppProps) {
           <ApplicationErrorDialogHost language={zh ? 'zh-CN' : 'en'} />
         </div>
       )}
-      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} onClose={() => setSettingsOpen(false)} onModelsChanged={modelSettingsChanged} initialSection={settingsSection} update={applicationUpdates} updateDisabled={sourceBatchBusy} /> : null}
+      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} onClose={() => setSettingsOpen(false)} onModelsChanged={modelSettingsChanged} initialSection={settingsSection} update={applicationUpdates} updateDisabled={sourceBatchBusy || repositorySetup.busy} /> : null}
     </>
   );
 }
