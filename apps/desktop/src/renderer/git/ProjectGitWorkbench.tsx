@@ -63,7 +63,6 @@ import { ModalPortal } from '../ui/ModalPortal.js';
 import { reportApplicationError, VisibleApplicationError, type ApplicationErrorOptions } from '../ui/ApplicationErrorDialog.js';
 import { ProjectGitDiffWindow, SideBySideDiff } from './ProjectGitDiffViewer.js';
 import { GitConflictEditor } from './GitConflictEditor.js';
-import { GitCheckoutDialog } from './GitCheckoutDialog.js';
 import { GitAmendDialog } from './GitAmendDialog.js';
 import { GitInteractiveRebaseDialog, type GitInteractiveRebaseRequest } from './GitInteractiveRebaseDialog.js';
 import { GitRepositorySettingsDialog } from './GitRepositorySettingsDialog.js';
@@ -122,11 +121,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(() => (snapshot ? 'ready' : 'loading'));
   const [error, setError] = useState<string | null>(null);
   const [conflictAction, setConflictAction] = useState<{ repositoryId: string; action: ProjectGitAction; result: import('../apiClient.js').ProjectGitActionResponse['result'] } | null>(null);
-  type CheckoutRequest = { repository: ProjectGitRepositoryWorkbenchItem; action: Extract<ProjectGitAction, { type: 'checkout' | 'create_branch' | 'checkout_revision' }>; label: string; resolve: (outcome: ExecutionOutcome) => void };
-  const [checkoutRequest, setCheckoutRequest] = useState<CheckoutRequest | null>(null);
-  const checkoutRequestRef = useRef<CheckoutRequest | null>(null);
   const [checkoutNotice, setCheckoutNotice] = useState<{ repositoryId: string; branch: string; savedStash: string } | null>(null);
-  useEffect(() => () => { checkoutRequestRef.current?.resolve(null); checkoutRequestRef.current = null; }, []);
   // errorMessage() reports the original failure once; this state is its inline summary.
   const [tab, setTab] = useState<GitTab>(() => (props.conversationScope ? 'changes' : readRememberedTab(props.project.id)));
   const [subtree, setSubtree] = useState<{ repositoryId: string; path: string } | null>(null);
@@ -460,14 +455,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   }
 
   function execute(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string): Promise<ExecutionOutcome> {
-    if ((action.type === 'checkout' || action.type === 'create_branch' || action.type === 'checkout_revision') && (action.type === 'checkout' ? action.branchName !== repository.snapshot.branch : action.stashBeforeCheckout === undefined && repository.snapshot.fileStatuses.length > 0) && !repository.snapshot.conflictFiles.length && !repository.snapshot.integrationState) {
-      if (checkoutRequestRef.current || actionBusyRef.current) return Promise.resolve(null);
-      return new Promise(resolve => {
-        const request = { repository, action, label, resolve };
-        checkoutRequestRef.current = request;
-        setCheckoutRequest(request);
-      });
-    }
+    // Let Git carry compatible edits; show checkout recovery only if it refuses.
     return executeConfirmed(repository, action, label);
   }
 
@@ -1502,11 +1490,6 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
 
       <MotionPresence>{mergeOptions ? <MergeBranchDialog key={`${mergeOptions.repository.id}:${mergeOptions.source}`} repository={mergeOptions.repository} initialBranch={mergeOptions.source} zh={zh} busy={busy} onClose={() => setMergeOptions(null)} onExecute={execute} /> : null}</MotionPresence>
       <MotionPresence>{mergeOpen && selectedRepository ? <MergeBranchDialog repository={selectedRepository} zh={zh} busy={busy} onClose={() => setMergeOpen(false)} onExecute={execute} /> : null}</MotionPresence>
-      {checkoutRequest ? <GitCheckoutDialog repository={checkoutRequest.repository} action={checkoutRequest.action} zh={zh} busy={busy !== null} onClose={() => { checkoutRequestRef.current = null; setCheckoutRequest(null); checkoutRequest.resolve(null); }} onConfirm={async stash => {
-        if (actionBusyRef.current) return;
-        const outcome = await executeConfirmed(checkoutRequest.repository, { ...checkoutRequest.action, stashBeforeCheckout: stash }, checkoutRequest.label);
-        checkoutRequestRef.current = null; setCheckoutRequest(null); checkoutRequest.resolve(outcome);
-      }} /> : null}
       <MotionPresence>
         {subtreeDialogOpen && selectedRepository ? <SubtreeManagementDialog key={selectedRepository.id} repository={selectedRepository} zh={zh} busy={busy} onClose={() => setSubtreeDialogOpen(false)} onExecute={execute} /> : null}
       </MotionPresence>
