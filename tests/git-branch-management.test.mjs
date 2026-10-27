@@ -95,7 +95,13 @@ test('remote deletion removes the reviewed server branch while keeping the local
 
 test('remote deletion uses a lease and cannot delete new server commits missing from the reviewed tracking ref', async t => {
   const f = await fixture(t); const branchName = await remoteBranch(f); const action = await remoteDelete(f, branchName);
-  await writeFile(join(f.cwd, 'file.txt'), 'new server commit\n'); await git(f.cwd, 'add', '.'); await git(f.cwd, 'commit', '-m', 'new commit'); const latest = await git(f.cwd, 'rev-parse', 'HEAD'); await git(f.cwd, 'push', f.remote, `HEAD:refs/heads/${branchName}`);
+  // A second checkout represents another contributor. Pushing by URL from f.cwd can
+  // also refresh its matching remote-tracking ref on newer Git versions.
+  const other = join(f.root, 'other-contributor'); await git(f.root, 'clone', '--branch', branchName, f.remote, other);
+  await git(other, 'config', 'user.name', 'Other Contributor'); await git(other, 'config', 'user.email', 'other@astragit.invalid'); await git(other, 'config', 'commit.gpgsign', 'false');
+  await writeFile(join(other, 'file.txt'), 'new server commit\n'); await git(other, 'add', '.'); await git(other, 'commit', '-m', 'new commit'); const latest = await git(other, 'rev-parse', 'HEAD'); await git(other, 'push', 'origin', branchName);
+  assert.notEqual(latest, action.expectedTargetHeadSha);
+  assert.equal(await git(f.cwd, 'rev-parse', `refs/remotes/origin/${branchName}`), action.expectedTargetHeadSha);
   await assert.rejects(() => f.run(action), error => error.code === 'ASTRAGIT_GIT_REMOTE_BRANCH_CHANGED' && error.operationStatus === 'failed_before_write');
   assert.equal(await git(f.remote, 'rev-parse', `refs/heads/${branchName}`), latest); assert.equal(await git(f.cwd, 'rev-parse', `refs/remotes/origin/${branchName}`), action.expectedTargetHeadSha);
 });
