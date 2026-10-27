@@ -35,6 +35,7 @@ import type { BusyState } from './gitWorkbenchTypes.js';
 import { MenuSurface } from '../ui/MenuSurface.js';
 import { MotionPresence } from '../ui/MotionPresence.js';
 import { useGitCommitDrafts } from './useGitCommitDrafts.js';
+import { commitPushTarget, commitThenPush, type CommitPushTarget } from './commitThenPush.js';
 import { GitCommitTemplateControl } from './GitCommitTemplateControl.js';
 import { repositoryColor } from './repositoryColor.js';
 import { loadGitCommitModelOptions } from './gitCommitModels.js';
@@ -459,7 +460,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     return executeConfirmed(repository, action, label);
   }
 
-  async function executeConfirmed(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string, onFailure?: (reason: unknown) => void): Promise<ExecutionOutcome> {
+  async function executeConfirmed(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string, onFailure?: (reason: unknown) => void, commitPush?: { target: CommitPushTarget; onCommitted: () => void }): Promise<ExecutionOutcome> {
     if (actionBusyRef.current) return null;
     actionBusyRef.current = true;
     requestVersionRef.current += 1;
@@ -473,6 +474,8 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     const projectId = props.project.id;
     let stagingController: AbortController | undefined;
     let preparedAction = action;
+    let failureAction = action;
+    let committedHead = '';
     try {
       if (action.type === 'stage' || action.type === 'stage_ignored' || action.type === 'apply_line_changes' && action.input.operation === 'stage') {
         stagingController = new AbortController(); stagePreviewController.current = stagingController;
@@ -492,7 +495,13 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         // After review, Stop must cancel the native action rather than the finished read.
         if (stagePreviewController.current === stagingController) stagePreviewController.current = null;
       }
-      const response = await props.client.executeProjectGitAction(props.project.id, repository.id, preparedAction);
+      const response = commitPush && action.type === 'commit'
+        ? await commitThenPush({ snapshot: repository.snapshot, message: action.message, target: commitPush.target,
+          execute: next => props.client.executeProjectGitAction(projectId, repository.id, next),
+          onCommitted: committed => { committedHead = committed.result.headSha; commitPush.onCommitted(); },
+          onPushing: next => { failureAction = next; setBusy({ repositoryId: repository.id, action: 'push' }); },
+        })
+        : await props.client.executeProjectGitAction(projectId, repository.id, preparedAction);
       setLoadState('ready');
       setSnapshot((current) =>
         current
@@ -567,7 +576,9 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
               ? [{ label: zh ? '查看受影响文件' : 'Review affected files', onClick: reviewFiles }, { label: zh ? 'Git LFS 管理…' : 'Manage Git LFS…', onClick: () => { closeOperationDialogs(); setLfsRequest({ repository }); } }]
               : [];
       const message = errorMessage(reason, zh, {
-        title: gitFailureTitle(action, label, repository.name, zh),
+        title: committedHead
+          ? `${repository.name} · ${zh ? '提交已完成，但推送未完成' : 'Committed, but push did not complete'} (${committedHead.slice(0, 7)})`
+          : gitFailureTitle(failureAction, label, repository.name, zh),
         // 首屏说明原因与下一步；真实 Git 诊断保留在可展开的详情中。
         showDetails: false,
         detailTitle: zh ? 'Git 日志' : 'Git log',
@@ -1444,6 +1455,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
               activeFileMenu={contextMenu?.target ?? null}
               onFileMenu={showGitContextMenu}
               onExecute={execute}
+              onCommitAndPush={(repository, message, target, onCommitted) => executeConfirmed(repository, { type: 'commit', message }, zh ? '提交并推送' : 'Commit and push', undefined, { target, onCommitted })}
               onConflictSaved={conflictSaved}
               onConfirmAction={(repository, action, title, description, danger) =>
                 setMenuConfirmation({
@@ -2276,6 +2288,7 @@ function LocalChangesSurface(props: {
   onConflictSaved: (repositoryId: string, path: string, result: { resolved: boolean; snapshot?: ProjectGitRepositorySnapshot }) => Promise<void>;
   onConfirmAction: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, title: string, description: string, danger: boolean) => void;
   onCommit: () => void;
+  onCommitAndPush: (repository: ProjectGitRepositoryWorkbenchItem, message: string, target: CommitPushTarget, onCommitted: () => void) => Promise<ExecutionOutcome>;
   commitDrafts: Record<string, string>;
   commitModels: Array<{ id: string; label: string }>;
   commitModelRef: string;
@@ -2299,6 +2312,7 @@ function LocalChangesSurface(props: {
     }
   });
   const [editingRepository, setEditingRepository] = useState<string | null>(null);
+  const [pushSelection, setPushSelection] = useState<string | null>(null);
   const [fileSelection, setFileSelection] = useState<(GitFileSelection & { repositoryId: string; stage: ChangeStage }) | null>(null);
   const commitInputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -2309,6 +2323,10 @@ function LocalChangesSurface(props: {
     if (commitActive) commitInputRef.current?.focus();
   }, [commitActive]);
   const repository = props.selectedRepository;
+  const pushTarget = repository ? commitPushTarget(repository.snapshot) : null;
+  const pushKey = repository && pushTarget ? JSON.stringify([repository.id, pushTarget]) : null;
+  const pushAfterCommit = pushKey !== null && pushSelection === pushKey;
+  useEffect(() => { setPushSelection(null); }, [repository?.id, repository?.snapshot.branch]);
   const conflicts = new Set(repository?.snapshot.conflictFiles ?? []);
   const selectedConflict = Boolean(repository && conflicts.has(props.selectedFilePath));
   const message = repository ? (props.commitDrafts[repository.id] ?? '') : '';
@@ -2319,11 +2337,13 @@ function LocalChangesSurface(props: {
     if (!repository || !canCommit || committingRef.current) return;
     committingRef.current = true;
     try {
-      const outcome = await props.onExecute(repository, { type: 'commit', message: message.trim() }, props.zh ? '提交已暂存变更' : 'Commit staged changes');
-      if (outcome === 'completed') {
+      const clearCommittedDraft = () => {
         props.onCommitMessageChange(repository.id, '');
         setEditingRepository(null);
-      }
+      };
+      if (pushAfterCommit && pushTarget) {
+        await props.onCommitAndPush(repository, message.trim(), pushTarget, clearCommittedDraft);
+      } else if (await props.onExecute(repository, { type: 'commit', message: message.trim() }, props.zh ? '提交已暂存变更' : 'Commit staged changes') === 'completed') clearCommittedDraft();
     } finally {
       committingRef.current = false;
     }
@@ -2608,11 +2628,15 @@ function LocalChangesSurface(props: {
               />
             </div>
             <div className="project-git-commit-actions">
+              <label className="project-git-commit-push-option" title={pushTarget ? `${pushTarget.remote}/${pushTarget.targetBranch}${pushTarget.setUpstream ? (props.zh ? '（首次推送并建立跟踪）' : ' (publish and set upstream)') : ''}` : props.zh ? '请先配置远程与分支推送目标；游离 HEAD 无法自动推送。' : 'Configure a remote and branch target first; detached HEAD cannot be pushed automatically.'}>
+                <input type="checkbox" checked={pushAfterCommit} disabled={!pushTarget || props.busy !== null || generating} onChange={event => setPushSelection(event.target.checked ? pushKey : null)} />
+                <span>{pushTarget ? (props.zh ? `立即推送变更到 ${pushTarget.remote}/${pushTarget.targetBranch}` : `Push changes immediately to ${pushTarget.remote}/${pushTarget.targetBranch}`) : (props.zh ? '提交后立即推送（暂无可用目标）' : 'Push after commit (no target available)')}</span>
+              </label>
               <Button variant="secondary" disabled={props.busy !== null || generating} onClick={() => setEditingRepository(null)}>
                 {props.zh ? '取消' : 'Cancel'}
               </Button>
-              <Button variant="primary" onClick={() => void commitCurrentRepository()} disabled={!canCommit} busy={props.busy?.action === 'commit'}>
-                {props.zh ? '提交已暂存变更' : 'Commit staged changes'}
+              <Button variant="primary" onClick={() => void commitCurrentRepository()} disabled={!canCommit} busy={props.busy?.action === 'commit' || props.busy?.action === 'push'}>
+                {pushAfterCommit ? (props.zh ? '提交并推送' : 'Commit and push') : props.zh ? '提交已暂存变更' : 'Commit staged changes'}
               </Button>
               {props.repositories.length > 1 ? (
                 <Button variant="secondary" onClick={props.onCommit} disabled={props.busy !== null}>

@@ -2173,6 +2173,22 @@ body:has(.macos-ai-app.zeus-shell) {
   line-height: 18px;
   font-weight: 500;
 }
+.project-git-commit-push-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 240px;
+  min-width: 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+.project-git-commit-push-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-git-commit-push-option input { flex: 0 0 auto; }
+.project-git-commit-push-option:has(input:disabled) { color: var(--zeus-product-muted); cursor: default; }
 .macos-ai-app.zeus-shell .project-git-commit-composer .project-git-commit-generation-controls .zeus-button {
   min-height: 28px;
   height: 28px;

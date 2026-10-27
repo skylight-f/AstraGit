@@ -3649,11 +3649,11 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
     }
     case 'commit': {
       const message = requireSafeGitText(action.message, 'commit message');
+      if ((action.expectedHeadSha !== undefined && action.expectedHeadSha !== context.headSha) || (action.expectedBranch !== undefined && action.expectedBranch !== context.branch)) {
+        throw gitCoreError('ASTRAGIT_GIT_SELECTION_CHANGED', '当前分支或提交已变化，请刷新更改后重新确认提交范围。');
+      }
       if (action.paths !== undefined) {
         // 源码侧勾选代表本次提交范围，不改变未勾选文件的暂存状态。
-        if ((action.expectedHeadSha !== undefined && action.expectedHeadSha !== context.headSha) || (action.expectedBranch !== undefined && action.expectedBranch !== context.branch)) {
-          throw gitCoreError('ASTRAGIT_GIT_SELECTION_CHANGED', '当前分支或提交已变化，请刷新更改后重新确认提交范围。');
-        }
         if (await readIntegrationState(repositoryPath)) throw gitCoreError('ASTRAGIT_GIT_INTEGRATION_ACTIVE', '提交整合期间请在 Git 工作区解决冲突并继续操作。');
         const status = await getGitStatus(repositoryPath);
         if (status.conflictFiles.length) throw gitCoreError('ASTRAGIT_GIT_CONFLICTS_REMAIN', '请先解决仓库中的冲突。');
