@@ -337,6 +337,24 @@ body {
 .gitapp-view-pane { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 .gitapp-view-pane > * { flex: 1; min-height: 0; min-width: 0; }
 .gitapp-view-pane[hidden] { display: none !important; }
+
+/* 工作台只保留导航与内容两张外层卡片，内部沿用可拖动的平铺分栏。 */
+.gitapp-shell.macos-ai-app.zeus-shell .project-git-workbench {
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.gitapp-shell.macos-ai-app.zeus-shell .project-git-workbench :is(
+  .project-git-navigator,
+  .project-git-browser-content
+) {
+  border: 1px solid var(--zeus-product-line);
+  border-radius: 10px;
+  background: var(--zeus-card-background);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.04);
+  box-sizing: border-box;
+}
+
 .gitapp-update-trigger { flex-shrink: 0; }
 .gitapp-tabbar .gitapp-update-trigger { color: #673cc5; border-color: #cfc0ff; background: #f1ebff; }
 .gitapp-tabbar .gitapp-update-trigger[data-update-phase='ready'] { color: #fff; background: #7c3cff; border-color: #7c3cff; }
