@@ -1,9 +1,35 @@
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
 const proxyEnvironmentKeys = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'NO_PROXY', 'no_proxy', 'NODE_USE_ENV_PROXY'] as const;
 const localBypass = 'localhost,127.0.0.1,::1';
+const bridgeMarker = 'ASTRAGIT_SYSTEM_PROXY_URL';
+const sshMarker = 'ASTRAGIT_SYSTEM_PROXY_SSH_HELPER';
+
+function isApplicationSshHelper(value: string | undefined, marker: string | undefined, temporaryDirectory: string): boolean {
+  if (!value || !isAbsolute(value) || basename(value) !== 'ssh' || !/^astragit-system-proxy-[A-Za-z0-9]{6}$/u.test(basename(dirname(value)))) return false;
+  // New processes recognize the marker. Older releases only supplied GIT_SSH;
+  // accept that legacy shape strictly inside this user's temporary directory.
+  const canonical = (path: string) => resolve(path).replace(/^\/private(?=\/(?:var|tmp)(?:\/|$))/u, '');
+  return value === marker || canonical(dirname(dirname(value))) === canonical(temporaryDirectory);
+}
+
+/** Long-lived update helpers and relaunched apps must not inherit this Main's temporary bridge. */
+export function createRelaunchEnvironment(environment: NodeJS.ProcessEnv = process.env, temporaryDirectory = tmpdir()): NodeJS.ProcessEnv {
+  const result = { ...environment };
+  if (isApplicationSshHelper(result.GIT_SSH, result[sshMarker], temporaryDirectory)) delete result.GIT_SSH;
+  const bridge = result[bridgeMarker];
+  if (bridge) {
+    for (const key of proxyEnvironmentKeys) if (result[key] === bridge) delete result[key];
+    if (result.NO_PROXY === localBypass) delete result.NO_PROXY;
+    if (result.no_proxy === localBypass) delete result.no_proxy;
+    if (result.NODE_USE_ENV_PROXY === '1') delete result.NODE_USE_ENV_PROXY;
+  }
+  delete result[bridgeMarker];
+  delete result[sshMarker];
+  return result;
+}
 
 export interface SystemProxyEnvironmentOptions {
   proxyUrl: string;
@@ -40,14 +66,16 @@ export function createSystemProxyEnvironment(proxyUrl: string, baseEnvironment: 
 export async function installSystemProxyEnvironment(options: SystemProxyEnvironmentOptions): Promise<InstalledSystemProxyEnvironment> {
   const proxy = validateProxyUrl(options.proxyUrl);
   const environment = options.environment ?? process.env;
-  const values = createSystemProxyEnvironment(proxy.origin, environment);
-  const keys: string[] = [...proxyEnvironmentKeys];
+  const base = createRelaunchEnvironment(environment, options.temporaryDirectory);
+  const values = createSystemProxyEnvironment(proxy.origin, base);
+  values[bridgeMarker] = proxy.origin;
+  const keys: string[] = [...proxyEnvironmentKeys, bridgeMarker, sshMarker];
   let helperDirectory: string | undefined;
   let sshHelperPath: string | undefined;
   try {
     // GIT_SSH has lower precedence than core.sshCommand. An explicitly selected
     // transport remains authoritative, including custom SSH executables.
-    if ((options.platform ?? process.platform) === 'darwin' && !environment.GIT_SSH && !environment.GIT_SSH_COMMAND) {
+    if ((options.platform ?? process.platform) === 'darwin' && !base.GIT_SSH && !base.GIT_SSH_COMMAND) {
       const sshPath = options.sshPath ?? '/usr/bin/ssh';
       const netcatPath = options.netcatPath ?? '/usr/bin/nc';
       validateExecutablePath(sshPath);
@@ -57,14 +85,18 @@ export async function installSystemProxyEnvironment(options: SystemProxyEnvironm
       sshHelperPath = join(helperDirectory, 'ssh');
       await writeFile(sshHelperPath, createSshHelper(sshPath, netcatPath, proxy.host), { mode: 0o700 });
       values.GIT_SSH = sshHelperPath;
-      keys.push('GIT_SSH');
+      values[sshMarker] = sshHelperPath;
     }
   } catch (error) {
     if (helperDirectory) await rm(helperDirectory, { recursive: true, force: true });
     throw error;
   }
-  const previous = new Map(keys.map(key => [key, environment[key]]));
-  for (const key of keys) environment[key] = values[key];
+  if (values.GIT_SSH !== environment.GIT_SSH) keys.push('GIT_SSH');
+  const previous = new Map(keys.map(key => [key, base[key]]));
+  for (const key of keys) {
+    if (values[key] === undefined) delete environment[key];
+    else environment[key] = values[key];
+  }
   let restored = false;
   let closePromise: Promise<void> | undefined;
   const restore = () => {

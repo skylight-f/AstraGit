@@ -8,6 +8,7 @@ import { compareReleaseVersions, parseReleaseManifest, releasePageUrl, type Rele
 import { execFile, readSigningTeam, verifyReleaseApp } from './releaseVerification.js';
 import { downloadVerifiedArtifact, verifyDownloadedArtifact } from './releaseArtifact.js';
 import type { HomebrewUpdateProgress } from './homebrewUpdateService.js';
+import { createRelaunchEnvironment } from './systemProxyEnvironment.js';
 
 export interface ReleaseUpdateOptions {
   appPath: string; executablePath: string; dataDirectory: string; version: string; packaged: boolean;
@@ -104,7 +105,7 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
       if (!(await options.confirmRestart())) return { accepted: false };
       const bootstrapPath = join(job, 'installer.json');
       await writeFile(bootstrapPath, JSON.stringify({ transaction, mainPid: process.pid, target: resolve(options.appPath), staged, backup: join(dirname(options.appPath), `.AstraGit.backup-${transaction}.app`), executable: options.executablePath.slice(options.appPath.length + 1), dataDirectory: options.dataDirectory, oldVersion: options.version, version: item.status.latestVersion, team }), { mode: 0o600, flag: 'wx' });
-      const child = spawn(options.executablePath, [fileURLToPath(new URL('./releaseInstaller.js', import.meta.url)), bootstrapPath], { detached: true, stdio: 'ignore', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } });
+      const child = spawn(options.executablePath, [fileURLToPath(new URL('./releaseInstaller.js', import.meta.url)), bootstrapPath], { detached: true, stdio: 'ignore', env: { ...createRelaunchEnvironment(), ELECTRON_RUN_AS_NODE: '1' } });
       await new Promise<void>((resolveSpawn, reject) => { child.once('spawn', resolveSpawn); child.once('error', reject); }); child.unref();
       const readyPath = join(job, 'ready'); const deadline = Date.now() + 10_000;
       while (Date.now() < deadline) {

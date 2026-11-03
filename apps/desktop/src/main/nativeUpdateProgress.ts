@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { createRelaunchEnvironment } from './systemProxyEnvironment.js';
 import { spawn } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
@@ -47,6 +48,7 @@ export async function createNativeUpdateProgressHost(options: CreateNativeUpdate
   await access(options.executablePath);
   const child = spawn(options.executablePath, [], {
     stdio: ['pipe', 'pipe', 'pipe'],
+    env: createRelaunchEnvironment(),
   });
   await new Promise<void>((resolveSpawn, rejectSpawn) => {
     child.once('spawn', resolveSpawn);

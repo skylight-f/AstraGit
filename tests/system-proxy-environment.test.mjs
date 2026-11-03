@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { createSystemProxyEnvironment, installSystemProxyEnvironment } from '../apps/desktop/src/main/systemProxyEnvironment.ts';
+import { createRelaunchEnvironment, createSystemProxyEnvironment, installSystemProxyEnvironment } from '../apps/desktop/src/main/systemProxyEnvironment.ts';
 
 const execute = promisify(execFile);
 const proxyUrl = 'http://127.0.0.1:48123';
@@ -131,4 +131,82 @@ test('Git retains explicit core.sshCommand precedence over the system SSH wrappe
   assert.ok(commands.length > 0);
   assert.ok(commands.some(args => args.includes('git@fixture.invalid')));
   assert.ok(commands.every(args => args.every(argument => !argument.startsWith('ProxyCommand='))));
+});
+
+test('a restarted application replaces an inherited deleted SSH helper and can actually push', async t => {
+  const fixture = await sshFixture(t);
+  const remote = join(fixture.root, 'remote.git');
+  const repository = join(fixture.root, 'repository');
+  await mkdir(repository);
+  const git = (...args) => execute('git', args, { cwd: repository, env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
+  await execute('git', ['init', '--bare', '--initial-branch=main', remote]);
+  await git('init', '--initial-branch=main');
+  await git('config', 'user.name', 'Proxy Restart Test'); await git('config', 'user.email', 'proxy@astragit.invalid');
+  await git('config', 'commit.gpgsign', 'false');
+  await writeFile(join(repository, 'file.txt'), 'local commit remains intact\n');
+  await git('add', '.'); await git('-c', 'core.hooksPath=/dev/null', 'commit', '-m', 'test: push after restart');
+  await git('remote', 'add', 'origin', 'ssh://git@fixture.invalid/fixture.git');
+  // A local SSH stand-in speaks the real receive-pack protocol to a disposable
+  // bare repository; this verifies an actual push without contacting a server.
+  await writeFile(fixture.sshPath, `#!${process.execPath}
+import { spawnSync } from 'node:child_process';
+const args = process.argv.slice(2);
+if (args[0] === '-G') console.log('hostname fixture.invalid\\nproxycommand none\\nproxyjump none');
+else {
+  if (!args.at(-1)?.startsWith('git-receive-pack ')) process.exit(99);
+  const child = spawnSync('git', ['receive-pack', ${JSON.stringify(remote)}], { stdio: 'inherit' });
+  process.exit(child.status ?? 1);
+}
+`, { mode: 0o700 });
+  const inherited = { ...fixture.environment };
+  // Released 0.1.19 and earlier did not attach an ownership marker.
+  delete inherited.ASTRAGIT_SYSTEM_PROXY_SSH_HELPER;
+  await fixture.installed.close();
+  await assert.rejects(execute('git', ['push', 'origin', 'main'], { cwd: repository, env: inherited }), error => /cannot (?:exec|run)|No such file or directory/u.test(error.stderr));
+  const restarted = await installSystemProxyEnvironment({ proxyUrl: 'http://127.0.0.1:48124', environment: inherited, platform: 'darwin', temporaryDirectory: fixture.root, sshPath: fixture.sshPath, netcatPath: join(fixture.root, "netcat command 'fixture") });
+  t.after(() => restarted.close());
+  await execute('git', ['push', '--set-upstream', 'origin', 'refs/heads/main:refs/heads/main'], { cwd: repository, env: inherited });
+  const localHead = (await git('rev-parse', 'HEAD')).stdout.trim();
+  const remoteHead = (await execute('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/main'])).stdout.trim();
+  assert.equal(remoteHead, localHead);
+  assert.equal((await git('status', '--porcelain')).stdout, '');
+});
+
+test('an inherited live helper belongs to the previous process and must not pin a new process to its bridge', async t => {
+  const fixture = await sshFixture(t);
+  const inherited = { ...fixture.environment };
+  const next = await installSystemProxyEnvironment({ proxyUrl: 'http://127.0.0.1:48124', environment: inherited, platform: 'darwin', temporaryDirectory: fixture.root, sshPath: fixture.sshPath, netcatPath: join(fixture.root, "netcat command 'fixture") });
+  t.after(() => next.close());
+  assert.notEqual(next.sshHelperPath, fixture.installed.sshHelperPath);
+  await fixture.installed.close();
+  await execute(inherited.GIT_SSH, ['git@fixture.invalid', 'git-upload-pack fixture.git'], { env: inherited });
+  assert.match((await fixture.log()).at(-1)[1], /127\.0\.0\.1:48124/u);
+  await next.close();
+  assert.equal(inherited.GIT_SSH, undefined, 'closing the child must not restore a deleted parent helper');
+});
+
+test('update relaunch environment removes only application-owned routing and does not mutate the live process', async t => {
+  const fixture = await sshFixture(t, { ASTRAGIT_USER_DATA_DIR: '/fixture/profile', UNRELATED: 'keep' });
+  const before = { ...fixture.environment };
+  const detached = createRelaunchEnvironment(fixture.environment, fixture.root);
+  for (const key of [...proxyKeys, 'GIT_SSH', 'ASTRAGIT_SYSTEM_PROXY_SSH_HELPER', 'ASTRAGIT_SYSTEM_PROXY_URL', 'NO_PROXY', 'no_proxy', 'NODE_USE_ENV_PROXY']) assert.equal(detached[key], undefined, key);
+  assert.equal(detached.ASTRAGIT_USER_DATA_DIR, '/fixture/profile');
+  assert.equal(detached.UNRELATED, 'keep'); assert.equal(detached.PATH, before.PATH);
+  assert.deepEqual(fixture.environment, before);
+  const configured = { ...before, GIT_SSH: '/custom/ssh', GIT_SSH_COMMAND: 'custom-ssh -F company-config', HTTPS_PROXY: 'http://user-proxy.example:80' };
+  const outgoing = createRelaunchEnvironment(configured, fixture.root);
+  assert.equal(outgoing.GIT_SSH, configured.GIT_SSH);
+  assert.equal(outgoing.GIT_SSH_COMMAND, configured.GIT_SSH_COMMAND);
+  assert.equal(outgoing.HTTPS_PROXY, configured.HTTPS_PROXY);
+});
+
+test('legacy helper recognition handles macOS temp aliases while retaining similarly named user tools', () => {
+  const helper = '/var/folders/fixture/T/astragit-system-proxy-Ab12CD/ssh';
+  assert.equal(createRelaunchEnvironment({ GIT_SSH: helper }, '/private/var/folders/fixture/T').GIT_SSH, undefined);
+  assert.equal(createRelaunchEnvironment({ GIT_SSH: '/private' + helper }, '/var/folders/fixture/T').GIT_SSH, undefined);
+  for (const path of ['/custom/astragit-system-proxy-Ab12CD/ssh', '/var/folders/fixture/T/astragit-system-proxy-custom-tool/ssh', '/var/folders/fixture/T/ssh', 'ssh']) {
+    assert.equal(createRelaunchEnvironment({ GIT_SSH: path }, '/var/folders/fixture/T').GIT_SSH, path);
+  }
+  const custom = { GIT_SSH: '/custom/ssh', HTTPS_PROXY: 'http://127.0.0.1:48123', NO_PROXY: 'localhost,127.0.0.1,::1', NODE_USE_ENV_PROXY: '1' };
+  assert.deepEqual(createRelaunchEnvironment(custom), custom, 'unmarked user proxy settings must not be guessed from localhost addresses');
 });

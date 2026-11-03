@@ -228,6 +228,21 @@ test('local remote helper failures distinguish credentials from connectivity wit
   }
 });
 
+test('missing application SSH helper has a specific diagnostic without claiming every remote ref stayed unchanged', async t => {
+  const f = await fixture(t);
+  await f.git('remote', 'add', 'origin', 'ssh://git@fixture.invalid/repo.git');
+  const head = await f.git('rev-parse', 'HEAD');
+  await rejectsCode(() => executeProjectGitAction(f.repository, { type: 'push', remote: 'origin', sourceBranch: 'main', targetBranch: 'main', setUpstream: true }, undefined, {
+    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_SSH_COMMAND: undefined,
+    GIT_SSH: join(f.root, 'astragit-system-proxy-Ab12CD', 'ssh'),
+  }), 'ASTRAGIT_GIT_SSH_HELPER_MISSING', error => {
+    assert.match(error.details, /cannot (?:exec|run)/u);
+    assert.match(error.message, /临时 SSH 代理.*完全退出/u);
+    assert.equal(error.operationStatus, 'unknown_after_write');
+  });
+  assert.equal(await f.git('rev-parse', 'HEAD'), head);
+});
+
 test('snapshot refresh failure preserves the confirmed Git result and completed operation history', async t => {
   const f = await fixture(t); const data = join(f.root, 'data'); await mkdir(data);
   const projects = new ProjectStore(data); const operations = new OperationHistoryStore(data); const service = new ProjectGitWorkbenchService(projects, operations);

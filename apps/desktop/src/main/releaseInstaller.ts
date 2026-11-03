@@ -2,12 +2,13 @@ import { spawn } from 'node:child_process';
 import { lstat, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { verifyReleaseApp } from './releaseVerification.js';
+import { createRelaunchEnvironment } from './systemProxyEnvironment.js';
 
 const pause = (ms: number) => new Promise(resolveWait => setTimeout(resolveWait, ms));
 function alive(pid: number) { try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; } }
 async function waitExit(pid: number, timeout: number) { const deadline = Date.now() + timeout; while (Date.now() < deadline && alive(pid)) await pause(250); return !alive(pid); }
 async function launch(target: string, executable: string, dataDirectory: string): Promise<number> {
-  const environment: NodeJS.ProcessEnv = { ...process.env, ASTRAGIT_USER_DATA_DIR: dataDirectory }; delete environment.ELECTRON_RUN_AS_NODE;
+  const environment: NodeJS.ProcessEnv = { ...createRelaunchEnvironment(), ASTRAGIT_USER_DATA_DIR: dataDirectory }; delete environment.ELECTRON_RUN_AS_NODE;
   const child = spawn(join(target, executable), [], { detached: true, stdio: 'ignore', env: environment });
   await new Promise<void>((resolveSpawn, reject) => { child.once('spawn', resolveSpawn); child.once('error', reject); }); child.unref();
   if (!child.pid) throw new Error('无法启动升级后的 AstraGit。'); return child.pid;
