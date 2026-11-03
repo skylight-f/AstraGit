@@ -1,4 +1,4 @@
-export type { GitCodeReviewInput, GitCodeReviewScope, GitCodeReviewReport, GitCodeReviewFinding } from './gitCodeReviewTypes.js';
+export type { GitCodeReviewInput, GitCodeReviewScope, GitCodeReviewReport, GitCodeReviewFinding, GitCodeReviewEvent } from './gitCodeReviewTypes.js';
 import { parseGitUnifiedDiff } from './gitUnifiedDiff.js';
 import { readRepositoryContext, readRepositoryStatus, readRepositoryClean } from './gitRepositoryState.js';
 import { gitDiffReader, gitDisplayDiffOptions, gitDisplayDiffMetadataOptions, readGitDiffMetadata, readGitDisplayDiff, readWorkspaceGitDiffs, type GitDiffUnavailableReason } from './gitDiffReader.js';

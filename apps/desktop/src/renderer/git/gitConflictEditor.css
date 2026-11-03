@@ -47,8 +47,3 @@
 .git-conflict-reload { background:#fff; padding:24px; border-radius:12px; max-width:460px; color:#253047; box-shadow:0 20px 70px #18203b33; }
 .git-conflict-reload footer { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
 .git-conflict-reload button { font:inherit; border:1px solid #dbe0e9; border-radius:5px; background:#fff; padding:6px 10px; cursor:pointer; }
-.project-git-conflict-files { display:flex; flex-direction:column; gap:3px; margin-bottom:12px; }
-.project-git-conflict-files>button { display:flex; align-items:center; width:100%; min-width:0; text-align:left; border:1px solid transparent; border-radius:5px; background:transparent; padding:6px 8px; color:#984744; font:inherit; cursor:pointer; }
-.project-git-conflict-files>button>span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.project-git-conflict-files>button:hover { background:#fff5f3; }
-.project-git-conflict-files>button.is-current { border-color:#d9bbeb; background:#f0e9fc; }

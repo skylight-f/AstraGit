@@ -1,0 +1,4 @@
+.gitapp-review-progress { margin: 12px; color: #7446d8; font-size: 11px; }
+.gitapp-review-thinking { margin: 12px; padding: 8px 10px; border: 1px solid var(--ag-line); border-radius: 6px; background: var(--ag-bg); }
+.gitapp-review-thinking > summary { color: var(--ag-muted); cursor: pointer; }
+.gitapp-review-thinking > pre { max-height: 220px; margin: 8px 0 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; color: var(--ag-muted); }

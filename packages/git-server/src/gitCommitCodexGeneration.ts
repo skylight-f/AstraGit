@@ -120,11 +120,13 @@ export async function generateCodexCommitMessage(
     keepAlive?: boolean;
     signal?: AbortSignal;
     onText?: (text: string) => void;
+    onTextDelta?: (text: string) => void;
+    onThinking?: (text: string) => void;
     onProgress?: (stage: string, elapsedMs: number) => void;
   },
 ): Promise<{ message: string; model: string }> {
   const modelId = input.modelRef?.slice('codex:'.length);
-  const outputLimit = options.task?.maxCharacters ?? 10_000;
+  const outputLimit = options.task?.unlimitedOutput ? Infinity : options.task?.maxCharacters ?? 10_000;
   const subject = options.task ? '代码评审' : '提交说明生成';
   if (!input.files.length || !input.stagedDiff.trim() || !modelId) throw new Error('请选择 Codex 模型并暂存需要提交的改动。');
   const manager = options.manager ?? createCodexAppServerManager({ codexHome: options.codexHome });
@@ -196,12 +198,16 @@ export async function generateCodexCommitMessage(
             return;
           }
           if (params.threadId !== threadId) return;
+          if (options.task) armTimeout(options.timeoutMs ?? 80_000);
           const item = asRecord(params.item);
+          if (event.method === 'item/reasoning/summaryTextDelta' && typeof params.delta === 'string') options.onThinking?.(params.delta);
+          if (event.method === 'item/reasoning/summaryPartAdded') options.onThinking?.('\n');
           if (event.method === 'item/started' && item.phase === 'commentary') commentary.add(String(item.id));
           if (event.method === 'item/agentMessage/delta' && typeof params.delta === 'string' && !commentary.has(String(params.itemId))) {
             if (streamed.size === 0) progress('接收生成内容');
             const id = String(params.itemId);
             streamed.set(id, (streamed.get(id) ?? '') + params.delta);
+            options.onTextDelta?.(params.delta);
             options.onText?.([...streamed.values()].join('\n').slice(0, outputLimit));
           }
           if (event.method === 'error' && params.willRetry !== true) {
@@ -231,7 +237,7 @@ export async function generateCodexCommitMessage(
       progress('等待模型响应');
       armTimeout(options.timeoutMs ?? 80_000);
       const [, text] = await Promise.all([
-        manager.startTurn({ threadId, model: model.model, input: [{ type: 'text', text: prompt, text_elements: [] }], ...(effort ? { effort } : {}) }).then((turn) => {
+        manager.startTurn({ threadId, model: model.model, input: [{ type: 'text', text: prompt, text_elements: [] }], ...(effort ? { effort } : {}), ...(options.task ? { summary: 'auto' as const } : {}) }).then((turn) => {
           if (stage === '等待模型响应') progress('请求已接受，等待生成');
           return turn;
         }),
@@ -240,6 +246,7 @@ export async function generateCodexCommitMessage(
       progress('生成完成');
       const message = text.replace(/^```[^\n]*\n([\s\S]*?)\n```$/u, '$1').trim();
       if (!message || message.length > outputLimit) throw new Error(`Codex 未返回有效的${subject}结果，请重试。`);
+      if (options.onTextDelta && streamed.size === 0) options.onTextDelta(message);
       return { message, model: `Codex · ${model.displayName || model.model}` };
     };
     const result = await Promise.race([run(), timeout]);

@@ -67,6 +67,8 @@
   --zeus-product-panel-muted: var(--agentdesk-surface-inset);
   --zeus-product-list: var(--agentdesk-surface);
   --zeus-product-line: var(--agentdesk-border);
+  /* 面板与工具栏的结构分隔弱于控件边框。 */
+  --zeus-workspace-divider: color-mix(in srgb, var(--agentdesk-border) 50%, transparent);
   --zeus-product-line-soft: rgb(148 163 184 / 0.2);
   --zeus-product-text: var(--agentdesk-text);
   --zeus-product-muted: var(--agentdesk-text-secondary);

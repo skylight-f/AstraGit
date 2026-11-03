@@ -32,3 +32,12 @@ export interface GitCodeReviewReport extends GitCodeReviewScope {
   reviewedAt: string;
   mode: 'worktree' | 'staged';
 }
+
+export type GitCodeReviewEvent =
+  | { type: 'scope'; scope: GitCodeReviewScope }
+  | { type: 'thinking'; text: string }
+  | { type: 'summary' | 'impact' | 'check'; text: string }
+  | { type: 'finding'; finding: GitCodeReviewFinding }
+  | { type: 'result'; report: GitCodeReviewReport }
+  | { type: 'error'; message: string }
+  | { type: 'heartbeat' };

@@ -500,7 +500,7 @@ body {
   .project-git-navigator,
   .project-git-browser-content
 ) {
-  border: 1px solid var(--zeus-product-line);
+  border: 1px solid var(--zeus-workspace-divider);
   border-radius: 10px;
   background: var(--zeus-card-background);
   box-shadow: 0 1px 3px rgb(15 23 42 / 0.04);
@@ -541,7 +541,7 @@ body {
   padding: 7px 14px 7px 10px !important;
   gap: 8px !important;
   background: #f2f3f7 !important;
-  border-bottom: 1px solid #e1e4ec !important;
+  border-bottom: 1px solid var(--zeus-workspace-divider) !important;
   border-radius: 0 !important;
   box-shadow: none !important;
   z-index: 30 !important;

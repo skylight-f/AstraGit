@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { readProjectGitConflict, saveProjectGitConflict } from '../packages/git-core/dist/index.js';
+import { getProjectGitRepositorySnapshot, readProjectGitConflict, saveProjectGitConflict } from '../packages/git-core/dist/index.js';
+import { gitFileStagePaths } from '../apps/desktop/src/renderer/git/gitFileStages.ts';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
 import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
@@ -39,6 +40,11 @@ const rejectsCode = (work, code) => assert.rejects(work, error => { assert.equal
 test('project conflict reads real Git stages and saves drafts separately from resolving without committing', async t => {
   const f = await fixture(t); const head = await f.git('rev-parse', 'HEAD'); const merge = await f.git('rev-parse', 'MERGE_HEAD');
   await writeFile(join(f.repository, 'other.txt'), 'unselected staged\n'); await f.git('add', 'other.txt');
+  const stagePaths = async () => {
+    const snapshot = await getProjectGitRepositorySnapshot(f.repository);
+    return gitFileStagePaths(snapshot.fileStatuses, snapshot.conflictFiles);
+  };
+  assert.deepEqual(await stagePaths(), { staged: ['other.txt'], unstaged: [f.path] });
   const beforeIndex = await f.git('ls-files', '--stage'); const file = await f.read();
   assert.equal(file.kind, 'text'); assert.equal(file.editable, true); assert.equal(file.markerSize, 7);
   assert.equal(file.base, 'base\n'); assert.equal(file.current, 'current\n'); assert.equal(file.incoming, 'incoming\n'); assert.match(file.worktree, /^<<<<<<< HEAD/u);
@@ -46,8 +52,10 @@ test('project conflict reads real Git stages and saves drafts separately from re
   const draft = await f.save(file, { content: 'my combined result\n' });
   assert.deepEqual(draft.remainingConflictFiles, [f.path]); assert.equal(draft.conflict.worktree, 'my combined result\n'); assert.notEqual(draft.conflict.fingerprint, file.fingerprint);
   assert.equal(await f.git('ls-files', '--stage'), beforeIndex, 'Saving a draft must not stage anything.');
+  assert.deepEqual(await stagePaths(), { staged: ['other.txt'], unstaged: [f.path] });
   const resolved = await f.save(draft.conflict, { content: 'my combined result\n', markResolved: true });
   assert.equal(resolved.conflict, null); assert.deepEqual(resolved.remainingConflictFiles, []); assert.equal(await f.git('show', `:${f.path}`), 'my combined result');
+  assert.deepEqual(await stagePaths(), { staged: ['other.txt', f.path], unstaged: [] });
   assert.equal(await f.git('show', ':other.txt'), 'unselected staged'); assert.equal(await f.git('rev-parse', 'HEAD'), head); assert.equal(await f.git('rev-parse', 'MERGE_HEAD'), merge);
 });
 

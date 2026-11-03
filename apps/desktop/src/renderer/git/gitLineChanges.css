@@ -1,6 +1,7 @@
 .git-line-changes { display:flex; flex:1; position:relative; min-height:0; min-width:0; overflow:hidden; }
-.git-lines-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:5px 8px; flex:none; min-height:35px; padding:6px 10px; border-bottom:1px solid var(--zeus-product-line); background:var(--zeus-product-panel-muted); font-size:11px; }
-.git-lines-toolbar>span { margin-right:auto; color:var(--zeus-product-muted); }
+.project-git-diff-preview>.git-lines-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:5px 8px; flex:none; min-height:35px; padding:6px 10px; border-bottom:1px solid var(--zeus-workspace-divider); background:var(--zeus-product-panel-muted); font:11px/1.5 var(--zeus-font-family-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif); overflow:visible; }
+.git-lines-status { flex:1 1 200px; min-width:0; margin:0; color:var(--zeus-product-muted); }
+.git-lines-actions { display:flex; align-items:center; flex-wrap:wrap; gap:5px 8px; }
 .git-lines-toolbar>small { flex-basis:100%; font-size:10px; color:var(--zeus-product-muted); }
 .git-lines-toolbar button,.git-lines-error button { font:inherit; color:var(--zeus-product-text); background:var(--zeus-control-bg); border:1px solid var(--zeus-control-border); border-radius:4px; padding:4px 7px; cursor:pointer; }
 .git-lines-toolbar button:disabled { opacity:.45; cursor:default; }

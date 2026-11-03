@@ -21,7 +21,7 @@ test('review output rejects malformed reports and references outside the reviewe
   assert.equal(parseReviewReport(JSON.stringify({ ...validReport, findings: [finding] }), scope).findings[0].line, 3);
 });
 
-test('real review API covers project repositories, staged/worktree modes, stale reports, cancellation and read-only Git', async t => {
+test('real review API covers project repositories, staged/worktree modes, stale reports, cancellation and read-only Git', { timeout: 30_000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), 'astragit-code-review-'));
   let server;
   t.after(async () => { await server?.close(); await rm(root, { recursive: true, force: true }); });
@@ -35,7 +35,7 @@ test('real review API covers project repositories, staged/worktree modes, stale 
     if (name !== 'clean') { await writeFile(join(path, 'code.ts'), `export const value = 2; // ${name} staged\n`); await git('add', '.'); await writeFile(join(path, 'code.ts'), `export const value = 3; // ${name} worktree\n`); await writeFile(join(path, 'new.ts'), `// ${name} untracked\n`); }
     fixtures.push({ name, path, git, head: await git('rev-parse', 'HEAD'), index: await readFile(join(path, '.git/index')) });
   }
-  const calls = []; let behavior = 'normal'; let started; let cancelled;
+  const calls = []; let behavior = 'normal'; let started; let cancelled; let continueStream;
   server = await startGitServer({ dataDirectory: data, projectRoot: workspace, apiToken: 'review-fixture', codexNativeEnabled: false, secretStore: createFileSecretStore(join(data, 'secrets.json')), fetch: async (_url, init) => {
     const body = JSON.parse(init.body); const payload = JSON.parse(body.messages[1].content); calls.push({ body, payload });
     if (behavior === 'new-file') await writeFile(join(fixtures[0].path, 'appeared.ts'), '// appeared during review\n');
@@ -43,6 +43,20 @@ test('real review API covers project repositories, staged/worktree modes, stale 
     if (behavior === 'cancel') { started(); await new Promise((_, reject) => { const abort = () => { cancelled(); reject(new Error('aborted')); }; if (init.signal.aborted) abort(); else init.signal.addEventListener('abort', abort, { once: true }); }); }
     if (behavior === 'provider') return new Response('sensitive-provider-body', { status: 401 });
     const content = behavior === 'invalid' ? 'not a report' : JSON.stringify({ ...validReport, findings: [{ severity: 'medium', repositoryId: payload.repositories[0].repositoryId, path: 'code.ts', line: 1, title: 'Changed constant', detail: 'Fixture finding with evidence.', suggestion: 'Verify consumers.' }] });
+    if (behavior === 'stream' || behavior === 'stream-error') {
+      const fail = behavior === 'stream-error';
+      const finding = JSON.parse(content).findings[0];
+      return new Response(new ReadableStream({ start(controller) {
+        const emit = value => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`));
+        emit({ choices: [{ delta: { reasoning_content: '正在分析各仓库的修改。\n' } }] });
+        emit({ choices: [{ delta: { content: `{"findings":[${JSON.stringify(finding)}` } }] });
+        continueStream = () => {
+          if (fail) { emit({ choices: [{ delta: {}, finish_reason: 'length' }] }); controller.close(); return; }
+          emit({ choices: [{ delta: { content: `,${JSON.stringify({ ...finding, title: 'Second finding' })}],"summary":"Streaming summary","impacts":[],"checks":[]}` }, finish_reason: 'stop' }] });
+          controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); controller.close();
+        };
+      } }), { headers: { 'Content-Type': 'text/event-stream' } });
+    }
     return Response.json({ choices: [{ message: { content }, finish_reason: 'stop' }] });
   } });
   const client = createDashboardClientLike({ baseUrl: server.baseUrl, apiToken: server.apiToken });
@@ -56,6 +70,9 @@ test('real review API covers project repositories, staged/worktree modes, stale 
   const report = await client.reviewProjectCode(project.id, input);
   assert.equal(report.fileCount, 4); assert.equal(report.fingerprint, before.fingerprint); assert.equal(report.findings.length, 1);
   assert.equal(calls[0].payload.repositories.length, 2); assert.match(calls[0].payload.repositories.map(repo => repo.diff).join('\n'), /web worktree[\s\S]*web untracked|web untracked[\s\S]*web worktree/u);
+  assert.equal(calls[0].body.stream, true);
+  assert.equal('max_completion_tokens' in calls[0].body, false);
+  assert.equal('max_tokens' in calls[0].body, false);
   const webId = before.repositories.find(repo => repo.name === 'web').id;
   await client.reviewProjectCode(project.id, { ...input, repositoryId: webId, mode: 'staged' });
   assert.equal(calls[1].payload.repositories.length, 1); assert.match(calls[1].payload.repositories[0].diff, /web staged/u); assert.doesNotMatch(calls[1].payload.repositories[0].diff, /worktree|untracked/u);
@@ -67,6 +84,32 @@ test('real review API covers project repositories, staged/worktree modes, stale 
   behavior = 'edit'; await assert.rejects(() => client.reviewProjectCode(project.id, input), /评审期间代码或范围已变化/u);
   behavior = 'invalid'; await assert.rejects(() => client.reviewProjectCode(project.id, input), /格式或文件定位无效/u);
   behavior = 'provider'; await assert.rejects(() => client.reviewProjectCode(project.id, input), error => { assert.match(error.message, /HTTP 401/u); assert.doesNotMatch(error.message, /sensitive-provider-body/u); return true; });
+  behavior = 'stream';
+  const received = []; let firstFinding;
+  const sawFinding = new Promise(resolve => { firstFinding = resolve; });
+  const streaming = client.reviewProjectCode(project.id, input, undefined, event => {
+    received.push(event);
+    if (event.type === 'finding') firstFinding();
+  });
+  let streamTimer;
+  try {
+    await Promise.race([sawFinding, new Promise((_, reject) => { streamTimer = setTimeout(() => reject(new Error('First finding was not streamed before completion')), 5000); })]);
+    assert.equal(received.some(event => event.type === 'result'), false);
+    assert.equal(received.filter(event => event.type === 'finding').length, 1);
+    assert.match(received.filter(event => event.type === 'thinking').map(event => event.text).join(''), /分析各仓库/u);
+    continueStream();
+    assert.equal((await streaming).findings.length, 2);
+    assert.equal(received.filter(event => event.type === 'finding').length, 2);
+  } finally { clearTimeout(streamTimer); }
+  behavior = 'stream-error';
+  const partial = [];
+  const failed = client.reviewProjectCode(project.id, input, undefined, event => {
+    partial.push(event);
+    if (event.type === 'finding') continueStream();
+  });
+  await assert.rejects(failed, /供应商上限/u);
+  assert.equal(partial.filter(event => event.type === 'finding').length, 1);
+  assert.equal(partial.some(event => event.type === 'result'), false);
   behavior = 'cancel';
   let resolveStarted; const didStart = new Promise(resolve => { resolveStarted = resolve; }); started = resolveStarted;
   let resolveCancelled; const didCancel = new Promise(resolve => { resolveCancelled = resolve; }); cancelled = resolveCancelled;

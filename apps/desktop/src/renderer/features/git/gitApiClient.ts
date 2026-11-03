@@ -1,4 +1,4 @@
-import type { GitCodeReviewInput, GitCodeReviewScope, GitCodeReviewReport } from './gitContracts.js';
+import type { GitCodeReviewInput, GitCodeReviewScope, GitCodeReviewReport, GitCodeReviewEvent } from './gitContracts.js';
 import type { GitFlowState, GitFlowPreview, GitFlowChange } from './gitContracts.js';
 import type { GitArchiveInput, GitArchivePreview } from './gitContracts.js';
 import type { GitCommitReplayInput, GitCommitReplayPreview, GitCommitReplaySeriesInput, GitCommitReplaySeriesPreview } from './gitContracts.js';
@@ -42,7 +42,7 @@ import { buildGitCommandRequest, gitClientCommandTypes } from './gitCommandClien
 import { buildWorkspaceGitCommandRequest, workspaceGitClientCommandTypes } from './workspaceGitCommandClient.js';
 
 export interface GitApiClient {
-  reviewProjectCode: (projectId: string, input: GitCodeReviewInput, signal?: AbortSignal) => Promise<GitCodeReviewReport>;
+  reviewProjectCode: (projectId: string, input: GitCodeReviewInput, signal?: AbortSignal, onEvent?: (event: GitCodeReviewEvent) => void) => Promise<GitCodeReviewReport>;
   loadCodeReviewScope: (projectId: string, input: GitCodeReviewInput, signal?: AbortSignal) => Promise<GitCodeReviewScope>;
   previewRepositoryGitArchive: (projectId: string, repositoryId: string, input: GitArchiveInput, signal?: AbortSignal) => Promise<GitArchivePreview>;
   loadProjectGitLineDiff: (projectId: string, repositoryId: string, input: GitLineDiffInput, signal?: AbortSignal) => Promise<GitLineDiffPreview>;
@@ -150,12 +150,21 @@ export function createGitApiClient(transport: LocalApiTransport): GitApiClient {
     previewGitCommitSelection: (projectId, selection, selectionMode, signal) => transport.request(`${projectGitPath(projectId)}/commit-selection`, { ...jsonRequest('POST', { selection, selectionMode }), signal }),
     validateGitPushTargets: (projectId, targets) => transport.request(`${projectGitPath(projectId)}/commit-selection/push-targets`, jsonRequest('POST', { targets })),
     loadProjectGitOperations: (projectId, cursor) => transport.request(`${projectGitPath(projectId)}/operations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
-    reviewProjectCode: async (projectId, input, signal) => {
+    reviewProjectCode: async (projectId, input, signal, onEvent) => {
       signal?.throwIfAborted();
       const requestId = globalThis.crypto.randomUUID();
       const cancel = () => { void transport.request(`${projectGitPath(projectId)}/code-review/cancel`, jsonRequest('POST', { requestId })).catch(() => {}); };
       signal?.addEventListener('abort', cancel, { once: true });
-      try { return await transport.request(`${projectGitPath(projectId)}/code-review`, { ...jsonRequest('POST', { ...input, requestId }), signal }); }
+      try {
+        let result: GitCodeReviewReport | undefined;
+        await transport.requestStream<GitCodeReviewEvent>(`${projectGitPath(projectId)}/code-review`, { ...jsonRequest('POST', { ...input, requestId, stream: true }), signal }, event => {
+          if (event.type === 'result') result = event.report;
+          onEvent?.(event);
+          if (event.type === 'error') throw new Error(event.message);
+        }, { timeoutMs: 0 });
+        if (!result) throw new Error('评审连接已中断，已展示的问题已保留，请重新评审。');
+        return result;
+      }
       finally { signal?.removeEventListener('abort', cancel); }
     },
     loadCodeReviewScope: (projectId, input, signal) => transport.request(`${projectGitPath(projectId)}/code-review/scope`, { ...jsonRequest('POST', input), signal }, { readOnly: true }),

@@ -2,7 +2,7 @@
 export interface LocalApiTransport {
   readonly protocol: 'astragit-local-api-v1';
   request<T>(path: string, init?: RequestInit, options?: { readOnly?: boolean }): Promise<T>;
-  requestStream<T>(path: string, init: RequestInit, onEvent: (event: T) => void): Promise<void>;
+  requestStream<T>(path: string, init: RequestInit, onEvent: (event: T) => void, options?: { timeoutMs?: number }): Promise<void>;
 }
 
 export interface LocalApiConnection {
@@ -77,13 +77,14 @@ export function createLocalApiTransport(options: { getConnection(): LocalApiConn
     }
   };
 
-  const requestStream = async <T>(path: string, init: RequestInit, onEvent: (event: T) => void): Promise<void> => {
+  const requestStream = async <T>(path: string, init: RequestInit, onEvent: (event: T) => void, streamOptions?: { timeoutMs?: number }): Promise<void> => {
     const connection = options.getConnection();
     const headers = new Headers(init.headers);
     headers.set('authorization', `Bearer ${connection.apiToken}`);
     headers.set('x-astragit-api-token', connection.apiToken);
     headers.set('content-type', 'application/json');
-    const signal = init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000);
+    const timeoutMs = streamOptions?.timeoutMs ?? 120_000;
+    const signal = timeoutMs === 0 ? init.signal : init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
     const response = await fetch(`${connection.baseUrl}${path}`, { ...init, headers, signal });
     if (!response.ok) throw await responseError(response, path);
     if (!response.body) throw new Error('生成响应为空。');
@@ -94,7 +95,7 @@ export function createLocalApiTransport(options: { getConnection(): LocalApiConn
       while (true) {
         const { value, done } = await reader.read();
         pending += decoder.decode(value, { stream: !done });
-        if (pending.length > 1_000_000) throw new Error('生成响应过大。');
+        if (pending.length > 1_000_000 && !path.endsWith('/code-review')) throw new Error('生成响应过大。');
         let end: number;
         while ((end = pending.indexOf('\n')) >= 0) {
           const line = pending.slice(0, end);

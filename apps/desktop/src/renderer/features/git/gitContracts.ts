@@ -1,4 +1,4 @@
-export type { GitCodeReviewInput, GitCodeReviewScope, GitCodeReviewReport, GitCodeReviewFinding } from '@astragit/git-core';
+export type { GitCodeReviewInput, GitCodeReviewScope, GitCodeReviewReport, GitCodeReviewFinding, GitCodeReviewEvent } from '@astragit/git-core';
 export type { GitFlowKind, GitFlowConfiguration, GitFlowChange, GitFlowState, GitFlowBranch, GitFlowPreview, GitFlowOutcome, GitFlowRefChange } from '@astragit/git-core';
 import type { GitFlowChange, GitFlowOutcome } from '@astragit/git-core';
 export type { GitLineDiffInput, GitLineDiffPreview, GitLineChange, GitLineSelection } from '@astragit/git-core';
@@ -63,6 +63,7 @@ export interface GitDiffHunk {
 
 export interface GitFileDiff {
   stage?: 'staged' | 'unstaged' | 'untracked';
+  isSubmodule?: boolean;
   isBinary?: boolean;
   oldPath: string;
   newPath: string;

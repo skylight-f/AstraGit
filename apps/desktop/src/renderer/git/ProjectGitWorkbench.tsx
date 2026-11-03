@@ -8,6 +8,7 @@ import { GitExternalToolDialog, type GitExternalToolRequest } from './GitExterna
 import { GitSubmoduleManagementDialog } from './GitSubmoduleManagementDialog.js';
 import { GitFileStatusIcon, gitFileStatusCategory, gitFileStatusLabel } from './GitFileStatusIcon.js';
 import { pruneGitFileSelection, selectGitFilePaths, type GitFileSelection } from './gitFileSelection.js';
+import { gitFileStagePaths } from './gitFileStages.js';
 import { DotsThreeIcon as DotsThree } from '@phosphor-icons/react/dist/csr/DotsThree';
 import { GitCommitIcon as GitCommit } from '@phosphor-icons/react/dist/csr/GitCommit';
 import { GitMergeIcon as GitMerge } from '@phosphor-icons/react/dist/csr/GitMerge';
@@ -350,9 +351,9 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       if (selectedFileStage !== 'unstaged') setSelectedFileStage('unstaged');
       return;
     }
-    const ordinary = repository.snapshot.fileStatuses.filter((file) => !conflicts.has(file.path));
-    const unstagedPaths = new Set(ordinary.filter((file) => file.workingTreeStatus !== ' ' || file.indexStatus === '?').map((file) => file.path));
-    const stagedPaths = new Set(ordinary.filter((file) => file.indexStatus !== ' ' && file.indexStatus !== '?').map((file) => file.path));
+    const stagePaths = gitFileStagePaths(repository.snapshot.fileStatuses, repository.snapshot.conflictFiles);
+    const unstagedPaths = new Set(stagePaths.unstaged);
+    const stagedPaths = new Set(stagePaths.staged);
     const selectedPaths = selectedFileStage === 'staged' ? stagedPaths : unstagedPaths;
     if (selectedPaths.has(selectedFilePath)) return;
     const otherStagePaths = selectedFileStage === 'staged' ? unstagedPaths : stagedPaths;
@@ -740,7 +741,10 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       items.push({ label: label('导出所选文件补丁…', 'Export selected files as patch…'), disabled: !paths.length || busy !== null, run: () => setPatchRequest({ repository, mode: 'export', paths, scope: target.stage === 'staged' ? 'staged' : 'unstaged' }) });
       const stageLabel = target.stage === 'staged' ? label('取消暂存', 'Unstage') : label('暂存', 'Stage');
       action(multiple ? label(`${stageLabel}所选文件 (${paths.length})`, `${stageLabel} selected files (${paths.length})`) : stageLabel, { type: target.stage === 'staged' ? 'unstage' : 'stage', paths }, undefined, false, !paths.length);
-      if (target.kind === 'file') items.push({ label: multiple ? label('查看当前文件差异', 'View current file diff') : label('查看差异', 'View diff'), run: () => openDiffWindow(repository, target.ref, { stage: target.stage }) });
+      if (target.kind === 'file') {
+        if (conflictPaths.includes(target.ref)) items.push({ label: label('处理冲突', 'Resolve conflict'), run: () => { setSelectedFilePath(target.ref); setSelectedFileStage('unstaged'); } });
+        else items.push({ label: multiple ? label('查看当前文件差异', 'View current file diff') : label('查看差异', 'View diff'), run: () => openDiffWindow(repository, target.ref, { stage: target.stage }) });
+      }
       if (target.kind === 'file') {
         items.push({ label: label('文件历史…', 'File history…'), run: () => setFileHistoryRequest({ repository, path: target.ref }) });
         items.push({ label: label('工作区代码归属…', 'Working tree blame…'), run: () => setFileHistoryRequest({ repository, path: target.ref, view: 'blame' }) });
@@ -2385,14 +2389,15 @@ function LocalChangesSurface(props: {
   }
   const subtree = props.subtree;
   const matchesSubtree = (path: string) => !subtree || subtree.repositoryId !== props.selectedRepository?.id || path === subtree.path || path.startsWith(`${subtree.path}/`);
-  const visibleFileStatuses = repository?.snapshot.fileStatuses.filter((file) => !conflicts.has(file.path) && matchesSubtree(file.path) && file.path.toLocaleLowerCase().includes(props.query.trim().toLocaleLowerCase())) ?? [];
-  const visibleChangeCount = visibleFileStatuses.length;
-  const emptyVisibleChanges = Boolean(repository && visibleChangeCount === 0 && repository.snapshot.conflictFiles.length === 0);
-  const workspaceClean = Boolean(emptyVisibleChanges && repository?.snapshot.fileStatuses.length === 0);
+  const matchesFileFilter = (path: string) => matchesSubtree(path) && path.toLocaleLowerCase().includes(props.query.trim().toLocaleLowerCase());
+  const stagePaths = gitFileStagePaths(repository?.snapshot.fileStatuses ?? [], repository?.snapshot.conflictFiles ?? []);
   const visibleStageFiles = {
-    staged: visibleFileStatuses.filter((file) => file.indexStatus !== ' ' && file.indexStatus !== '?').map((file) => file.path),
-    unstaged: visibleFileStatuses.filter((file) => file.workingTreeStatus !== ' ' || file.indexStatus === '?').map((file) => file.path),
+    staged: stagePaths.staged.filter(matchesFileFilter),
+    unstaged: stagePaths.unstaged.filter(matchesFileFilter),
   };
+  const visibleChangeCount = new Set([...visibleStageFiles.staged, ...visibleStageFiles.unstaged]).size;
+  const emptyVisibleChanges = Boolean(repository && visibleChangeCount === 0);
+  const workspaceClean = Boolean(emptyVisibleChanges && repository?.snapshot.fileStatuses.length === 0 && conflicts.size === 0);
   const selectedRows = fileSelection?.repositoryId === repository?.id ? pruneGitFileSelection(fileSelection?.selectedPaths ?? [], fileSelection ? visibleStageFiles[fileSelection.stage] : []) : [];
   const visibleFilesKey = JSON.stringify(visibleStageFiles);
   useEffect(() => {
@@ -2439,19 +2444,6 @@ function LocalChangesSurface(props: {
   return (
     <div className="project-git-changes-layout project-git-navigator-layout" data-commit-active={commitActive}>
       <aside className="project-git-change-tree" data-empty={emptyVisibleChanges || undefined}>
-        {repository && repository.snapshot.conflictFiles.length > 0 ? (
-          <section className="project-git-conflict-files" aria-label={props.zh ? '冲突文件' : 'Conflicted files'}>
-            <header>
-              <WarningCircle aria-hidden="true" />
-              <strong>{props.zh ? `冲突文件 (${repository.snapshot.conflictFiles.length})` : `Conflicts (${repository.snapshot.conflictFiles.length})`}</strong>
-            </header>
-            {repository.snapshot.conflictFiles.map((path) => (
-              <button key={path} type="button" className={path === props.selectedFilePath ? 'is-current' : ''} onClick={() => props.onSelectFile(path, 'unstaged')} title={path}>
-                <span>{path}</span>
-              </button>
-            ))}
-          </section>
-        ) : null}
         <header>
           <strong>{props.zh ? '变更文件' : 'Changed files'}</strong>
           <span className="project-git-file-view-control" title={fileView === 'flat' ? (props.zh ? '平铺结构' : 'Flat view') : props.zh ? '树状结构' : 'Tree view'}>
@@ -2498,6 +2490,7 @@ function LocalChangesSurface(props: {
           <div className="project-git-stage-panels">
             {(['staged', 'unstaged'] as const).map((stage) => {
               const files = visibleStageFiles[stage];
+              const actionableFiles = files.filter((path) => !conflicts.has(path));
               const title = stage === 'staged' ? (props.zh ? '已暂存' : 'Staged') : props.zh ? '未暂存' : 'Unstaged';
               return (
                 <Fragment key={stage}>
@@ -2508,14 +2501,14 @@ function LocalChangesSurface(props: {
                         <input
                           type="checkbox"
                           checked={stage === 'staged' && files.length > 0}
-                          disabled={!repository || !files.length || props.busy !== null}
+                          disabled={!repository || !actionableFiles.length || props.busy !== null}
                           aria-label={stage === 'staged' ? (props.zh ? '取消暂存全部显示文件' : 'Unstage all displayed files') : props.zh ? '暂存全部显示文件' : 'Stage all displayed files'}
                           title={stage === 'staged' ? (props.zh ? '取消暂存全部显示文件' : 'Unstage all displayed files') : props.zh ? '暂存全部显示文件' : 'Stage all displayed files'}
                           onChange={() => {
-                            if (repository && files.length && !props.busy)
+                            if (repository && actionableFiles.length && !props.busy)
                               void props.onExecute(
                                 repository,
-                                { type: stage === 'staged' ? 'unstage' : 'stage', paths: files },
+                                { type: stage === 'staged' ? 'unstage' : 'stage', paths: actionableFiles },
                                 stage === 'staged' ? (props.zh ? '取消暂存全部显示文件' : 'Unstage all displayed files') : props.zh ? '暂存全部显示文件' : 'Stage all displayed files',
                               );
                           }}
@@ -2773,7 +2766,8 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
   const selected = props.selectedPaths.includes(props.node.path);
   const checked = props.stage === 'staged';
   const status = props.repository.snapshot.fileStatuses.find((file) => file.path === props.node.path);
-  const category = gitFileStatusCategory(status, props.stage);
+  const conflicted = props.repository.snapshot.conflictFiles.includes(props.node.path);
+  const category = conflicted ? 'conflict' : gitFileStatusCategory(status, props.stage);
   const submodule = props.repository.snapshot.submodules?.some((item) => item.path === props.node.path) ?? false;
   const menuOpen = Boolean(props.activeFileMenu?.kind === 'file' && props.activeFileMenu.repositoryId === props.repository.id && props.activeFileMenu.ref === props.node.path && props.activeFileMenu.stage === props.stage);
   const menuLabel = props.zh ? `${props.node.path} · ${checked ? '已暂存' : '未暂存'}文件操作` : `${props.node.path} · ${checked ? 'Staged' : 'Unstaged'} file actions`;
@@ -2793,7 +2787,8 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
       <input
         type="checkbox"
         checked={checked}
-        disabled={props.busy !== null}
+        disabled={props.busy !== null || conflicted}
+        title={conflicted ? (props.zh ? '请先处理冲突并标记为已解决' : 'Resolve the conflict and mark it as resolved first') : undefined}
         aria-label={checked ? (props.zh ? `取消暂存 ${props.node.path}` : `Unstage ${props.node.path}`) : props.zh ? `暂存 ${props.node.path}` : `Stage ${props.node.path}`}
         onChange={() =>
           void props.onExecute(
@@ -2815,7 +2810,7 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
           const rect = event.currentTarget.getBoundingClientRect();
           props.onFileMenu(event, props.node.path, props.stage, props.visiblePaths(), { x: rect.left, y: rect.bottom + 4 });
         }}
-        onDoubleClick={(event) => { if (!event.shiftKey && !event.ctrlKey && !event.metaKey) props.onOpenDiff(props.repository, props.node.path, { stage: props.stage }); }}
+        onDoubleClick={(event) => { if (!conflicted && !event.shiftKey && !event.ctrlKey && !event.metaKey) props.onOpenDiff(props.repository, props.node.path, { stage: props.stage }); }}
       >
         {submodule ? <Folder aria-hidden="true" /> : <GitFileStatusIcon category={category} zh={props.zh} />}
         <span>{props.node.name}</span>

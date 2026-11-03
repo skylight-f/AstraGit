@@ -72,16 +72,22 @@ export function GitLineChanges(props: {
   const messages = {
     filter: text('文件使用 Git filter（如 LFS），请使用整文件操作。', 'This file uses a Git filter (such as LFS). Use whole-file actions.'),
     binary: text('二进制差异请使用整文件操作或外部工具。', 'Use whole-file actions or external tools for binary changes.'),
-    'file-type': text('符号链接、子模块及非普通文件请使用整文件操作。', 'Use whole-file actions for symlinks, submodules and other file types.'),
+    'file-type': (file ?? props.fallback?.fileDiffs[0])?.isSubmodule
+      ? text('子模块的引用版本已变更，不支持按行操作。请在左侧文件列表中右键操作整个子模块。', 'The referenced submodule commit has changed. Line actions are unavailable; right-click the submodule in the file list for whole-entry actions.')
+      : text('符号链接等特殊文件不支持按行操作。请在左侧文件列表中右键处理整个条目。', 'Symlinks and other special files do not support line actions. Right-click the entry in the file list for whole-entry actions.'),
     metadata: text('只有文件模式或空文件元数据变化，请使用整文件操作。', 'Only file mode or empty-file metadata changed. Use whole-file actions.'),
   };
   const toolbar = <div className="git-lines-toolbar" aria-busy={state.loading || pending}>
-    <span role="status">{preview?.readOnlyReason ? messages[preview.readOnlyReason] : !preview && state.loading ? text('正在读取当前文件差异…', 'Reading current file diff…') : text(`已选择 ${selected.length} 条增删行`, `${selected.length} changed lines selected`)}</span>
-    <button type="button" disabled={disabled || !allKeys.length} onClick={controls.onSelectAll}>{text('全选更改行', 'Select changed lines')}</button>
-    <button type="button" disabled={!selected.length || pending} onClick={controls.onClear}>{text('清除', 'Clear')}</button>
-    <button type="button" disabled={disabled || !selected.length} onClick={() => void execute(primary, selected)}>{props.stage === 'staged' ? text('取消暂存所选行', 'Unstage selected lines') : text('暂存所选行', 'Stage selected lines')}</button>
-    {props.stage === 'unstaged' ? <button type="button" data-danger disabled={disabled || !selected.length} onClick={() => discard(selected)}>{text('放弃所选行…', 'Discard selected lines…')}</button> : null}
-    <small>{text('点击行号；Shift 连选，Ctrl/⌘ 多选；右键操作。', 'Click line numbers; Shift for range, Ctrl/⌘ to toggle; right-click for actions.')}</small>
+    <p className="git-lines-status" role="status">{preview?.readOnlyReason ? messages[preview.readOnlyReason] : !preview && state.loading ? text('正在读取当前文件差异…', 'Reading current file diff…') : text(`已选择 ${selected.length} 条增删行`, `${selected.length} changed lines selected`)}</p>
+    {!preview?.readOnlyReason ? <>
+      <div className="git-lines-actions">
+        <button type="button" disabled={disabled || !allKeys.length} onClick={controls.onSelectAll}>{text('全选更改行', 'Select changed lines')}</button>
+        <button type="button" disabled={!selected.length || pending} onClick={controls.onClear}>{text('清除', 'Clear')}</button>
+        <button type="button" disabled={disabled || !selected.length} onClick={() => void execute(primary, selected)}>{props.stage === 'staged' ? text('取消暂存所选行', 'Unstage selected lines') : text('暂存所选行', 'Stage selected lines')}</button>
+        {props.stage === 'unstaged' ? <button type="button" data-danger disabled={disabled || !selected.length} onClick={() => discard(selected)}>{text('放弃所选行…', 'Discard selected lines…')}</button> : null}
+      </div>
+      <small>{text('点击行号；Shift 连选，Ctrl/⌘ 多选；右键操作。', 'Click line numbers; Shift for range, Ctrl/⌘ to toggle; right-click for actions.')}</small>
+    </> : null}
   </div>;
   const shown = preview ? preview.readOnlyReason && !file ? props.fallback : preview.diff : props.fallback;
   const hunkKeys = (index: number) => allKeys.filter(key => key.startsWith(`${index}:`));
