@@ -64,7 +64,7 @@ export function isLikelyLocalServerConnectionError(error: unknown): boolean {
 export function createLocalApiTransport(options: { getConnection(): LocalApiConnection; refreshConnection?: () => Promise<LocalApiConnection>; onPerformanceSpan?: (span: AstraGitClientPerformanceSpan) => void }): LocalApiTransport {
   const request = async <T>(path: string, init?: RequestInit, requestOptions?: { readOnly?: boolean }): Promise<T> => {
     const method = (init?.method ?? 'GET').toUpperCase();
-    if (requestOptions?.readOnly && (method !== 'POST' || !/^\/api\/projects\/[^/]+\/git\/workbench\/repositories\/[^/]+\/(?:stop-tracking-preview|interactive-rebase-preview|patch-preview|patch-export|archive-preview|replay-preview|replay-series-preview|mailbox-preview|submodule-preview|external-tool-preview|lfs-preview|flow-preview|stage-preview|line-diff)$/u.test(path))) throw new Error('Invalid read-only API route.');
+    if (requestOptions?.readOnly && (method !== 'POST' || !/^\/api\/projects\/[^/]+\/git\/code-review\/scope$/u.test(path) && !/^\/api\/projects\/[^/]+\/git\/workbench\/repositories\/[^/]+\/(?:stop-tracking-preview|interactive-rebase-preview|patch-preview|patch-export|archive-preview|replay-preview|replay-series-preview|mailbox-preview|submodule-preview|external-tool-preview|lfs-preview|flow-preview|stage-preview|line-diff)$/u.test(path))) throw new Error('Invalid read-only API route.');
     const reading = requestOptions?.readOnly === true || method === 'GET' || method === 'HEAD';
     const traceId = createClientTraceId(path);
     try {
@@ -171,7 +171,7 @@ async function runWithReadTimeout<T>(init: RequestInit, path: string, timeoutMs:
     return await run({ ...init, signal });
   } catch (error) {
     if (controller.signal.aborted && !(init.signal && init.signal.aborted)) {
-      throw new AstraGitApiError({ status: 0, message: reading ? `本机 API 读取超时：${path}` : `本机 API 操作请求超时，尚无法确认执行结果：${path}`, error: reading ? 'ASTRAGIT_LOCAL_API_READ_TIMEOUT' : 'ASTRAGIT_LOCAL_API_MUTATION_OUTCOME_UNKNOWN' });
+      throw new AstraGitApiError({ status: 0, message: path.endsWith('/code-review') ? '代码评审超时，请重试或更换模型。' : reading ? `本机 API 读取超时：${path}` : `本机 API 操作请求超时，尚无法确认执行结果：${path}`, error: reading ? 'ASTRAGIT_LOCAL_API_READ_TIMEOUT' : 'ASTRAGIT_LOCAL_API_MUTATION_OUTCOME_UNKNOWN' });
     }
     throw error;
   } finally {

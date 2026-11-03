@@ -81,6 +81,7 @@ import { GitCommitReplaySeriesDialog, type GitCommitReplaySeriesRequest } from '
 import { useGitOperationNoticePlacement } from './useGitOperationNoticePlacement.js';
 import { GitTagManagementDialog, type GitTagManagementRequest } from './GitTagManagementDialog.js';
 import './gitFileTracking.css';
+import { searchDestinationAvailable, type GitSearchNavigation } from '../workspaceSearchState.js';
 import { describeUserFacingError, splitGitRemoteBranch } from '@astragit/shared';
 import { gitConflictMessage, gitFailureCode, gitFailureContext, gitFailureTitle, gitIntegrationLabel } from './gitOperationFeedback.js';
 
@@ -108,6 +109,8 @@ export interface ProjectGitWorkbenchProps {
   >;
   language: 'zh-CN' | 'en-US';
   modelSettingsRevision?: number;
+  navigationRequest?: GitSearchNavigation | null;
+  onNavigationHandled?: (requestId: number) => void;
 }
 
 const projectGitViewPreferences = new Map<string, { repositoryId: string; searchQuery: string }>();
@@ -368,6 +371,38 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     setSelectedFilePath(firstUnstagedPath ?? firstStagedPath ?? '');
     setSelectedFileStage(firstUnstagedPath ? 'unstaged' : 'staged');
   }, [snapshot, tab, selectedRepositoryId, selectedFilePath, selectedFileStage]);
+
+  const handledSearchRequest = useRef<number | null>(null);
+  useEffect(() => {
+    const target = props.navigationRequest;
+    if (!target || target.projectId !== props.project.id || target.requestId === handledSearchRequest.current) return;
+    handledSearchRequest.current = target.requestId;
+    let active = true;
+    // 搜索和评审可能发现刷新前新增的文件，不能用旧工作台快照拒绝定位。
+    void requestProjectGitWorkbench(props.client, props.project.id).then(next => {
+      if (!active) return;
+      const repository = next.repositories.find(item => item.id === target.repositoryId);
+      if (!repository || !searchDestinationAvailable(next, target)) {
+        reportApplicationError(zh ? '目标文件或仓库已变化，请刷新后重试。' : 'The target file or repository changed. Refresh and retry.', { language: zh ? 'zh-CN' : 'en' });
+        return;
+      }
+      ++requestVersionRef.current;
+      setSnapshot(next);
+      setLoadState('ready');
+      setError(null);
+      setSelectedRepositoryId(repository.id);
+      setSubtree(null);
+      setFileQuery('');
+      setSelectedCommit(null);
+      setCommitOpen(false);
+      setTab('changes');
+      setSelectedFilePath(target.kind === 'file' ? target.path : '');
+      setSelectedFileStage(target.kind === 'file' ? target.stage : 'unstaged');
+    }).catch(() => {
+      if (active) reportApplicationError(zh ? '无法刷新目标仓库，请稍后重试。' : 'Unable to refresh the target repository. Please retry.', { language: zh ? 'zh-CN' : 'en' });
+    }).finally(() => { if (active) props.onNavigationHandled?.(target.requestId); });
+    return () => { active = false; if (handledSearchRequest.current === target.requestId) handledSearchRequest.current = null; };
+  }, [props.navigationRequest, props.onNavigationHandled, props.project.id, props.client, zh]);
 
   useEffect(() => {
     // 新选择立即清除旧详情，避免旧行高亮在异步读取期间冒充当前选择。

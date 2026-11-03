@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
@@ -42,7 +43,7 @@ interface CreateNativeUpdateProgressHostOptions {
  * AppKit 辅助程序只承载原生窗口；下载和安装责任始终留在 Main 的受控服务中。
  */
 export async function createNativeUpdateProgressHost(options: CreateNativeUpdateProgressHostOptions): Promise<NativeUpdateProgressHost> {
-  const { nativeTheme } = await import('electron');
+  const { nativeTheme } = createRequire(import.meta.url)('electron') as typeof import('electron');
   await access(options.executablePath);
   const child = spawn(options.executablePath, [], {
     stdio: ['pipe', 'pipe', 'pipe'],

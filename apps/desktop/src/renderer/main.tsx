@@ -34,7 +34,7 @@ async function main(): Promise<void> {
     baseUrl: bootstrap.baseUrl,
     apiToken: bootstrap.apiToken,
   });
-  createRoot(rootElement).render(<App client={client} language={language} />);
+  createRoot(rootElement).render(<App client={client} language={language} customTitlebar={bootstrap.customTitlebar} />);
 }
 
 void main();

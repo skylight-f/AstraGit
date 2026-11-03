@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, powerMonitor, session, shell } from 'electron';
+import type { BrowserWindow as ElectronBrowserWindow } from 'electron';
+import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
@@ -8,6 +9,7 @@ import { startGitServer, type RunningGitServer } from '@astragit/git-server';
 import { resolveCliSearchPath } from '@astragit/ai-runtime';
 import { createReleaseUpdateService } from './releaseUpdateService.js';
 import { applicationIdentity } from './applicationIdentity.js';
+import { configureChromiumStorage } from './chromiumStoragePolicy.js';
 import { createRepositoryFileLauncher } from './repositoryFileLauncher.js';
 import { createPatchFileAccess } from './patchFileAccess.js';
 import { createArchiveFileAccess } from './archiveFileAccess.js';
@@ -18,7 +20,11 @@ import { execFile } from './releaseVerification.js';
 import { startSystemProxyBridge, type SystemProxyBridge } from './systemProxyBridge.js';
 import { installSystemProxyEnvironment, type InstalledSystemProxyEnvironment } from './systemProxyEnvironment.js';
 
-let mainWindow: BrowserWindow | null = null;
+// Electron 的 ESM 命名空间会枚举全部懒加载 API；只读取实际使用项，避免初始化未使用的 safeStorage。
+const { app, BrowserWindow, dialog, ipcMain, nativeImage, net, powerMonitor, session, shell } = createRequire(import.meta.url)('electron') as typeof import('electron');
+configureChromiumStorage(app.commandLine);
+
+let mainWindow: ElectronBrowserWindow | null = null;
 let archiveFiles: ReturnType<typeof createArchiveFileAccess> | null = null;
 let creatingWindow: Promise<void> | null = null;
 let gitServer: RunningGitServer | null = null;
@@ -230,6 +236,7 @@ async function loadMainWindow(): Promise<void> {
     minHeight: 640,
     title: 'AstraGit',
     icon: applicationIconPath(),
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 14 } } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -248,6 +255,7 @@ async function loadMainWindow(): Promise<void> {
     baseUrl: config.baseUrl,
     apiToken: config.apiToken,
     language: app.getLocale().startsWith('zh') ? 'zh-CN' : 'en-US',
+    customTitlebar: process.platform === 'darwin',
   }));
 
   ipcMain.handle('astragit:choose-directory', async () => {

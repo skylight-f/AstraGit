@@ -12,6 +12,20 @@ export interface SecretStore {
   deleteSecret(account: string): Promise<void>;
 }
 
+/** 合并并发读取；拒绝授权后本次运行不自动反复请求，重新保存密钥会更新缓存。 */
+export function createCachedSecretStore(store: SecretStore): SecretStore {
+  const reads = new Map<string, Promise<string | undefined>>();
+  return {
+    getSecret(account) {
+      let pending = reads.get(account);
+      if (!pending) { pending = Promise.resolve().then(() => store.getSecret(account)); reads.set(account, pending); }
+      return pending;
+    },
+    async setSecret(account, value) { await store.setSecret(account, value); reads.set(account, Promise.resolve(value)); },
+    async deleteSecret(account) { await store.deleteSecret(account); reads.set(account, Promise.resolve(undefined)); },
+  };
+}
+
 /** 独立应用使用独立 Keychain service，避免与 Zeus 主应用密钥混用。 */
 export function createMacOSKeychainStore(options: { service?: string } = {}): SecretStore {
   const service = options.service ?? 'AstraGit';
@@ -23,7 +37,7 @@ export function createMacOSKeychainStore(options: { service?: string } = {}): Se
     if (!/^[a-z0-9_.:-]+$/iu.test(account)) throw new Error('Invalid AstraGit Keychain account name');
   };
   const missing = (error: unknown) => error instanceof Error && /could not be found|The specified item could not be found|SecKeychainSearchCopyNext/u.test(error.message);
-  return {
+  return createCachedSecretStore({
     async setSecret(account, value) {
       validateAccount(account);
       try { await run(['add-generic-password', '-U', '-s', service, '-a', account, '-w', value]); }
@@ -47,7 +61,7 @@ export function createMacOSKeychainStore(options: { service?: string } = {}): Se
         if (!missing(error)) throw new Error('本应用钥匙串删除失败，请检查 macOS 钥匙串授权。');
       }
     },
-  };
+  });
 }
 
 /** 文件回退：非 macOS 或 security 不可用时，密钥落在 0600 文件中。 */

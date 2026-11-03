@@ -1,3 +1,5 @@
+import { registerGitCodeReviewRoutes } from './gitCodeReviewRoutes.js';
+import { generateGitModelText } from './gitModelTextGeneration.js';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { PassThrough } from 'node:stream';
@@ -830,6 +832,19 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
       }
     },
   );
+
+  registerGitCodeReviewRoutes(server, {
+    projects, workbench, redact: redactSensitiveText,
+    generate: async (projectId, input, task, signal) => {
+      if (!input.modelRef.startsWith('codex:')) return generateGitModelText(modelConnections, task, signal, options.fetch);
+      if (!codexNativeEnabled) throw Object.assign(new Error('Codex 尚未启用，请在 AI 设置中配置模型。'), { statusCode: 409 });
+      return commitCodexPool.generate({ repositoryName: '', stagedDiff: task.prompt, files: ['review-context'], language: input.language, modelRef: input.modelRef }, {
+        commandPath: options.currentCodexRuntimeCommandPath?.() ?? '', codexHome,
+        ...(options.codexExternalAgentHome ? { externalAgentHome: options.codexExternalAgentHome } : {}),
+        task, signal,
+      });
+    },
+  });
 
   server.get('/api/health', async () => ({ ok: true, service: 'astragit' }));
 

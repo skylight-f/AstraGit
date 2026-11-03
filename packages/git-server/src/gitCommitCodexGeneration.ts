@@ -1,3 +1,4 @@
+import type { GitModelTextTask } from './gitModelTextGeneration.js';
 import { createCodexAppServerManager, type CodexAppServerManager } from '@astragit/ai-runtime';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -111,6 +112,7 @@ export async function generateCodexCommitMessage(
   input: GitCommitMessageInput,
   options: {
     commandPath: string;
+    task?: GitModelTextTask;
     codexHome: string;
     externalAgentHome?: string;
     manager?: CodexAppServerManager;
@@ -122,6 +124,8 @@ export async function generateCodexCommitMessage(
   },
 ): Promise<{ message: string; model: string }> {
   const modelId = input.modelRef?.slice('codex:'.length);
+  const outputLimit = options.task?.maxCharacters ?? 10_000;
+  const subject = options.task ? '代码评审' : '提交说明生成';
   if (!input.files.length || !input.stagedDiff.trim() || !modelId) throw new Error('请选择 Codex 模型并暂存需要提交的改动。');
   const manager = options.manager ?? createCodexAppServerManager({ codexHome: options.codexHome });
   const cwd = await mkdtemp(join(tmpdir(), 'astragit-commit-'));
@@ -150,7 +154,7 @@ export async function generateCodexCommitMessage(
       rejectWait = reject;
       abort = () => {
         cancelled = true;
-        reject(new Error('提交说明生成已取消。'));
+        reject(new Error(`${subject}已取消。`));
       };
       options.signal?.addEventListener('abort', abort, { once: true });
       if (options.signal?.aborted) abort();
@@ -159,16 +163,16 @@ export async function generateCodexCommitMessage(
     const run = async () => {
       progress('初始化服务');
       const capabilities = await manager.ensureReady({ commandPath: options.commandPath, ...(options.externalAgentHome ? { externalAgentHome: options.externalAgentHome } : {}) });
-      if (cancelled) throw new Error('提交说明生成已取消。');
+      if (cancelled) throw new Error(`${subject}已取消。`);
       const model = capabilities.models.find((item) => item.model === modelId && item.raw.hidden !== true);
       if (!model) throw new Error('所选 Codex 模型已不可用，请刷新模型列表。');
-      const effort = (['low', 'minimal', 'none'] as const).find((value) => model.supportedReasoningEfforts.includes(value));
+      const effort = (options.task ? ['medium', 'low', 'minimal', 'none'] as const : ['low', 'minimal', 'none'] as const).find((value) => model.supportedReasoningEfforts.includes(value));
       if (model.supportedReasoningEfforts.length && !effort) throw new Error('所选模型不支持低思考深度，请选择支持 low 的模型生成提交说明。');
       progress('读取账户');
       const account = await manager.readAccount();
-      if (cancelled) throw new Error('提交说明生成已取消。');
+      if (cancelled) throw new Error(`${subject}已取消。`);
       if (!account.signedIn && account.requiresOpenaiAuth) throw new Error('请先在 AstraGit 的 AI 设置中登录 Codex。');
-      const { system, prompt } = buildGitCommitPrompt(input);
+      const { system, prompt } = options.task ?? buildGitCommitPrompt(input);
       progress('创建临时会话');
       const thread = await manager.startThread({
         model: model.model,
@@ -177,10 +181,10 @@ export async function generateCodexCommitMessage(
         approvalPolicy: 'never',
         sandbox: { type: 'readOnly', networkAccess: false },
         baseInstructions: system,
-        developerInstructions: '仅根据输入文本生成提交说明。不要调用任何工具，不读取文件、不访问网络、不执行命令。',
+        developerInstructions: `仅根据输入文本完成${subject}。不要调用任何工具，不读取文件、不访问网络、不执行命令。`,
       });
       threadId = thread.id;
-      if (cancelled) throw new Error('提交说明生成已取消。');
+      if (cancelled) throw new Error(`${subject}已取消。`);
       const messages = new Map<string, string>();
       const streamed = new Map<string, string>();
       const commentary = new Set<string>();
@@ -198,14 +202,14 @@ export async function generateCodexCommitMessage(
             if (streamed.size === 0) progress('接收生成内容');
             const id = String(params.itemId);
             streamed.set(id, (streamed.get(id) ?? '') + params.delta);
-            options.onText?.([...streamed.values()].join('\n').slice(0, 10_000));
+            options.onText?.([...streamed.values()].join('\n').slice(0, outputLimit));
           }
           if (event.method === 'error' && params.willRetry !== true) {
             reject(new Error('Codex 模型请求失败，请检查网络、登录状态或额度后重试。'));
             return;
           }
           if (event.requestId !== undefined || (event.method === 'item/started' && !['userMessage', 'agentMessage', 'reasoning'].includes(String(item.type)))) {
-            reject(new Error('提交说明生成不支持工具调用，请重试。'));
+            reject(new Error(`${subject}不支持工具调用，请重试。`));
             return;
           }
           if (event.method === 'item/completed' && item.type === 'agentMessage' && item.phase !== 'commentary' && typeof item.text === 'string') messages.set(String(item.id), item.text);
@@ -235,7 +239,7 @@ export async function generateCodexCommitMessage(
       ]);
       progress('生成完成');
       const message = text.replace(/^```[^\n]*\n([\s\S]*?)\n```$/u, '$1').trim();
-      if (!message || message.length > 10_000) throw new Error('Codex 未返回有效的提交说明，请重试。');
+      if (!message || message.length > outputLimit) throw new Error(`Codex 未返回有效的${subject}结果，请重试。`);
       return { message, model: `Codex · ${model.displayName || model.model}` };
     };
     const result = await Promise.race([run(), timeout]);

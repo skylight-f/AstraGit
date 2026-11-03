@@ -25,3 +25,13 @@ test('packaged identity and data are unchanged even if a Vite environment is inh
   assert.equal(identity.dataDirectory, '/user/Library/Application Support/AstraGit');
   assert.equal(applicationIdentity({ ...paths, packaged: true, userDataDirectory: '/tmp/acceptance-data' }).dataDirectory, '/tmp/acceptance-data');
 });
+
+test('packaged acceptance profiles isolate Safe Storage while remaining stable across application updates', () => {
+  const profile = { ...paths, packaged: true, userDataDirectory: '/tmp/acceptance-profile' };
+  const first = applicationIdentity(profile);
+  assert.match(first.name, /^AstraGit Profile /u);
+  assert.equal(first.development, false);
+  assert.equal(applicationIdentity({ ...profile, appPath: '/another/version/AstraGit.app/Contents/Resources/app.asar' }).name, first.name);
+  assert.notEqual(applicationIdentity({ ...profile, userDataDirectory: '/tmp/another-profile' }).name, first.name);
+  assert.equal(applicationIdentity({ ...profile, userDataDirectory: '/user/Library/Application Support/AstraGit' }).name, 'AstraGit');
+});

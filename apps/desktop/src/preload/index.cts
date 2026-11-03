@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { HomebrewUpdateIndicatorState } from '@astragit/shared';
 
 const bootstrap = {
-  getBootstrap: () => ipcRenderer.invoke('astragit:get-bootstrap') as Promise<{ baseUrl: string; apiToken: string; language: 'zh-CN' | 'en-US' } | null>,
+  getBootstrap: () => ipcRenderer.invoke('astragit:get-bootstrap') as Promise<{ baseUrl: string; apiToken: string; language: 'zh-CN' | 'en-US'; customTitlebar?: boolean } | null>,
   chooseDirectory: () => ipcRenderer.invoke('astragit:choose-directory') as Promise<string | null>,
 };
 
