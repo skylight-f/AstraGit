@@ -88,6 +88,8 @@ test('remote rejection, credentials, upstream and connection failures stay disti
     ['ASTRAGIT_GIT_NETWORK_FAILED', /检查网络.*推送.*核对远端分支/u, /network.*push.*verify the remote branch/u],
     ['ASTRAGIT_GIT_HTTP_502', /HTTP 502.*直连.*代理例外.*核对远端分支/u, /HTTP 502.*direct access.*proxy bypass.*verify the remote branch/u],
     ['ASTRAGIT_GIT_SSH_HELPER_MISSING', /临时 SSH 代理.*完全退出.*核对远端状态/u, /temporary SSH proxy helper.*quit and reopen.*verify the remote state/u],
+    ['ASTRAGIT_GIT_SSH_PROXY_PROTOCOL', /HTTP 200.*协议兼容.*更新 AstraGit.*ProxyCommand.*刷新仓库无法修复/u, /HTTP 200.*protocol compatibility.*Update AstraGit.*ProxyCommand.*Refreshing.*cannot fix/u],
+    ['ASTRAGIT_GIT_SSH_PROXY_FAILED', /SSH 代理.*代理认证.*目标地址.*核对远端状态/u, /SSH proxy.*proxy authentication.*destination.*verify the remote state/u],
     ['ASTRAGIT_GIT_HOST_UNVERIFIED', /服务器的身份.*核实服务器信息/u, /server identity.*Confirm its identity/u],
   ];
   for (const [code, zh, en] of cases) {

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { executeProjectGitAction, getProjectGitRepositorySnapshot } from '../packages/git-core/dist/index.js';
+import { classifyGitCommandFailure, executeProjectGitAction, getProjectGitRepositorySnapshot } from '../packages/git-core/dist/index.js';
 import { ProjectGitWorkbenchService } from '../packages/git-server/dist/projectGitWorkbenchService.js';
 import { ProjectStore } from '../packages/git-server/dist/projectStore.js';
 import { OperationHistoryStore } from '../packages/git-server/dist/operationHistoryStore.js';
@@ -26,6 +26,28 @@ async function fixture(t) {
 }
 const rejectsCode = (work, code, verify = () => {}) => assert.rejects(work, error => {
   assert.equal(error.code, code); verify(error); return true;
+});
+
+test('SSH proxy diagnostics distinguish rejected success responses, proxy refusal and SSH authentication', () => {
+  for (const [stderr, code] of [
+    ['nc: Proxy error: "HTTP/1.1 200 Connection Established"\nConnection closed by UNKNOWN port 65535\nfatal: Could not read from remote repository.', 'ASTRAGIT_GIT_SSH_PROXY_PROTOCOL'],
+    ['nc: Proxy error: "HTTP/1.0 407 Proxy Authentication Required"', 'ASTRAGIT_GIT_SSH_PROXY_FAILED'],
+    ['nc: Proxy error: "HTTP/1.1 502 Bad Gateway"', 'ASTRAGIT_GIT_SSH_PROXY_FAILED'],
+    ['nc: connection failed, SOCKS error 5', 'ASTRAGIT_GIT_SSH_PROXY_FAILED'],
+    ['nc: proxy read: Connection reset by peer', 'ASTRAGIT_GIT_SSH_PROXY_FAILED'],
+    ['git@example.test: Permission denied (publickey).', 'ASTRAGIT_GIT_AUTH_REQUIRED'],
+    ['fatal: Could not read from remote repository.', 'ASTRAGIT_GIT_COMMAND_FAILED'],
+    ['remote: a file contains nc: Proxy error: "HTTP/1.1 200 Connection Established"', 'ASTRAGIT_GIT_COMMAND_FAILED'],
+  ]) {
+    const error = classifyGitCommandFailure(['push', 'origin', 'main'], { stderr, exitCode: 128 });
+    assert.equal(error.code, code, stderr);
+    assert.ok(error.details.includes(stderr));
+    assert.equal(error.exitCode, 128);
+    // A failed transport can be part of a multi-remote or recursive command;
+    // it cannot establish that every earlier operation was rolled back.
+    assert.equal(error.operationStatus, 'unknown_after_write');
+  }
+  assert.equal(classifyGitCommandFailure(['fetch'], { stdout: 'nc: Proxy error: "HTTP/1.1 200 Connection Established"' }).code, 'ASTRAGIT_GIT_COMMAND_FAILED');
 });
 
 test('checkout distinguishes local changes, untracked overwrite, missing branch and existing conflicts', async t => {

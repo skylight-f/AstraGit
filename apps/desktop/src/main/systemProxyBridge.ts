@@ -1,5 +1,6 @@
-import { Agent as HttpAgent } from 'node:http';
+import { Agent as HttpAgent, type IncomingMessage } from 'node:http';
 import { Agent as HttpsAgent } from 'node:https';
+import type { Duplex } from 'node:stream';
 import { RequestError, Server } from 'proxy-chain';
 
 export interface SystemProxyBridge {
@@ -45,6 +46,26 @@ export async function startSystemProxyBridge(options: {
       }
       return { upstreamProxyUrl, httpAgent, httpsAgent };
     },
+  });
+  // proxy-chain writes a complete HTTP/1.1 CONNECT status line on every route.
+  // macOS /usr/bin/nc sends HTTP/1.0 and rejects even a successful HTTP/1.1 200.
+  // Install before proxy-chain handles CONNECT, and restore write before any
+  // tunneled bytes flow. Only the response version changes, never its status.
+  server.server.prependListener('connect', (request: IncomingMessage, socket: Duplex) => {
+    if (request.httpVersion !== '1.0') return;
+    const write = socket.write;
+    socket.write = function (this: Duplex, ...args: Parameters<typeof write>) {
+      socket.write = write;
+      const chunk = args[0];
+      if (typeof chunk === 'string') {
+        if (chunk.startsWith('HTTP/1.1 ')) args[0] = `HTTP/1.0 ${chunk.slice(9)}`;
+      } else if (Buffer.from(chunk.subarray(0, 9)).toString('ascii') === 'HTTP/1.1 ') {
+        const response = Buffer.from(chunk);
+        response[7] = 0x30;
+        args[0] = response;
+      }
+      return write.apply(this, args);
+    } as typeof write;
   });
   try {
     await server.listen();

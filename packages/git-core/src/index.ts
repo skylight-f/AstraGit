@@ -2510,7 +2510,7 @@ function formatGitCommand(args: string[], hasInput: boolean): string {
 }
 
 /** 只在 Git 命令边界解释 Git 自身的固定诊断，不从任意界面文案推测失败原因。 */
-function classifyGitCommandFailure(args: string[], error: unknown): Error & { code: string; details?: string } {
+export function classifyGitCommandFailure(args: string[], error: unknown): Error & { code: string; details?: string } {
   const candidate = (error && typeof error === 'object' ? error : {}) as { code?: unknown; message?: unknown; stdout?: unknown; stderr?: unknown; interrupted?: unknown; exitCode?: unknown };
   const stdout = typeof candidate.stdout === 'string' ? redactGitOutput(candidate.stdout) : '';
   const stderr = typeof candidate.stderr === 'string' ? redactGitOutput(candidate.stderr) : '';
@@ -2525,6 +2525,8 @@ function classifyGitCommandFailure(args: string[], error: unknown): Error & { co
   else if (candidate.code === 'ENOENT') { code = 'ASTRAGIT_GIT_EXECUTABLE_MISSING'; summary = '找不到 Git 程序，请检查安装和程序路径。'; operationStatus = 'failed_before_write'; }
   else if (candidate.code === 'EACCES' || candidate.code === 'EPERM') { code = candidate.code; summary = '系统拒绝执行 Git，请检查 Git 程序和仓库访问权限。'; operationStatus = 'failed_before_write'; }
   else if (/cannot (?:exec|run) [^\r\n]*\/astragit-system-proxy-[A-Za-z0-9]{6}\/ssh[^\r\n]*: No such file or directory/u.test(stderr)) { code = 'ASTRAGIT_GIT_SSH_HELPER_MISSING'; summary = '应用的临时 SSH 代理已失效，无法建立本次连接。请完全退出 AstraGit 后重新打开，再刷新并核对远端状态后重试。'; }
+  else if (/^nc: Proxy error: "HTTP\/1\.[01] 200(?: [^"\r\n]*)?"\s*$/mu.test(stderr)) { code = 'ASTRAGIT_GIT_SSH_PROXY_PROTOCOL'; summary = 'SSH 代理客户端拒绝了成功的连接响应（HTTP 200），存在握手协议兼容问题。请更新 AstraGit；若使用自定义 ProxyCommand，请检查其代理客户端。'; }
+  else if (/^nc: (?:Proxy error: "[^\r\n]+"|proxy read(?: too long|: [^\r\n]+)?|connection failed, SOCKS error \d+)\r?$/mu.test(stderr)) { code = 'ASTRAGIT_GIT_SSH_PROXY_FAILED'; summary = 'SSH 代理未能建立连接，请检查代理服务、认证和目标地址，并查看详情中的代理响应。'; }
   else if (/ETIMEDOUT:/u.test(message)) { code = 'ASTRAGIT_GIT_TIMEOUT'; summary = 'Git 操作超时，尚未确认执行结果，请刷新状态后检查。'; }
   else if (/Unable to create [^\n]*\.lock[^\n]*File exists|Another git process seems to be running/iu.test(output)) { code = 'ASTRAGIT_GIT_INDEX_LOCKED'; summary = '仓库存在 Git 锁，请确认其他 Git 操作已结束后再重试。'; operationStatus = 'failed_before_write'; }
   else if (/index file (?:smaller than expected|corrupt)|(?:bad|invalid) (?:index|signature)|index.*signature/iu.test(output)) { code = 'ASTRAGIT_GIT_INDEX_CORRUPT'; summary = 'Git 暂存区索引无法读取，请保留工作区文件并核对索引和操作结果。'; }

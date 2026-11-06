@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import dns from 'node:dns';
 import http from 'node:http';
 import net from 'node:net';
@@ -186,7 +187,7 @@ function requestViaBridge(proxyUrl, targetUrl, options = {}) {
   });
 }
 
-function openTunnel(proxyUrl, target) {
+function openTunnel(proxyUrl, target, version = '1.1') {
   const bridge = new URL(proxyUrl);
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: bridge.hostname, port: Number(bridge.port) });
@@ -203,6 +204,11 @@ function openTunnel(proxyUrl, target) {
         reject(new Error(`CONNECT rejected: ${headers}`));
         return;
       }
+      if (!headers.startsWith(`HTTP/${version} 200 `)) {
+        socket.destroy();
+        reject(new Error(`CONNECT response does not match HTTP/${version}: ${headers}`));
+        return;
+      }
       if (pending.length > end + 4) socket.unshift(pending.subarray(end + 4));
       socket.setTimeout(0);
       resolve(socket);
@@ -210,7 +216,7 @@ function openTunnel(proxyUrl, target) {
     socket.once('error', reject);
     socket.setTimeout(4_000, () => socket.destroy(new Error('CONNECT test timed out.')));
     socket.on('data', receive);
-    socket.once('connect', () => socket.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n`));
+    socket.once('connect', () => socket.write(`CONNECT ${target} HTTP/${version}\r\nHost: ${target}\r\n\r\n`));
   });
 }
 
@@ -264,6 +270,87 @@ test('HTTP CONNECT relays an opaque stream through the resolved upstream proxy',
   assert.deepEqual(upstream.tunnels, [target]);
   assert.equal(new URL(resolved[0]).hostname, 'remote.invalid');
   assert.equal(new URL(resolved[0]).port, String(origin.port));
+});
+
+async function connectRoute(t, route, destinationPort) {
+  const hostname = 'ssh-transport.invalid';
+  let policy = 'DIRECT';
+  if (route === 'DIRECT') localDnsMapping(t, hostname);
+  else {
+    const upstream = await (route === 'HTTP' ? httpProxyFixture : route === 'SOCKS5' ? socks5Fixture : socks4Fixture)(t, destinationPort);
+    policy = `${route === 'HTTP' ? 'PROXY' : route} 127.0.0.1:${upstream.port}`;
+  }
+  const bridge = await bridgeFixture(t, async () => policy);
+  return { bridge, hostname };
+}
+
+test('CONNECT negotiates the client HTTP version on every route without rewriting tunnel bytes', async t => {
+  for (const route of ['DIRECT', 'HTTP', 'SOCKS5', 'SOCKS4']) {
+    await t.test(route, async sub => {
+      const echo = await listen(sub, net.createServer(socket => socket.pipe(socket)));
+      const { bridge, hostname } = await connectRoute(sub, route, echo.port);
+      for (const version of ['1.0', '1.1']) {
+        const socket = await openTunnel(bridge.proxyUrl, `${hostname}:${echo.port}`, version);
+        sub.after(() => socket.destroy());
+        // An HTTP-looking payload must remain opaque after the CONNECT response.
+        const payload = Buffer.concat([Buffer.from('HTTP/1.1 200 Connection Established\r\n\r\nSSH-2.0-regression\r\n'), Buffer.from([0, 255, 128, 13, 10])]);
+        const received = new Promise((resolve, reject) => {
+          let data = Buffer.alloc(0);
+          socket.on('data', chunk => { data = Buffer.concat([data, chunk]); if (data.length >= payload.length) resolve(data); });
+          socket.once('error', reject);
+          socket.setTimeout(4000, () => socket.destroy(new Error('Tunnel payload timed out.')));
+        });
+        socket.resume();
+        socket.write(payload);
+        assert.deepEqual(await received, payload);
+        socket.destroy();
+      }
+    });
+  }
+});
+
+function nativeNetcat(proxyUrl, hostname, port, request) {
+  return new Promise((resolve, reject) => {
+    const child = execFile('/usr/bin/nc', ['-w', '3', '-X', 'connect', '-x', new URL(proxyUrl).host, hostname, String(port)], { timeout: 5000 }, (error, stdout, stderr) => {
+      if (error) reject(Object.assign(error, { stdout, stderr }));
+      else resolve({ stdout, stderr });
+    });
+    child.stdin.on('error', () => {});
+    // SSH keeps stdin open while awaiting its peer; early EOF can close a
+    // SOCKS tunnel before the response has made the return trip.
+    child.stdin.write(request);
+  });
+}
+
+test('native macOS nc completes CONNECT and transfers data on every system proxy route', { skip: process.platform !== 'darwin' }, async t => {
+  for (const route of ['DIRECT', 'HTTP', 'SOCKS5', 'SOCKS4']) {
+    await t.test(route, async sub => {
+      const origin = await originFixture(sub);
+      const { bridge, hostname } = await connectRoute(sub, route, origin.port);
+      const result = await nativeNetcat(bridge.proxyUrl, hostname, origin.port, 'GET /native-connect HTTP/1.1\r\nHost: remote.invalid\r\nConnection: close\r\n\r\n');
+      assert.match(result.stdout, /^HTTP\/1\.1 200 /u);
+      assert.equal(result.stderr, '');
+      assert.equal(origin.requests[0]?.url, '/native-connect');
+    });
+  }
+});
+
+test('HTTP/1.0 CONNECT failures remain failures and never fall back to DIRECT', async t => {
+  const origin = await originFixture(t);
+  const unavailable = await listen(t, net.createServer());
+  await unavailable.close();
+  const lookups = localDnsMapping(t, 'failed-connect.invalid');
+  const bridge = await bridgeFixture(t, async () => `PROXY 127.0.0.1:${unavailable.port}; DIRECT`);
+  await assert.rejects(openTunnel(bridge.proxyUrl, `failed-connect.invalid:${origin.port}`, '1.0'), /CONNECT rejected: HTTP\/1\.[01] 5\d\d /u);
+  assert.equal(lookups(), 0);
+  assert.deepEqual(origin.requests, []);
+  if (process.platform === 'darwin') {
+    await assert.rejects(nativeNetcat(bridge.proxyUrl, 'failed-connect.invalid', origin.port, ''), error => {
+      assert.match(error.stderr, /Proxy error: "HTTP\/1\.[01] 5\d\d /u);
+      assert.doesNotMatch(error.stderr, /200 Connection Established/u);
+      return true;
+    });
+  }
 });
 
 test('SOCKS5 HTTP and CONNECT keep destination DNS resolution at the upstream proxy', async t => {
