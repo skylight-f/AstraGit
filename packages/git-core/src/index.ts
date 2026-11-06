@@ -2545,7 +2545,7 @@ export function classifyGitCommandFailure(args: string[], error: unknown): Error
     code = 'ASTRAGIT_GIT_HTTP_502';
     summary = 'Git 请求收到 HTTP 502（Bad Gateway）。请检查代理和 Git 服务器的连接。';
   }
-  else if (/Could not resolve host|Could not resolve hostname|Failed to connect to|Connection (?:timed out|refused|reset)|network is unreachable/iu.test(output)) { code = 'ASTRAGIT_GIT_NETWORK_FAILED'; summary = '无法连接远程仓库，请检查远程地址和网络后重试。'; }
+  else if (/Could not resolve host|Could not resolve hostname|Failed to connect to|Connection (?:timed out|refused|reset|closed by)|network is unreachable/iu.test(output)) { code = 'ASTRAGIT_GIT_NETWORK_FAILED'; summary = '无法连接远程仓库，请检查远程地址和网络后重试。'; }
   else if (args.includes('push') && /\[rejected\][^\n]*\((?:non-fast-forward|fetch first|stale info)\)/iu.test(output)) { code = 'ASTRAGIT_GIT_PUSH_NON_FAST_FORWARD'; summary = '远程分支已有不同的提交，推送被拒绝。请先抓取并核对差异。'; }
   else if (args.includes('push') && /\[remote rejected\]/iu.test(output)) { code = 'ASTRAGIT_GIT_REMOTE_REJECTED'; summary = '远程仓库拒绝了推送，请查看服务器返回的原因。'; }
   else if (/gpg failed to sign|Couldn't load public key|signing failed/iu.test(output)) { code = 'ASTRAGIT_GIT_SIGNING_FAILED'; summary = '提交签名失败，请检查 Git 签名工具和密钥配置。'; }

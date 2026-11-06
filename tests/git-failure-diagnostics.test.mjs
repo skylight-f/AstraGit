@@ -35,6 +35,7 @@ test('SSH proxy diagnostics distinguish rejected success responses, proxy refusa
     ['nc: Proxy error: "HTTP/1.1 502 Bad Gateway"', 'ASTRAGIT_GIT_SSH_PROXY_FAILED'],
     ['nc: connection failed, SOCKS error 5', 'ASTRAGIT_GIT_SSH_PROXY_FAILED'],
     ['nc: proxy read: Connection reset by peer', 'ASTRAGIT_GIT_SSH_PROXY_FAILED'],
+    ['Connection closed by UNKNOWN port 65535\nfatal: Could not read from remote repository.', 'ASTRAGIT_GIT_NETWORK_FAILED'],
     ['git@example.test: Permission denied (publickey).', 'ASTRAGIT_GIT_AUTH_REQUIRED'],
     ['fatal: Could not read from remote repository.', 'ASTRAGIT_GIT_COMMAND_FAILED'],
     ['remote: a file contains nc: Proxy error: "HTTP/1.1 200 Connection Established"', 'ASTRAGIT_GIT_COMMAND_FAILED'],

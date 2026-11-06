@@ -100,6 +100,8 @@ AstraGit 跟随 macOS 系统代理。更新检查与下载、模型请求使用 
 
 转发支持 HTTP、HTTPS、SOCKS4/5 及 PAC 首选路由。代理连接失败会报错，不自动尝试 PAC 后续备用项或直连，不重放写入请求。需要代理账号认证的企业代理尚未接入系统凭据。显式 Git `http.proxy`、自定义 SSH 命令和 `ProxyJump` / `ProxyCommand` 仍按用户配置执行；通过外部浏览器打开的链接由浏览器管理网络。
 
+默认 SSH 代理兼容 macOS 原生 `nc` 的 HTTP/1.0 CONNECT 握手，隧道建立后原样传输 SSH 数据。若系统代理仍在连接 GitHub 的 22 端口后断开，可按 [GitHub 官方说明](https://docs.github.com/en/authentication/troubleshooting-ssh/using-ssh-over-the-https-port)验证 `ssh.github.com:443`；应用不会自动改写远端或 SSH 配置，端口可达性与代理握手兼容性须分别检查。
+
 如果内网 Git 仓库通过代理返回 HTTP 502，可在该仓库目录先验证直连。以下命令中的地址需换成远端实际使用的协议、主机名及端口。
 
 ```sh
