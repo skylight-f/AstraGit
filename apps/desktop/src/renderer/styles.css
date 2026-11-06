@@ -5062,8 +5062,13 @@ a {
 .git-pane-separator::before {
   content: '';
   position: absolute;
-  /* A larger hit area without changing the size of either pane. */
-  inset: -3px;
+  /* Enlarge across the split only; extending past its ends creates overflow. */
+}
+.git-pane-separator.is-x::before {
+  inset: 0 -3px;
+}
+.git-pane-separator.is-y::before {
+  inset: -3px 0;
 }
 .git-pane-separator.is-x {
   width: 6px;

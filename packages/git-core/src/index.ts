@@ -2539,6 +2539,10 @@ function classifyGitCommandFailure(args: string[], error: unknown): Error & { co
   else if (/Entry [\s\S]*not uptodate\. Cannot merge\./u.test(output)) { code = 'ASTRAGIT_GIT_INDEX_ENTRY_NOT_UPTODATE'; summary = 'Git 拒绝更新某些暂存条目，请检查文件状态及 assume-unchanged/skip-worktree 标记，并刷新核对执行结果。'; }
   else if (/local changes[\s\S]*would be overwritten|untracked working tree files would be overwritten|cannot (?:pull|rebase)[^\n]*unstaged changes|index contains uncommitted changes|Please commit or stash them/iu.test(output)) { code = 'ASTRAGIT_GIT_LOCAL_CHANGES_BLOCKED'; summary = '本地更改阻止了操作，请先提交或贮藏相关更改，再重试。'; operationStatus = 'failed_before_write'; }
   else if (/Authentication failed|Permission denied \(publickey|could not read (?:Username|Password)|terminal prompts disabled|HTTP Basic: Access denied/iu.test(output)) { code = 'ASTRAGIT_GIT_AUTH_REQUIRED'; summary = '远程仓库未接受当前凭据，请检查账号、SSH 密钥或访问权限。'; }
+  else if (/^fatal: unable to access [^\n]+: (?:The requested URL returned error: 502|CONNECT tunnel failed, response 502|Received HTTP code 502 from proxy after CONNECT)\s*$/imu.test(stderr) || /^error: RPC failed; HTTP 502\b/imu.test(stderr)) {
+    code = 'ASTRAGIT_GIT_HTTP_502';
+    summary = 'Git 请求收到 HTTP 502（Bad Gateway）。请检查代理和 Git 服务器的连接。';
+  }
   else if (/Could not resolve host|Could not resolve hostname|Failed to connect to|Connection (?:timed out|refused|reset)|network is unreachable/iu.test(output)) { code = 'ASTRAGIT_GIT_NETWORK_FAILED'; summary = '无法连接远程仓库，请检查远程地址和网络后重试。'; }
   else if (args.includes('push') && /\[rejected\][^\n]*\((?:non-fast-forward|fetch first|stale info)\)/iu.test(output)) { code = 'ASTRAGIT_GIT_PUSH_NON_FAST_FORWARD'; summary = '远程分支已有不同的提交，推送被拒绝。请先抓取并核对差异。'; }
   else if (args.includes('push') && /\[remote rejected\]/iu.test(output)) { code = 'ASTRAGIT_GIT_REMOTE_REJECTED'; summary = '远程仓库拒绝了推送，请查看服务器返回的原因。'; }

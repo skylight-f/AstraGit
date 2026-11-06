@@ -493,11 +493,13 @@ export function App(props: AppProps) {
               <div className="gitapp-path-row">
                 <input value={draftPath} onChange={(event) => setDraftPath(event.target.value)} placeholder="/Users/you/code/repo" spellCheck={false} />
                 <Button type="button" variant="secondary" disabled={pickBusy} onClick={() => void pickDirectory()}>
+                  <FolderOpen size={16} aria-hidden="true" />
                   {zh ? '浏览…' : 'Browse…'}
                 </Button>
               </div>
             </label>
-            <Button type="button" disabled={busy} onClick={() => void addProject()}>
+            <Button type="button" variant="primary" busy={busy} onClick={() => void addProject()}>
+              <Plus size={16} aria-hidden="true" />
               {busy ? (zh ? '打开中…' : 'Opening…') : zh ? '添加并打开' : 'Add & open'}
             </Button>
           </section>}
@@ -525,8 +527,8 @@ export function App(props: AppProps) {
                       <span>{project.localPath}</span>
                       <small>{zh ? '打开工作台 →' : 'Open workbench →'}</small>
                     </button>
-                    <button type="button" className="gitapp-remove" onClick={() => void removeProject(project)} title={zh ? '从列表移除' : 'Remove from list'}>
-                      ×
+                    <button type="button" className="gitapp-remove" onClick={() => void removeProject(project)} aria-label={zh ? `从列表移除 ${project.name}` : `Remove ${project.name} from list`} title={zh ? '从列表移除' : 'Remove from list'}>
+                      <X size={16} aria-hidden="true" />
                     </button>
                   </li>
                 ))}

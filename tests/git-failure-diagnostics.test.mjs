@@ -213,17 +213,22 @@ test('smart update fetch failure restores local changes and reports the restorat
   assert.equal(await f.git('rev-parse', 'HEAD'), head); assert.equal(await readFile(join(f.repository, 'file.txt'), 'utf8'), 'local work\n'); assert.equal(await f.git('stash', 'list'), '');
 });
 
-test('local remote helper failures distinguish credentials from connectivity without contacting any server', async t => {
+test('remote helper failures distinguish credentials, connectivity and HTTP 502 without contacting a server', async t => {
   const f = await fixture(t); const tools = join(f.root, 'tools'); await mkdir(tools);
   const helper = join(tools, 'git-remote-astragitfixture');
   await f.git('remote', 'add', 'origin', 'astragitfixture::fixture');
-  for (const [diagnostic, code] of [
-    ['fatal: Authentication failed for https://user:private-token@invalid/repo', 'ASTRAGIT_GIT_AUTH_REQUIRED'],
-    ['fatal: Failed to connect to invalid port 443: Connection refused', 'ASTRAGIT_GIT_NETWORK_FAILED'],
+  await writeFile(helper, '#!/bin/sh\nprintf "%s\\n" "$FIXTURE_DIAGNOSTIC" >&2\nexit 1\n', { mode: 0o755 });
+  for (const [type, diagnostic, code] of [
+    ['fetch', 'fatal: Authentication failed for https://user:private-token@invalid/repo', 'ASTRAGIT_GIT_AUTH_REQUIRED'],
+    ['fetch', 'fatal: Failed to connect to invalid port 443: Connection refused', 'ASTRAGIT_GIT_NETWORK_FAILED'],
+    ['push', "fatal: unable to access 'http://git.example.test:10001/repo.git/': The requested URL returned error: 502", 'ASTRAGIT_GIT_HTTP_502'],
+    ['push', "fatal: unable to access 'https://git.example.test/repo.git/': CONNECT tunnel failed, response 502", 'ASTRAGIT_GIT_HTTP_502'],
+    ['push', 'error: RPC failed; HTTP 502 curl 22 The requested URL returned error: 502', 'ASTRAGIT_GIT_HTTP_502'],
   ]) {
-    await writeFile(helper, `#!/bin/sh\nprintf '%s\\n' '${diagnostic}' >&2\nexit 1\n`, { mode: 0o755 });
-    await rejectsCode(() => executeProjectGitAction(f.repository, { type: 'fetch', remote: 'origin' }, undefined, { PATH: `${tools}:${process.env.PATH}` }), code, error => {
-      assert.match(error.command, /git fetch/u); assert.doesNotMatch(error.details, /private-token/u);
+    const env = { PATH: `${tools}:${process.env.PATH}`, FIXTURE_DIAGNOSTIC: diagnostic };
+    await rejectsCode(() => executeProjectGitAction(f.repository, { type, remote: 'origin' }, undefined, env), code, error => {
+      assert.ok(error.command.startsWith(`git ${type} `)); assert.doesNotMatch(error.details, /private-token/u);
+      if (type === 'push') assert.equal(error.operationStatus, 'unknown_after_write');
     });
   }
 });

@@ -86,6 +86,7 @@ test('remote rejection, credentials, upstream and connection failures stay disti
     ['ASTRAGIT_GIT_AUTH_REQUIRED', /系统 Git 使用的 SSH 密钥或 HTTPS 凭据/u, /SSH key or HTTPS credentials used by Git/u],
     ['ASTRAGIT_GIT_UPSTREAM_REQUIRED', /首次推送.*推送窗口.*跟踪/u, /first push.*push dialog/u],
     ['ASTRAGIT_GIT_NETWORK_FAILED', /检查网络.*推送.*核对远端分支/u, /network.*push.*verify the remote branch/u],
+    ['ASTRAGIT_GIT_HTTP_502', /HTTP 502.*直连.*代理例外.*核对远端分支/u, /HTTP 502.*direct access.*proxy bypass.*verify the remote branch/u],
     ['ASTRAGIT_GIT_SSH_HELPER_MISSING', /临时 SSH 代理.*完全退出.*核对远端状态/u, /temporary SSH proxy helper.*quit and reopen.*verify the remote state/u],
     ['ASTRAGIT_GIT_HOST_UNVERIFIED', /服务器的身份.*核实服务器信息/u, /server identity.*Confirm its identity/u],
   ];
