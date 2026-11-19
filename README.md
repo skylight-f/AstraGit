@@ -69,9 +69,15 @@ Apple Silicon 产物为 `release/mac-arm64/AstraGit.app`；Intel 为 `release/ma
 
 ## 自动发行与应用更新
 
-公开仓库：[skylight-f/AstraGit](https://github.com/skylight-f/AstraGit)。`main` 推送经过 `verify:publish` 后，Actions 自动准备版本提交、构建 arm64/x64 DMG、校验摘要并发布 GitHub Release 与 `astragit-release-manifest.json`。失败重跑复用版本候选，不强推分支、不覆盖已公开的 Release。可手动重跑 Release 工作流；仓库变量 `ASTRAGIT_AUTO_RELEASE=false` 可暂停自动发行。
+从 [GitHub 最新正式版](https://github.com/skylight-f/AstraGit/releases/latest) 下载 macOS Apple Silicon 或 Intel 的 DMG，以及 Windows x64 的 EXE。
 
-应用启动时及每四小时检查更新，也可点击右上角 **应用更新**。下载按照架构匹配，校验大小和 SHA-256，并识别当前应用的安装渠道。
+`main` 推送通过 `verify:publish` 后，Actions 准备版本提交、构建三个安装包，并在校验大小和 SHA-256 后公开 Release。失败重跑复用版本候选。仓库变量 `ASTRAGIT_AUTO_RELEASE=false` 可暂停自动发行。
+
+macOS 应用启动后定期检查更新，也可在 **设置 → 应用更新** 手动检查。下载按照架构匹配，并识别当前应用的安装渠道。
+
+### Windows 安装与升级
+
+安装 [Git for Windows](https://gitforwindows.org/)，安装时选择允许第三方程序从 PATH 调用 Git。运行 Release 中的 `AstraGit-版本-win-x64-setup.exe`。升级时可从 **设置 → 应用更新 → 打开下载页面** 下载并运行新版安装包。
 
 ### Homebrew 安装与升级
 
@@ -94,7 +100,7 @@ Apple Silicon 与 Intel 使用各自的 DMG 和摘要。Homebrew 安装采用 As
 
 默认 CI 可以发布 ad-hoc 包。启用正式签名、公证时配置仓库 Secrets：`MACOS_CERTIFICATE`（P12 的 base64）、`MACOS_CERTIFICATE_PASSWORD`、`APPLE_ID`、`APPLE_APP_SPECIFIC_PASSWORD`、`APPLE_TEAM_ID`。设 `REQUIRE_APPLE_DISTRIBUTION=true` 可要求签名和公证缺一即阻止发布。当前本地验收包没有 Developer ID 凭据，无法证明 Apple 公证或 DMG 渠道自动替换已安装签名应用的完整生产链路。
 
-显式本地安装包构建：`pnpm build:release`。该入口读取 Apple 发行凭据并生成 DMG；正式身份验收使用 `pnpm build:app`，日常开发验证使用 `pnpm dev`。
+在对应系统上运行 `pnpm build:release` 可构建本地安装包。macOS 生成 DMG 并读取 Apple 发行凭据，Windows x64 生成 EXE。正式应用验收使用 `pnpm build:app`，日常开发验证使用 `pnpm dev`。
 
 ## 系统代理
 

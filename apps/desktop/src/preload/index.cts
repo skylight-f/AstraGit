@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('astraGit', {
   cancelSourceArchive: (id: string) => ipcRenderer.invoke('astragit:archive-file-cancel', id),
   performFileAction: (request: { projectId: string; repositoryId: string; path: string; intent: 'open' | 'reveal' | 'edit-ignore-rule' }) => ipcRenderer.invoke('astragit:file-action', request),
   rendererReady: () => ipcRenderer.invoke('astragit:renderer-ready'),
+  manualUpdateVersion: () => ipcRenderer.invoke('astragit:manual-update-version') as Promise<string | null>,
   openUpdates: (language: 'zh-CN' | 'en-US') => ipcRenderer.invoke('astragit:update-open', language),
   performUpdateAction: (action: 'check' | 'prepare' | 'restart', language: 'zh-CN' | 'en-US') => ipcRenderer.invoke('astragit:update-action', action, language),
   getUpdateIndicator: () => ipcRenderer.invoke('astragit:update-indicator-get'),

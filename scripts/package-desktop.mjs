@@ -5,7 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build, Platform } from 'electron-builder';
+import { Arch, build, Platform } from 'electron-builder';
 import { verifyMachOArchitecture } from './macos-architecture.mjs';
 import { verifyGitFlowResources } from './check-git-flow.mjs';
 
@@ -14,15 +14,17 @@ const desktop = join(root, 'apps/desktop');
 const output = process.env.ASTRAGIT_BUILD_OUTPUT_DIR ? resolve(process.env.ASTRAGIT_BUILD_OUTPUT_DIR) : join(root, 'release');
 const appId = 'com.astragit.desktop';
 const productName = 'AstraGit';
+const isMac = process.platform === 'darwin';
+const isWindows = process.platform === 'win32';
+if (!(isMac && ['arm64', 'x64'].includes(process.arch)) && !(isWindows && process.arch === 'x64')) {
+  throw new Error('Build on a macOS arm64/x64 or Windows x64 host.');
+}
 // Actions 未设置的 Secret 会成为空字符串；构建器必须收到未定义值，而非空证书路径。
 for (const key of ['CSC_LINK', 'CSC_NAME', 'CSC_KEYCHAIN', 'CSC_INSTALLER_LINK']) if (process.env[key] !== undefined && !process.env[key].trim()) delete process.env[key];
 const releaseBuild = process.argv.includes('--release');
-const signingConfigured = Boolean(process.env.CSC_LINK || process.env.CSC_NAME);
+const signingConfigured = isMac && Boolean(process.env.CSC_LINK || process.env.CSC_NAME);
 const notarizationConfigured = Boolean((process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD && process.env.APPLE_TEAM_ID) || (process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER));
-if (releaseBuild && process.env.REQUIRE_APPLE_DISTRIBUTION === 'true' && (!signingConfigured || !notarizationConfigured)) throw new Error('本次发布要求 Developer ID 签名与公证，请配置 Apple 发布凭据。');
-if (process.platform !== 'darwin' || !['arm64', 'x64'].includes(process.arch)) {
-  throw new Error('build:app currently supports macOS arm64 and x64, using the host architecture.');
-}
+if (isMac && releaseBuild && process.env.REQUIRE_APPLE_DISTRIBUTION === 'true' && (!signingConfigured || !notarizationConfigured)) throw new Error('本次发布要求 Developer ID 签名与公证，请配置 Apple 发布凭据。');
 mkdirSync(output, { recursive: true });
 const stagingRoot = await mkdtemp(join(output, '.app-stage-'));
 const appDirectory = join(stagingRoot, 'app');
@@ -73,9 +75,12 @@ try {
   const requireDesktop = createRequire(join(desktop, 'package.json'));
   const electronManifest = requireDesktop.resolve('electron/package.json');
   const electronVersion = JSON.parse(await readFile(electronManifest, 'utf8')).version;
+  const target = isMac ? 'dmg' : 'nsis';
+  const platform = isMac ? Platform.MAC : Platform.WINDOWS;
+  const architecture = process.arch === 'arm64' ? Arch.arm64 : Arch.x64;
   await build({
     projectDir: root,
-    targets: Platform.MAC.createTarget(releaseBuild ? 'dmg' : 'dir'),
+    targets: platform.createTarget(releaseBuild ? target : 'dir', architecture),
     publish: 'never',
     config: {
       extends: null,
@@ -100,33 +105,52 @@ try {
         notarize: releaseBuild && signingConfigured && notarizationConfigured,
         minimumSystemVersion: '13.0',
       },
+      win: { icon: join(desktop, 'build/icon.png') },
+      nsis: {
+        artifactName: 'AstraGit-${version}-win-${arch}-setup.${ext}',
+        oneClick: false,
+        perMachine: false,
+        allowToChangeInstallationDirectory: true,
+      },
     },
   });
-  const appPath = join(output, process.arch === 'arm64' ? 'mac-arm64' : 'mac', `${productName}.app`);
+  const appPath = isMac
+    ? join(output, process.arch === 'arm64' ? 'mac-arm64' : 'mac', `${productName}.app`)
+    : join(output, 'win-unpacked', `${productName}.exe`);
+  const resources = isMac ? join(appPath, 'Contents/Resources') : join(dirname(appPath), 'resources');
   const requireBuilder = createRequire(createRequire(import.meta.url).resolve('electron-builder'));
   const asar = requireBuilder('@electron/asar');
-  const archive = join(appPath, 'Contents/Resources/app.asar');
-  const packagedGitFlow = await verifyGitFlowResources(join(appPath, 'Contents/Resources/git-flow-avh'));
+  const archive = join(resources, 'app.asar');
+  const packagedGitFlow = await verifyGitFlowResources(join(resources, 'git-flow-avh'));
   if (packagedGitFlow.fingerprint !== gitFlow.fingerprint) throw new Error('Packaged Git Flow differs from the verified source resources.');
-  const packagedIcon = await readFile(join(appPath, 'Contents/Resources/branding/icon.png'));
-  if (!packagedIcon.equals(await readFile(join(desktop, 'build/icon.png')))) throw new Error('Packaged Dock icon does not match the AstraGit icon source.');
-  const packagedIcns = await readFile(join(appPath, 'Contents/Resources/icon.icns'));
-  if (!packagedIcns.equals(await readFile(join(desktop, 'build/icon.icns')))) throw new Error('Packaged application icon does not match the AstraGit icon source.');
-  const archiveFiles = new Set(asar.listPackage(archive));
-  const requiredFiles = ['dist/main/main.js', 'dist/main/releaseInstaller.js', 'dist/main/releaseUpdateService.js', 'dist/main/releaseArtifact.js', 'dist/main/homebrewUpdateService.js', 'dist/main/homebrewUpdateController.js', 'dist/main/nativeUpdateProgress.js', 'dist/main/automaticUpdateScheduler.js', 'dist/native/AstraGitUpdateProgress', 'dist/preload/index.cjs', 'dist/renderer/index.html', 'LICENSE', 'THIRD_PARTY_NOTICES.md'];
+  const packagedIcon = await readFile(join(resources, 'branding/icon.png'));
+  if (!packagedIcon.equals(await readFile(join(desktop, 'build/icon.png')))) throw new Error('Packaged PNG icon does not match the AstraGit icon source.');
+  if (isMac) {
+    const packagedIcns = await readFile(join(resources, 'icon.icns'));
+    if (!packagedIcns.equals(await readFile(join(desktop, 'build/icon.icns')))) throw new Error('Packaged application icon does not match the AstraGit icon source.');
+    await verifyMachOArchitecture(join(resources, 'app.asar.unpacked/dist/native/AstraGitUpdateProgress'), process.arch);
+  } else {
+    const executable = await readFile(appPath);
+    const header = executable.readUInt32LE(0x3c);
+    if (executable.toString('ascii', 0, 2) !== 'MZ' || header + 6 > executable.length || executable.readUInt32LE(header) !== 0x4550 || executable.readUInt16LE(header + 4) !== 0x8664) {
+      throw new Error('Packaged AstraGit.exe is not a Windows x64 executable.');
+    }
+  }
+  const archiveFiles = new Set(asar.listPackage(archive).map(file => file.slice(1)));
+  const requiredFiles = ['dist/main/main.js', 'dist/main/releaseInstaller.js', 'dist/main/releaseUpdateService.js', 'dist/main/releaseArtifact.js', 'dist/main/homebrewUpdateService.js', 'dist/main/homebrewUpdateController.js', 'dist/main/nativeUpdateProgress.js', 'dist/main/automaticUpdateScheduler.js', 'dist/preload/index.cjs', 'dist/renderer/index.html', 'LICENSE', 'THIRD_PARTY_NOTICES.md'];
+  if (isMac) requiredFiles.push('dist/native/AstraGitUpdateProgress');
   for (const name of ['git-server', 'git-core', 'ai-runtime', 'shared', 'storage']) {
     requiredFiles.push(`node_modules/@astragit/${name}/dist/index.js`);
   }
   for (const file of requiredFiles) {
-    if (!archiveFiles.has(`/${file}`)) throw new Error(`Application archive is missing ${file}`);
+    if (!archiveFiles.has(file.split('/').join(sep))) throw new Error(`Application archive is missing ${file}`);
   }
-  await verifyMachOArchitecture(join(appPath, 'Contents/Resources/app.asar.unpacked/dist/native/AstraGitUpdateProgress'), process.arch);
   for (const file of archiveFiles) {
-    if (asar.statFile(archive, file.slice(1)).link) throw new Error(`Application archive contains an unresolved link: ${file}`);
+    if (asar.statFile(archive, file).link) throw new Error(`Application archive contains an unresolved link: ${file}`);
   }
   const packagedManifest = JSON.parse(asar.extractFile(archive, 'package.json').toString());
   if (packagedManifest.name !== 'astragit' || packagedManifest.version !== manifest.version) throw new Error('Incorrect packaged application identity.');
-  await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', appPath]);
+  if (isMac) await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', appPath]);
   let signed = false;
   let notarized = false;
   if (releaseBuild && signingConfigured) {
@@ -137,21 +161,23 @@ try {
     if (!signed) throw new Error('配置了正式签名，但实际产物没有 Developer ID 团队。');
     if (notarizationConfigured) { await run('/usr/bin/xcrun', ['stapler', 'validate', appPath]); await run('/usr/sbin/spctl', ['--assess', '--type', 'execute', appPath]); notarized = true; }
   }
+  const signing = isMac ? signed ? 'Developer ID' : 'ad-hoc' : 'unsigned';
   await writeFile(join(output, 'build-info.json'), `${JSON.stringify({
     productName, appId, version: manifest.version, architecture: process.arch,
-    electronVersion, application: appPath, signing: signed ? 'Developer ID' : 'ad-hoc', notarized,
+    electronVersion, application: appPath, signing, notarized,
     archiveSha256: createHash('sha256').update(await readFile(archive)).digest('hex'),
     archiveEntries: archiveFiles.size, builtAt: new Date().toISOString(),
     gitFlow: { version: packagedGitFlow.version, manifestSha256: packagedGitFlow.fingerprint, files: packagedGitFlow.files },
   }, null, 2)}\n`);
   if (releaseBuild) {
-    const fileName = `AstraGit-${manifest.version}-${process.arch}.dmg`;
+    const fileName = isMac ? `AstraGit-${manifest.version}-${process.arch}.dmg` : `AstraGit-${manifest.version}-win-x64-setup.exe`;
     const artifact = join(output, fileName);
     const bytes = await readFile(artifact);
-    await run('/usr/bin/hdiutil', ['verify', artifact]);
-    await writeFile(join(output, `artifact-${process.arch}.json`), JSON.stringify({ version: manifest.version, signed, notarized, artifact: { arch: process.arch, kind: 'dmg', fileName, sha256: createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.length } }, null, 2) + '\n');
+    if (isMac) await run('/usr/bin/hdiutil', ['verify', artifact]);
+    const artifactId = isMac ? process.arch : 'win-x64';
+    await writeFile(join(output, `artifact-${artifactId}.json`), JSON.stringify({ version: manifest.version, signed, notarized, artifact: { arch: process.arch, kind: isMac ? 'dmg' : 'exe', fileName, sha256: createHash('sha256').update(bytes).digest('hex'), sizeBytes: bytes.length } }, null, 2) + '\n');
   }
-  console.info(`\n正式应用: ${appPath}\nBundle ID: ${appId}\n签名: ${signed ? 'Developer ID' : 'ad-hoc'}; 公证: ${notarized}`);
+  console.info(`\n正式应用: ${appPath}\n应用 ID: ${appId}\n签名: ${signing}; 公证: ${notarized}`);
 } finally {
   await rm(stagingRoot, { recursive: true, force: true });
 }

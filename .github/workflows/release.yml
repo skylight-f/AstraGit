@@ -63,9 +63,20 @@ jobs:
       matrix:
         include:
           - runner: macos-15
+            platform: mac
             arch: arm64
+            extension: dmg
+            artifact: arm64
           - runner: macos-15-intel
+            platform: mac
             arch: x64
+            extension: dmg
+            artifact: x64
+          - runner: windows-2025
+            platform: win
+            arch: x64
+            extension: exe
+            artifact: win-x64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -81,8 +92,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm setup:desktop
       - name: 校验原生辅助程序的架构检查
+        if: runner.os == 'macOS'
         run: node --test tests/macos-architecture.test.mjs
       - name: 构建并校验正式安装包
+        if: runner.os == 'macOS'
         env:
           CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -91,12 +104,52 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           REQUIRE_APPLE_DISTRIBUTION: ${{ vars.REQUIRE_APPLE_DISTRIBUTION }}
         run: pnpm build:release
+      - name: 构建 Windows EXE
+        if: runner.os == 'Windows'
+        run: pnpm build:release
+      - name: 验证 Windows Git 工作区与项目提交
+        if: runner.os == 'Windows'
+        run: |
+          git --version
+          node --import tsx --test tests/app.test.mjs tests/source-batch.test.mjs
+      - name: 安装并启动 Windows 正式应用
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $installer = Join-Path $PWD "release\AstraGit-$version-win-x64-setup.exe"
+          $installPath = Join-Path $env:RUNNER_TEMP 'AstraGit'
+          $setup = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$installPath" -PassThru -Wait
+          if ($setup.ExitCode -ne 0) { throw "AstraGit installer exited with $($setup.ExitCode)." }
+          $env:ASTRAGIT_USER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'AstraGit-user-data'
+          $env:ASTRAGIT_CODEX_ENABLED = '0'
+          $readyFile = Join-Path $env:ASTRAGIT_USER_DATA_DIR 'updates\app-ready.json'
+          $application = Start-Process -FilePath (Join-Path $installPath 'AstraGit.exe') -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(60)
+            while (!(Test-Path $readyFile) -and (Get-Date) -lt $deadline) {
+              if ($application.HasExited) { throw "AstraGit exited with $($application.ExitCode) during launch." }
+              Start-Sleep -Milliseconds 500
+            }
+            if (!(Test-Path $readyFile)) { throw 'The installed AstraGit renderer did not become ready.' }
+            $ready = Get-Content $readyFile -Raw | ConvertFrom-Json
+            if ($ready.version -ne $version -or $ready.pid -ne $application.Id) {
+              throw 'The running application does not match the installed release.'
+            }
+            Write-Host "AstraGit $version installed and the renderer is ready."
+          } finally {
+            if (!$application.HasExited) {
+              if (!$application.CloseMainWindow() -or !$application.WaitForExit(10000)) {
+                $application | Stop-Process -Force
+              }
+            }
+          }
       - uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.arch }}
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
-            release/AstraGit-*-${{ matrix.arch }}.dmg
-            release/artifact-${{ matrix.arch }}.json
+            release/AstraGit-*.${{ matrix.extension }}
+            release/artifact-${{ matrix.artifact }}.json
           if-no-files-found: error
   publish:
     needs: [candidate, build]

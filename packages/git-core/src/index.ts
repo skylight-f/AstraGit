@@ -4545,7 +4545,7 @@ export async function getFileReviewDiff(absolutePath: string): Promise<GitFileDi
   const root = await readGitStdout(cwd, ['rev-parse', '--show-toplevel']);
   if (!root) return undefined;
   /** 只允许字面量相对路径，不将文件名解释成 Git 路径表达式。 */
-  const path = requireSafeWorkspacePath(relative(root, absolutePath));
+  const path = requireSafeWorkspacePath(relative(root, absolutePath)).split(sep).join('/');
   if (path.split('/').includes('.git')) throw new Error('不能审阅 Git 管理目录。');
   /** HEAD 中存在该文件时合并展示暂存与未暂存结果。 */
   const tracked = await readGitStdout(root, ['ls-tree', '-z', 'HEAD', '--', `:(literal)${path}`]);

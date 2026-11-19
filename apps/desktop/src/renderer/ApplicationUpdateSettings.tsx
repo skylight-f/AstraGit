@@ -5,6 +5,16 @@ import { applicationUpdateLabel, canPrepareApplicationUpdate, hasApplicationUpda
 export function ApplicationUpdateSettings(props: { zh: boolean; update: ApplicationUpdates; disabled: boolean }) {
   const { zh, update } = props;
   const text = (cn: string, en: string) => zh ? cn : en;
+  if (update.manualVersion) {
+    return <section className="gitapp-settings-section gitapp-update-settings" aria-label={text('应用更新', 'App updates')}>
+      <header><h3>{text('应用更新', 'App updates')}</h3><span>AstraGit {update.manualVersion}</span></header>
+      <p>{text('请从发布页面下载并运行新版 Windows 安装包。', 'Download and run the latest Windows installer from the release page.')}</p>
+      {update.error ? <p role="alert"><VisibleApplicationError error={update.error} language={zh ? 'zh-CN' : 'en'} /></p> : null}
+      <footer>
+        <Button variant="secondary" disabled={props.disabled || update.busy !== null} onClick={() => void update.openDetails()}>{text('打开下载页面', 'Open download page')}</Button>
+      </footer>
+    </section>;
+  }
   const state = update.state;
   const homebrew = state?.method === 'homebrew';
   const preparing = state?.phase === 'preparing';

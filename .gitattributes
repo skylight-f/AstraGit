@@ -1,2 +1,5 @@
 # Preserve the vendored upstream source and its verified manifest bytes.
-vendor/git-flow-avh/** -whitespace
+vendor/git-flow-avh/** -text -whitespace
+apps/desktop/build/icon.svg text eol=lf
+scripts/generate-icons.mjs text eol=lf
+scripts/render-icon.swift text eol=lf

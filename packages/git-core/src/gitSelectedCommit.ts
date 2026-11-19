@@ -51,8 +51,16 @@ const allowed = new Set(config.paths);
 if (diff.stdout.split('\\0').filter(Boolean).some(path => !allowed.has(path))) { process.stderr.write('ASTRAGIT_GIT_HOOK_SELECTION_CHANGED: 提交 hook 暂存了未勾选的文件，已阻止本次提交；请调整 hook 或重新选择范围。\\n'); process.exit(1); }
 `, { mode: 0o600 });
     const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-    for (const name of ['pre-commit', 'prepare-commit-msg', 'commit-msg']) await writeFile(join(hooks, name), `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${quote(process.execPath)} ${quote(guard)} ${quote(name)} "$@"\n`, { mode: 0o700 });
-    for (const name of ['post-commit', 'post-rewrite']) await symlink(join(originalHooks, name), join(hooks, name));
+    const forShell = (path: string) => quote(process.platform === 'win32' ? path.replaceAll('\\', '/') : path);
+    for (const name of ['pre-commit', 'prepare-commit-msg', 'commit-msg']) {
+      await writeFile(join(hooks, name), `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${forShell(process.execPath)} ${forShell(guard)} ${quote(name)} "$@"\n`, { mode: 0o700 });
+    }
+    for (const name of ['post-commit', 'post-rewrite']) {
+      if (process.platform === 'win32') {
+        // Windows 普通用户无需创建符号链接的权限，仍使用原仓库工作目录并传递钩子参数。
+        await writeFile(join(hooks, name), `#!/bin/sh\nexec git -c core.hooksPath=${forShell(originalHooks)} hook run --ignore-missing ${quote(name)} -- "$@"\n`, { mode: 0o700 });
+      } else await symlink(join(originalHooks, name), join(hooks, name));
+    }
     const output = await run(['-c', `core.hooksPath=${hooks}`, 'commit', '-m', input.message], { index });
     // 保留未勾选的索引条目；工作区在冻结之后产生的修改继续留在工作区。
     try {
@@ -66,6 +74,8 @@ if (diff.stdout.split('\\0').filter(Boolean).some(path => !allowed.has(path))) {
       .split('\0').filter(Boolean).map(record => record.replace(/^(\d+) (?:blob|commit) ([0-9a-f]+)\t/u, '$1 $2\t')).join('\0');
     await run(['--literal-pathspecs', 'update-index', '--force-remove', '--', ...input.paths], { index: lockPath });
     if (entries) await run(['update-index', '-z', '--index-info'], { index: lockPath, input: `${entries}\0` });
+    await lock.close();
+    lock = undefined;
     await rename(lockPath, indexPath);
     ownsLock = false;
     return output;

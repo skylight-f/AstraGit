@@ -15,14 +15,17 @@ const gh = (...args) => execFileSync('gh', args, { encoding: 'utf8', cwd: root }
 const sourceCommit = git('rev-parse', 'HEAD');
 if (tag !== process.env.RELEASE_TAG || sourceCommit !== process.env.RELEASE_COMMIT || !/^[a-f0-9]{40}$/u.test(sourceCommit)) throw new Error('发布提交、版本或标签不一致。');
 if (git('ls-remote', 'origin', 'refs/heads/main').split(/\s+/u)[0] !== sourceCommit) throw new Error('main 已更新，拒绝发布过时的候选。');
-const metadata = [];
-for (const arch of ['arm64', 'x64']) {
-  const record = JSON.parse(await readFile(join(output, `artifact-${arch}.json`), 'utf8'));
-  if (record.version !== version || record.artifact.arch !== arch || record.artifact.fileName !== `AstraGit-${version}-${arch}.dmg` || typeof record.signed !== 'boolean' || typeof record.notarized !== 'boolean') throw new Error('构建产物元数据无效。');
-  const bytes = await readFile(join(output, record.artifact.fileName));
-  if (bytes.length !== record.artifact.sizeBytes || createHash('sha256').update(bytes).digest('hex') !== record.artifact.sha256) throw new Error('上传前产物校验失败。');
-  metadata.push(record);
+async function verifyArtifact(id, arch, kind, fileName) {
+  const record = JSON.parse(await readFile(join(output, `artifact-${id}.json`), 'utf8'));
+  const { artifact } = record;
+  if (record.version !== version || artifact?.arch !== arch || artifact.kind !== kind || artifact.fileName !== fileName || typeof record.signed !== 'boolean' || typeof record.notarized !== 'boolean') throw new Error(`构建产物元数据无效：${fileName}`);
+  const bytes = await readFile(join(output, fileName));
+  if (bytes.length < 100_000 || bytes.length !== artifact.sizeBytes || createHash('sha256').update(bytes).digest('hex') !== artifact.sha256) throw new Error(`上传前产物校验失败：${fileName}`);
+  return record;
 }
+const metadata = await Promise.all(['arm64', 'x64'].map(arch => verifyArtifact(arch, arch, 'dmg', `AstraGit-${version}-${arch}.dmg`)));
+const windows = await verifyArtifact('win-x64', 'x64', 'exe', `AstraGit-${version}-win-x64-setup.exe`);
+// v1 更新清单已由 macOS 客户端和 Homebrew 使用，只接受 DMG。
 const manifest = { schemaVersion: 1, appId: 'com.astragit.desktop', repository, version, sourceCommit, signed: metadata.every(record => record.signed), notarized: metadata.every(record => record.notarized), minimumSystemVersion: '13.0', artifacts: metadata.map(record => ({ ...record.artifact, downloadUrl: `https://github.com/${repository}/releases/download/${tag}/${record.artifact.fileName}` })) };
 if (process.env.REQUIRE_APPLE_DISTRIBUTION === 'true' && (!manifest.signed || !manifest.notarized)) throw new Error('发行产物未满足强制签名与公证要求。');
 const manifestPath = join(output, 'astragit-release-manifest.json');
@@ -42,8 +45,9 @@ if (!release) {
     cwd: root, encoding: 'utf8', input: JSON.stringify({ tag_name: tag, target_commitish: sourceCommit, draft: true, name: `AstraGit ${version}`, body: await readFile(notes, 'utf8') }),
   }));
 }
-// 重跑仅替换仍为草稿的包；两架构与清单都上传并检查后才公开。
-const assets = [...manifest.artifacts.map(artifact => join(output, artifact.fileName)), manifestPath, caskPath];
+// 三个安装包和清单都上传并验证后才公开。
+const assets = [...manifest.artifacts, windows.artifact].map(artifact => join(output, artifact.fileName));
+assets.push(manifestPath, caskPath);
 gh('release', 'upload', tag, '--repo', repository, '--clobber', ...assets);
 const publishedAssets = JSON.parse(gh('api', `repos/${repository}/releases/${release.id}/assets`));
 for (const path of assets) { const fileName = path.split('/').at(-1); const asset = publishedAssets.find(asset => asset.name === fileName); const bytes = await readFile(path); if (!asset || asset.size !== bytes.length || asset.digest !== `sha256:${createHash('sha256').update(bytes).digest('hex')}`) throw new Error('Release 资产未完整上传或摘要不匹配。'); }

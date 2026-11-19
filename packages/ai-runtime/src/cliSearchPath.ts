@@ -12,6 +12,7 @@ const executeFile = promisify(execFile);
  * 常见 CLI 目录，同时保留调用方已有顺序并去重。
  */
 export function expandCliSearchPath(pathValue = process.env.PATH ?? ''): string {
+  if (process.platform === 'win32') return pathValue;
   const home = homedir();
   const commonLocalBinaryDirectories = ['/opt/homebrew/bin', '/usr/local/bin', resolve(home, '.local/bin'), resolve(home, 'bin')];
   const entries = [...pathValue.split(delimiter).filter(Boolean), ...commonLocalBinaryDirectories];
@@ -22,6 +23,7 @@ export function expandCliSearchPath(pathValue = process.env.PATH ?? ''): string 
 export async function resolveCliSearchPath(pathValue = process.env.PATH ?? ''): Promise<string> {
   /** 终端不可用时仍沿用既有环境和常见安装目录。 */
   const fallbackPath = expandCliSearchPath(pathValue);
+  if (process.platform === 'win32') return fallbackPath;
   try {
     /** 图形界面可能没有 SHELL，使用系统登记的用户终端补齐。 */
     const shellPath = process.env.SHELL?.trim() || userInfo().shell;

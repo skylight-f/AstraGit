@@ -1,4 +1,5 @@
 import type { BrowserWindow as ElectronBrowserWindow } from 'electron';
+import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -6,7 +7,7 @@ import { writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { startGitServer, type RunningGitServer } from '@astragit/git-server';
-import { describeUserFacingError } from '@astragit/shared';
+import { describeUserFacingError, releasePageUrl } from '@astragit/shared';
 import { resolveCliSearchPath } from '@astragit/ai-runtime';
 import { createReleaseUpdateService } from './releaseUpdateService.js';
 import { applicationIdentity } from './applicationIdentity.js';
@@ -58,6 +59,8 @@ const { development, name, dataDirectory } = applicationIdentity({
   userDataDirectory: process.env.ASTRAGIT_USER_DATA_DIR,
 });
 app.setName(name);
+const isWindows = process.platform === 'win32';
+if (isWindows) app.setAppUserModelId('com.astragit.desktop');
 mkdirSync(dataDirectory, { recursive: true });
 app.setPath('userData', dataDirectory);
 app.setPath('sessionData', dataDirectory);
@@ -109,6 +112,7 @@ async function confirmUpdateRestart(): Promise<boolean> {
 }
 
 async function initializeUpdates(): Promise<void> {
+  if (isWindows) return;
   updateLanguage = app.getLocale().startsWith('zh') ? 'zh-CN' : 'en-US';
   homebrewUpdates = createHomebrewUpdateController({
     helperPath: nativeUpdateProgressHelperPath(), language: () => updateLanguage,
@@ -144,6 +148,19 @@ async function initializeUpdates(): Promise<void> {
     homebrewUpdates.onIndicatorState((state) => mainWindow?.webContents.send('astragit:update-indicator', state));
   }
   mainWindow?.webContents.send('astragit:update-indicator', homebrewUpdates.getIndicatorState());
+}
+
+async function openRepositoryTextFile(path: string): Promise<void> {
+  if (!isWindows) {
+    await execFile('/usr/bin/open', ['-b', 'com.apple.TextEdit', path], { timeout: 10_000 });
+    return;
+  }
+  const notepad = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'notepad.exe');
+  await new Promise<void>((resolveStarted, reject) => {
+    const editor = spawn(notepad, [path], { detached: true, stdio: 'ignore' });
+    editor.once('error', reject);
+    editor.once('spawn', () => { editor.unref(); resolveStarted(); });
+  });
 }
 
 function applicationIconPath(): string {
@@ -268,7 +285,7 @@ async function loadMainWindow(): Promise<void> {
   const launchRepositoryFile = createRepositoryFileLauncher({ resolve: async (projectId, repositoryId, path, intent) => {
     if (!gitServer || shuttingDown) throw new Error('AstraGit 本地 Git 服务尚未就绪，请稍后再试。');
     return gitServer.resolveGitFileLocation(projectId, repositoryId, path, intent);
-  }, open: path => shell.openPath(path), openText: async path => { await execFile('/usr/bin/open', ['-b', 'com.apple.TextEdit', path], { timeout: 10_000 }); }, reveal: path => shell.showItemInFolder(path) });
+  }, open: path => shell.openPath(path), openText: openRepositoryTextFile, reveal: path => shell.showItemInFolder(path) });
   ipcMain.removeHandler('astragit:file-action');
   ipcMain.handle('astragit:file-action', (event, request: unknown) => {
     if (event.sender !== mainWindow?.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) return { ok: false, error: { code: 'ASTRAGIT_GIT_FILE_ACTION_INVALID', message: '文件操作请求来源无效。' } };
@@ -302,6 +319,7 @@ async function loadMainWindow(): Promise<void> {
     ipcMain.removeHandler(name);
     ipcMain.handle(name, event => { if (event.sender !== mainWindow?.webContents) throw new Error('更新请求来源无效。'); return action(); });
   };
+  handle('astragit:manual-update-version', () => isWindows ? app.getVersion() : null);
   handle('astragit:update-indicator-get', async () => { await updateInitialization; return homebrewUpdates?.getIndicatorState() ?? null; });
   ipcMain.removeHandler('astragit:update-action');
   ipcMain.handle('astragit:update-action', async (event, action: unknown, language: unknown) => {
@@ -314,6 +332,7 @@ async function loadMainWindow(): Promise<void> {
   ipcMain.removeHandler('astragit:update-open');
   ipcMain.handle('astragit:update-open', async (event, language: unknown) => {
     if (event.sender !== mainWindow?.webContents) throw new Error('更新请求来源无效。');
+    if (isWindows) return shell.openExternal(`${releasePageUrl}/latest`);
     if (language === 'zh-CN' || language === 'en-US') updateLanguage = language;
     await updateInitialization;
     if (!homebrewUpdates) throw new Error('更新服务尚未就绪。');
