@@ -91,6 +91,21 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm setup:desktop
+        if: runner.os == 'Windows'
+      - name: 下载 macOS Electron
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm setup:desktop; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::Electron 下载失败，正在重试（$attempt/3）。"
+              sleep "$((10 * attempt))"
+            fi
+          done
+          exit 1
       - name: 校验原生辅助程序的架构检查
         if: runner.os == 'macOS'
         run: node --test tests/macos-architecture.test.mjs
