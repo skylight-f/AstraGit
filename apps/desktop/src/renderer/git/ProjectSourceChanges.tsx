@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type Ref } from 'react';
 import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
 import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
@@ -27,7 +27,23 @@ import './sourceGit.css';
 
 type StashEntry = ProjectGitRepositoryWorkbenchItem['snapshot']['stashes'][number];
 
-export function ProjectSourceChanges(props: { project: ProjectRecord; client: DashboardClient; language: 'zh-CN' | 'en-US'; active: boolean; commitModels: GitCommitModelState; onOpenModelSettings: () => void; onBusyChange: (busy: boolean) => void }) {
+export interface SourceCommitCommands {
+  focusCommit(): void;
+  refresh(): void;
+}
+
+export function ProjectSourceChanges(props: {
+  project: ProjectRecord;
+  client: DashboardClient;
+  language: 'zh-CN' | 'en-US';
+  active: boolean;
+  commitModels: GitCommitModelState;
+  onOpenModelSettings: () => void;
+  onBusyChange: (busy: boolean) => void;
+  commandsRef: Ref<SourceCommitCommands>;
+  repositoryCommandBusy: boolean;
+  onCommandTargetChange: (target: { repositoryId: string | undefined; locked: boolean }) => void;
+}) {
   const { client, project, active, onBusyChange } = props;
   const { items: models, modelRef: model, loading: modelsLoading } = props.commitModels;
   const currentProjectId = useRef(project.id);
@@ -110,7 +126,8 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
   const filesCount = units.reduce((sum, unit) => sum + unit.paths.length, 0);
   const editorRepository = units.find(unit => unit.repository.id === draftRepository)?.repository.id ?? units[0]?.repository.id ?? '';
   const selectedMessage = state.messageMode === 'shared' ? state.sharedMessage : state.drafts[editorRepository] ?? '';
-  const locked = busy || generating || reviewBusy || operation !== null;
+  const sourceLocked = busy || generating || reviewBusy || operation !== null;
+  const locked = sourceLocked || props.repositoryCommandBusy;
   const hasFeedback = Boolean(feedback);
   const modelName = models.find(item => item.id === model)?.label;
   const aiActionTitle = !units.length ? label('请先勾选要提交的文件', 'Select files to commit first') : `${label('根据勾选内容生成提交说明', 'Generate from selected content')} · ${modelName ?? model}`;
@@ -400,6 +417,19 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
       ?? stashRepository.snapshot.stashes.find(stash => stash.hash === stashPreview.hash)
     : undefined;
   const repository = repositories.find(repository => repository.id === focusedId) ?? repositories[0] ?? null;
+  const repositoryId = repository?.id;
+  const { onCommandTargetChange } = props;
+  useLayoutEffect(() => {
+    onCommandTargetChange({ repositoryId, locked: sourceLocked });
+  }, [onCommandTargetChange, repositoryId, sourceLocked]);
+  const focusCommit = useCallback(() => {
+    setTab('commit');
+    requestAnimationFrame(() => messageInput.current?.focus());
+  }, []);
+  useImperativeHandle(props.commandsRef, () => ({
+    focusCommit,
+    refresh() { void refresh().catch(reason => setError(gitFailureText(reason))); },
+  }), [focusCommit, refresh]);
   const collapse = (key: string) => update(current => ({ ...current, collapsed: current.collapsed.includes(key) ? current.collapsed.filter(item => item !== key) : [...current.collapsed, key] }));
   const selectRepository = (repositoryId: string) => update({ focus: { repositoryId, path: '' } });
   const statuses = zh ? { queued: '等待提交', committing: '提交中', committed: '已提交', commit_failed: '提交失败', blocked: '未提交', pushing: '推送中', done: '已推送', push_failed: '推送失败', push_blocked: '待推送', unknown: '请核对结果' } : { queued: 'Queued', committing: 'Committing', committed: 'Committed', commit_failed: 'Commit failed', blocked: 'Blocked', pushing: 'Pushing', done: 'Pushed', push_failed: 'Push failed', push_blocked: 'Push pending', unknown: 'Check outcome' };
@@ -413,7 +443,7 @@ export function ProjectSourceChanges(props: { project: ProjectRecord; client: Da
         </div>
         <button type="button" className="source-git-icon" disabled={locked || loading} onClick={() => void refresh().catch(reason => setError(gitFailureText(reason)))} aria-label={label('刷新项目更改', 'Refresh project changes')} title={label('刷新更改', 'Refresh changes')}><ArrowsClockwise className={loading ? 'is-spinning' : ''} /></button>
       </header>
-      <SourceRepositoryControls projectId={project.id} client={client} zh={zh} repositories={repositories} repository={repository} busy={operation} locked={locked} errorsByRepository={operationErrors.current} onSelectRepository={selectRepository} onExecute={execute} onCommit={() => { setTab('commit'); messageInput.current?.focus(); }} />
+      <SourceRepositoryControls projectId={project.id} client={client} zh={zh} repositories={repositories} repository={repository} busy={operation} locked={locked} errorsByRepository={operationErrors.current} onSelectRepository={selectRepository} onExecute={execute} onCommit={focusCommit} />
       {tab === 'commit' ? <>
         <div className="source-git-file-tools">
           <label className="source-git-search"><MagnifyingGlass aria-hidden="true" /><input type="search" value={state.search} onChange={event => update({ search: event.target.value })} aria-label={label('筛选文件', 'Filter files')} placeholder={label('筛选文件…', 'Filter files…')} /></label>

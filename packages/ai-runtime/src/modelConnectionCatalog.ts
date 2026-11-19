@@ -114,6 +114,8 @@ export interface ModelConnectionRecord {
   templateId: ModelConnectionTemplateId;
   baseUrl: string;
   modelsPath: string;
+  /** Legacy providers with mixed model protocols keep their individual protocols until explicitly configured. */
+  protocolFamily?: ModelProtocolFamily;
   /** 可选价格清单页面；空值使用内置来源。 */
   pricingUrl?: string;
   /** 仅用于展示的价格读取状态，不参与连接配置存储。 */
@@ -131,6 +133,7 @@ export interface SaveModelConnectionInput {
   templateId?: ModelConnectionTemplateId;
   baseUrl: string;
   modelsPath?: string;
+  protocolFamily?: ModelProtocolFamily;
   /** 自定义供应商只需提供一个价格清单页面。 */
   pricingUrl?: string;
   enabled?: boolean;
@@ -236,13 +239,25 @@ export function normalizeModelConnection(input: SaveModelConnectionInput, option
   const name = normalizeSingleLine(input.name || template?.name || '', '供应商名称', 80);
   const baseUrl = normalizeModelBaseUrl(input.baseUrl || template?.baseUrl || '');
   const modelsPath = normalizeModelsPath(input.modelsPath ?? template?.modelsPath ?? '/models');
-  const models = normalizeConfiguredModels(input.models ?? [], template?.thinkingFormat ?? 'openai').map((model) => applyAutomaticCapabilityProfile(model, { templateId, baseUrl, protocolFamily: model.protocolFamily }));
+  const configuredProtocol = input.protocolFamily;
+  if (configuredProtocol !== undefined && configuredProtocol !== 'openai_completions' && configuredProtocol !== 'openai_responses' && configuredProtocol !== 'anthropic_messages') {
+    throw new Error('不支持的供应商接口协议。');
+  }
+  const models = normalizeConfiguredModels(input.models ?? [], template?.thinkingFormat ?? 'openai').map((model) => {
+    const normalized = configuredProtocol && model.protocolFamily !== configuredProtocol
+      ? { ...model, protocolFamily: configuredProtocol, authenticationScheme: 'protocol_default' as const }
+      : model;
+    return applyAutomaticCapabilityProfile(normalized, { templateId, baseUrl, protocolFamily: normalized.protocolFamily });
+  });
+  const firstProtocol = models[0]?.protocolFamily;
+  const protocolFamily = configuredProtocol ?? (models.every(model => model.protocolFamily === firstProtocol) ? firstProtocol : undefined);
   return {
     id: normalizeIdentifier(options.id, '连接 ID'),
     name,
     templateId,
     baseUrl,
     modelsPath,
+    ...(protocolFamily ? { protocolFamily } : {}),
     ...(input.pricingUrl?.trim() ? { pricingUrl: normalizePricingPageUrl(input.pricingUrl) } : {}),
     enabled: input.enabled !== false,
     apiKeyConfigured: options.apiKeyConfigured,
@@ -421,10 +436,8 @@ export function buildModelsUrl(connection: Pick<ModelConnectionRecord, 'baseUrl'
  * Pi 的协议适配器负责追加最终请求路径；这里统一把用户可能填写的标准完整端点还原为适配器需要的 Base URL。
  */
 export function modelConnectionRuntimeBaseUrl(baseUrl: string, protocolFamily: ModelProtocolFamily): string {
-  const normalized = baseUrl.replace(/\/+$/u, '');
-  if (protocolFamily === 'anthropic_messages') return normalized.replace(/\/v1\/messages$/u, '').replace(/\/v1$/u, '');
-  if (protocolFamily === 'openai_completions') return normalized.replace(/\/chat\/completions$/u, '');
-  return normalized.replace(/\/responses$/u, '');
+  const normalized = baseUrl.replace(/\/+$/u, '').replace(/\/(?:chat\/completions|responses)$/u, '').replace(/\/v1\/messages$/u, '/v1');
+  return protocolFamily === 'anthropic_messages' ? normalized.replace(/\/v1$/u, '') : normalized;
 }
 
 /** 返回不含密钥的最终 HTTP 端点，供运行证据和诊断展示使用。 */

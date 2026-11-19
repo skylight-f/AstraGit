@@ -431,7 +431,6 @@
   flex: none;
 }
 .gitapp-shell--workbench .source-git-shell {
-  margin: 6px;
   background: var(--ag-bg);
 }
 .gitapp-shell--workbench .source-git-shell > :is(.source-git-sidebar, .source-git-detail) {
@@ -441,4 +440,20 @@
   overflow: hidden;
 }
 .source-git-results{padding:12px 16px;min-height:0;overflow:auto;background:#fafbfe}.source-git-results header{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}.source-git-results>div{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding:7px 0;border-top:1px solid #eee}.source-git-results span{margin-left:auto;color:#67708a}.source-git-results p{width:100%;color:#ad4652;font-size:12px;margin:0;overflow-wrap:anywhere}
-.source-git-review{border:1px solid #d9dcea;border-radius:14px;box-shadow:0 20px 70px #18203b33;color:#202b3e;width:min(720px,80vw);max-height:86vh;padding:0;font-size:13px}.source-git-review::backdrop{background:#1d23385c}.source-git-review>header{display:flex;justify-content:space-between;padding:18px 22px;border-bottom:1px solid #e8e9ef}.source-git-review h2{font-size:18px;margin:0}.source-git-review header p{color:#768197;margin:7px 0 0}.source-git-review-list{max-height:58vh;overflow:auto;padding:0 22px}.source-git-review-list section{border-bottom:1px solid #e5e7ee;padding:16px 0}.source-git-review h3{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:14px}.source-git-review h3 small{margin-left:auto;color:#788092;font-weight:400;font-size:12px}.source-git-review-list ul{max-height:100px;overflow:auto;font-size:12px;color:#647188;padding-left:20px}.source-git-review label{display:grid;gap:6px}.source-git-review textarea,.source-git-review input,.source-git-review select{border:1px solid #dde0e9;padding:8px;border-radius:7px;min-width:0}.source-git-review textarea{min-height:65px;resize:vertical}.source-git-push-target{display:flex;gap:12px;margin-top:10px;flex-wrap:wrap}.source-git-push-target label{flex:1}.source-git-review>footer{display:flex;justify-content:flex-end;gap:9px;padding:15px 22px;background:#fafbfe}.source-git-review>.source-git-error{margin:10px 22px}
+.source-git-review{border:1px solid #d9dcea;border-radius:14px;box-shadow:0 20px 70px #18203b33;color:#202b3e;width:min(720px,80vw);max-height:86vh;padding:0;font-size:13px}.source-git-review::backdrop{background:#1d23385c}
+.source-git-review > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px;
+  border-bottom: 1px solid #e8e9ef;
+}
+
+.macos-ai-app .source-git-review > header > .source-git-review-close[data-button-size='compact'] {
+  flex: 0 0 auto;
+  inline-size: var(--zeus-control-height);
+  padding-inline: 0;
+}
+
+.source-git-review h2{font-size:18px;margin:0}.source-git-review header p{color:#768197;margin:7px 0 0}.source-git-review-list{max-height:58vh;overflow:auto;padding:0 22px}.source-git-review-list section{border-bottom:1px solid #e5e7ee;padding:16px 0}.source-git-review h3{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:14px}.source-git-review h3 small{margin-left:auto;color:#788092;font-weight:400;font-size:12px}.source-git-review-list ul{max-height:100px;overflow:auto;font-size:12px;color:#647188;padding-left:20px}.source-git-review label{display:grid;gap:6px}.source-git-review textarea,.source-git-review input,.source-git-review select{border:1px solid #dde0e9;padding:8px;border-radius:7px;min-width:0}.source-git-review textarea{min-height:65px;resize:vertical}.source-git-push-target{display:flex;gap:12px;margin-top:10px;flex-wrap:wrap}.source-git-push-target label{flex:1}.source-git-review>footer{display:flex;justify-content:flex-end;gap:9px;padding:15px 22px;background:#fafbfe}.source-git-review>.source-git-error{margin:10px 22px}

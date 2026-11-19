@@ -1,63 +1,75 @@
 /* Git 工作区共用中性色与主题令牌，供独立 Git 页和源码工具窗口使用。 */
-.macos-ai-app.zeus-shell .project-git-workbench .git-command-toolbar {
+.git-command-strip {
   display: flex;
-  justify-content: flex-end;
-  gap: 5px;
-  min-height: 62px;
-  flex: 0 0 62px;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+  min-width: 0;
+  margin-block-end: 6px;
+  padding: 2px 6px;
+  border: 1px solid var(--zeus-workspace-divider);
+  border-radius: var(--ag-card-radius);
+  background: var(--zeus-card-background);
+}
+.macos-ai-app.zeus-shell .project-git-toolbar.git-command-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: safe end;
+  flex: 1 1 auto;
   flex-wrap: nowrap;
-  padding: 3px 12px !important;
-  border-bottom: 1px solid var(--zeus-workspace-divider) !important;
+  gap: 5px;
+  min-width: 0;
+  min-block-size: var(--ag-tool-size);
+  padding: 0 !important;
+  border: 0 !important;
   overflow-x: auto;
   overflow-y: hidden;
 }
 .git-command-toolbar > button,
 .git-command-toolbar > .project-git-menu-anchor > button {
-  position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-width: 48px;
-  height: 50px;
+  gap: 5px;
+  min-width: 0;
+  height: var(--ag-tool-size);
   flex-shrink: 0;
+  padding-inline: 7px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--zeus-product-text);
   font: inherit;
   font-size: 11px;
+  white-space: nowrap;
   cursor: pointer;
 }
 .git-command-toolbar > button > svg,
 .git-command-toolbar > .project-git-menu-anchor > button > svg {
-  width: 20px;
-  height: 20px;
+  width: 15px;
+  height: 15px;
 }
 .git-command-toolbar > button:hover:not(:disabled),
-.git-command-toolbar > .project-git-menu-anchor > button:hover {
+.git-command-toolbar > .project-git-menu-anchor > button:hover:not(:disabled) {
   background: var(--zeus-interaction-hover);
 }
-.git-command-toolbar > button:disabled {
+.git-command-toolbar button:disabled {
   opacity: 0.4;
   cursor: default;
 }
 .git-command-toolbar > button > small {
-  position: absolute;
-  right: 1px;
-  top: 0;
   border-radius: 7px;
   min-width: 14px;
   padding: 0 3px;
   font-size: 9px;
+  font-variant-numeric: tabular-nums;
   background: var(--zeus-source-list-selected);
   color: var(--zeus-control-accent);
 }
 .git-command-toolbar > i {
-  height: 30px;
+  height: 15px;
   border-left: 1px solid var(--zeus-workspace-divider);
-  margin: 0 5px;
+  margin-inline: 2px;
 }
 .git-toolbar-identity {
   display: flex;
@@ -311,16 +323,10 @@
 .git-reference-tree button:focus-visible,
 .git-branch-repositories button:focus-visible,
 .git-reference-tree summary:focus-visible,
-.git-command-toolbar > button:focus-visible {
+.git-command-toolbar button:focus-visible {
   outline: 2px solid var(--zeus-control-focus);
   outline-offset: -2px;
 }
-@media (max-width: 1000px) {
-  .git-command-toolbar > button {
-    min-width: 45px;
-  }
-}
-
 /* 分支选择保留父层，操作菜单按内容收紧，并在窗口边缘翻转方向。 */
 .macos-ai-app .project-git-branch-popover {
   width: min(420px, calc(100vw - 16px));
@@ -383,57 +389,29 @@
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-browser-layout {
   grid-template-columns: minmax(140px, var(--git-navigation, 20%)) 8px minmax(0, 1fr);
 }
+.macos-ai-app.zeus-shell .project-git-workbench .project-git-browser-layout[hidden],
+.project-git-source-view[hidden] {
+  display: none;
+}
+.project-git-source-view {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-browser-layout[data-view='log'] {
   grid-template-areas:
-    'commands commands commands commands commands'
     'repositories navigation preview preview preview'
     '. navigation horizontal horizontal horizontal'
     'branches navigation filters inspector details'
     'branches navigation graph inspector details';
   grid-template-columns: clamp(min(140px, 25%), var(--git-navigation, 20%), 40%) 6px minmax(0, 1fr) 6px calc(100% - var(--git-history-inspector, 74%));
-  grid-template-rows: auto minmax(100px, var(--git-history-preview, 44%)) 6px auto minmax(0, 1fr);
+  grid-template-rows: minmax(100px, var(--git-history-preview, 44%)) 6px auto minmax(0, 1fr);
 
   & > .project-git-navigator,
   & > .project-git-browser-content,
   & .project-git-browser-content > .project-git-log-layout {
     display: contents;
-  }
-
-  & .git-command-toolbar {
-    grid-area: commands;
-    justify-content: safe end;
-    box-sizing: border-box;
-    min-block-size: 32px;
-    margin-bottom: 6px;
-    padding: 2px 6px !important;
-    border: 1px solid var(--zeus-workspace-divider) !important;
-    border-radius: var(--ag-card-radius) !important;
-    background: var(--zeus-card-background);
-  }
-
-  & .git-command-toolbar > button,
-  & .git-command-toolbar > .project-git-menu-anchor > button {
-    flex-direction: row;
-    min-width: 0;
-    height: var(--ag-tool-size);
-    padding-inline: 7px;
-    gap: 5px;
-    white-space: nowrap;
-  }
-
-  & .git-command-toolbar button > svg {
-    width: 15px;
-    height: 15px;
-  }
-
-  & .git-command-toolbar > button > small {
-    position: static;
-    font-variant-numeric: tabular-nums;
-  }
-
-  & .git-command-toolbar > i {
-    height: 15px;
-    margin-inline: 2px;
   }
 
   & :is(.git-history-repositories, .git-history-branches, .git-history-preview-pane, .git-history-detail-pane, .is-history-toolbar, .project-git-commit-list) {

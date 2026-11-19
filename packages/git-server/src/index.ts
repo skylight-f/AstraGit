@@ -614,7 +614,12 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     }
   });
 
-  server.post('/api/model-connections/:id/models', async (request: FastifyRequest<{ Params: { id: string }; Body: { modelId?: unknown } }>, reply) => {
+  server.post('/api/model-connections/:id/diagnose', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    const { ok, message, discoveredModelCount } = await modelConnections.diagnose(request.params.id);
+    return { ok, message, discoveredModelCount };
+  });
+
+  server.post('/api/model-connections/:id/models', async (request: FastifyRequest<{ Params: { id: string }; Body: { modelId?: unknown; displayName?: unknown; protocolFamily?: unknown; enabled?: unknown } }>, reply) => {
     try {
       const connection = await modelConnections.get(request.params.id);
       if (!connection) return reply.code(404).send({ error: 'ASTRAGIT_MODEL_CONNECTION_NOT_FOUND', message: '模型连接不存在。' });
@@ -623,6 +628,10 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
         return reply.code(400).send({ error: 'ASTRAGIT_MODEL_ID_INVALID', message: modelId ? '该模型已存在。' : '请输入模型 ID。' });
       }
       const model = createManualModel(modelId, connection);
+      const { displayName, protocolFamily, enabled } = request.body;
+      if (typeof displayName === 'string' && displayName.trim()) model.displayName = displayName.trim();
+      if (protocolFamily === 'openai_responses' || protocolFamily === 'anthropic_messages') model.protocolFamily = protocolFamily;
+      if (typeof enabled === 'boolean') model.enabled = enabled;
       const updated = await modelConnections.update(connection.id, { ...connection, models: [...connection.models, model] });
       return { ...updated, apiKey: undefined };
     } catch (error) {

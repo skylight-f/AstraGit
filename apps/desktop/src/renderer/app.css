@@ -519,18 +519,12 @@ body {
   width: 100%;
 }
 
-.gitapp-workbench-host > .gitapp-commit-viewbar {
+.gitapp-commit-viewbar {
   display: flex;
   align-items: center;
   flex: 0 0 auto;
-  flex-wrap: wrap;
   gap: 4px;
-  width: auto;
-  margin: 6px 6px 0;
-  padding: 3px 5px;
-  border: 1px solid var(--ag-line);
-  border-radius: var(--ag-card-radius);
-  background: var(--ag-panel);
+  white-space: nowrap;
 }
 
 .gitapp-commit-viewbar > button {
@@ -556,10 +550,6 @@ body {
   opacity: .55;
   cursor: default;
 }
-
-.gitapp-view-pane { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-.gitapp-view-pane > * { flex: 1; min-height: 0; min-width: 0; }
-.gitapp-view-pane[hidden] { display: none !important; }
 
 .gitapp-shell--workbench.macos-ai-app.zeus-shell {
   --zeus-page-background: var(--ag-control);
@@ -672,7 +662,7 @@ body {
   -webkit-app-region: no-drag !important;
 }
 
-.gitapp-tab:not(.is-active):hover:has(.gitapp-tab-body:not(:disabled)) {
+.gitapp-tab:not(.is-active, .is-dragging):hover:has(.gitapp-tab-body:not(:disabled)) {
   background: var(--zeus-brand-hover) !important;
   color: var(--ag-ink) !important;
 }
@@ -701,15 +691,25 @@ body {
 }
 
 .gitapp-tab.is-dragging {
-  opacity: .45 !important;
+  border: 1px dashed var(--ag-focus) !important;
+  background: color-mix(in srgb, var(--ag-control) 70%, var(--ag-brand-selected)) !important;
+  color: var(--ag-brand-ink) !important;
 }
 
-.gitapp-tab[data-drop-position='before'] {
-  box-shadow: inset 3px 0 var(--ag-focus) !important;
+.gitapp-tab.is-dragging :is(.gitapp-tab-icon, .gitapp-tab-label, .gitapp-tab-close) {
+  opacity: 0 !important;
 }
 
-.gitapp-tab[data-drop-position='after'] {
-  box-shadow: inset -3px 0 var(--ag-focus) !important;
+.gitapp-tab-placeholder {
+  position: absolute;
+  inset-inline: 8px;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 550;
+  pointer-events: none;
 }
 
 .gitapp-tab-announcement {
@@ -858,22 +858,6 @@ body {
   color: #2f5fe0;
 }
 
-.gitapp-settings-root .gitapp-settings-panel {
-  display: flex;
-  flex-direction: column;
-  width: min(760px, calc(100vw - 32px));
-  max-height: min(820px, calc(100vh - 32px));
-  overflow: auto;
-  box-sizing: border-box;
-  padding: 24px;
-  gap: 18px;
-  border: 1px solid var(--ag-line);
-  border-radius: var(--ag-card-radius);
-  background: var(--ag-panel);
-  box-shadow: 0 24px 70px rgb(15 23 42 / 0.2);
-  color: var(--ag-ink);
-}
-
 .gitapp-settings-page {
   display: flex;
   flex-direction: column;
@@ -883,23 +867,9 @@ body {
   color: var(--ag-ink);
 }
 
-.gitapp-settings-page > .gitapp-settings-header {
-  flex: 0 0 auto;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--ag-line);
-  background: var(--ag-panel);
-}
-
-.gitapp-settings-page > .gitapp-settings-header h1 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 650;
-}
-
 .gitapp-settings-body {
   display: grid;
-  grid-template-columns: 168px minmax(0, 880px);
-  justify-content: start;
+  grid-template-columns: 168px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
   gap: 8px;
@@ -921,26 +891,11 @@ body {
   border-top: 0;
 }
 
-.gitapp-settings-header,
-.gitapp-settings-connection-heading,
-.gitapp-settings-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.gitapp-settings-header,
-.gitapp-settings-connection-heading {
-  justify-content: space-between;
-}
-
-.gitapp-settings-header h2,
 .gitapp-settings-section h2,
 .gitapp-settings-section h3 {
   margin: 0 0 5px;
 }
 
-.gitapp-settings-header p,
 .gitapp-settings-section p {
   margin: 4px 0 10px;
   color: #606a79;
@@ -953,76 +908,12 @@ body {
   border-top: 1px solid #e6eaf1;
 }
 
-.gitapp-settings-section > small,
-.gitapp-settings-connection small {
-  display: block;
-  color: #6a7483;
-  overflow-wrap: anywhere;
-}
-
-.gitapp-settings-section > a {
-  width: fit-content;
-  color: #2f5fe0;
-}
-
 .gitapp-settings-message {
   margin: 0;
   padding: 10px 12px;
   border-radius: 9px;
   background: #eef3ff;
   color: #274a99;
-}
-
-.gitapp-settings-connection {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid #e0e5ef;
-  border-radius: 11px;
-}
-
-.gitapp-settings-connection p {
-  overflow-wrap: anywhere;
-}
-
-.gitapp-settings-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.gitapp-settings-panel .gitapp-settings-toggle input {
-  flex: 0 0 16px;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  margin: 0;
-  accent-color: #245eea;
-}
-
-.gitapp-settings-models {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid #e0e5ef;
-  border-radius: 8px;
-}
-
-.gitapp-settings-model-list {
-  display: grid;
-  gap: 8px;
-  max-height: 220px;
-  overflow: auto;
-}
-
-.gitapp-settings-row input {
-  min-width: 0;
-  flex: 1;
 }
 
 .gitapp-settings-panel input,
@@ -1041,21 +932,6 @@ body {
 .gitapp-settings-panel select:focus-visible {
   outline: 2px solid #97b0ff;
   outline-offset: 1px;
-}
-
-.gitapp-settings-form {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.gitapp-settings-editor {
-  display: grid;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid #e6eaf1;
-  border-radius: 10px;
-  background: #f8f9fc;
 }
 
 .gitapp-settings-tabs {
@@ -1103,15 +979,406 @@ body {
   border-radius: 8px;
 }
 
-.gitapp-settings-form label {
+.gitapp-settings-body > .gitapp-model-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.gitapp-model-settings {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  font-size: 13px;
+  --ag-model-rule: color-mix(in srgb, var(--ag-line) 54%, var(--ag-panel));
+  --ag-model-padding: clamp(16px, 2.5vw, 40px);
+}
+
+.gitapp-model-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.gitapp-model-content {
   display: grid;
-  gap: 6px;
-  color: #586373;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  padding: 24px var(--ag-model-padding);
+}
+
+.gitapp-model-intro h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 620;
+}
+
+.gitapp-model-intro p {
+  margin: 12px 0 0;
+  color: var(--ag-muted);
+}
+
+.gitapp-model-toolbar,
+.gitapp-model-list-actions,
+.gitapp-model-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.gitapp-model-toolbar,
+.gitapp-model-list-actions {
+  flex-wrap: wrap;
+}
+
+.gitapp-model-toolbar .zeus-button {
+  min-height: 34px;
+  border-radius: 8px;
+}
+
+.gitapp-model-toolbar .gitapp-model-provider-tab {
+  max-width: min(230px, 100%);
+  min-width: 0;
+}
+
+.gitapp-model-provider-tab > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gitapp-model-toolbar .gitapp-model-provider-tab[aria-pressed='true'] {
+  border-color: var(--ag-brand-edge);
+  background: var(--ag-brand-selected);
+  color: var(--ag-brand-ink);
+}
+
+.gitapp-model-provider-symbol {
+  display: grid;
+  place-items: center;
+  flex: 0 0 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--ag-control);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.gitapp-model-settings .gitapp-model-icon {
+  width: 30px;
+  padding-inline: 0;
+  justify-content: center;
+}
+
+.gitapp-model-settings .gitapp-model-plain:not(:hover) {
+  border-color: transparent;
+  background: transparent;
+}
+
+.gitapp-model-card {
+  min-width: 0;
+  border: 1px solid var(--ag-model-rule);
+  border-radius: 14px;
+  background: var(--ag-panel);
+}
+
+.gitapp-model-provider-form {
+  padding: 0 16px;
+}
+
+.gitapp-model-field {
+  display: grid;
+  grid-template-columns: clamp(125px, 27%, 240px) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding-block: 14px;
+}
+
+.gitapp-model-field + .gitapp-model-field,
+.gitapp-model-advanced {
+  border-top: 1px solid var(--ag-model-rule);
+}
+
+.gitapp-model-field > :first-child {
+  font-weight: 570;
+}
+
+.gitapp-model-panel input:not([type='checkbox']),
+.gitapp-model-panel select {
+  min-width: 0;
+  width: 100%;
+  height: 34px;
+  border-color: var(--ag-control-line);
+  border-radius: 7px;
+}
+
+.gitapp-model-panel input[readonly] {
+  background: var(--ag-control);
+  color: var(--ag-muted);
+}
+
+.gitapp-model-provider-id,
+.gitapp-model-title code {
+  font-family: ui-monospace, monospace;
+}
+
+.gitapp-model-protocol {
+  position: relative;
+  display: block;
+}
+
+.gitapp-model-protocol select {
+  appearance: none;
+  padding-inline-end: 32px;
+}
+
+.gitapp-model-protocol svg {
+  position: absolute;
+  inset-inline-end: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ag-muted);
+  pointer-events: none;
+}
+
+.gitapp-model-key {
+  position: relative;
+}
+
+.gitapp-model-key > input {
+  padding-right: 39px;
+}
+
+.gitapp-model-key > button {
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  transform: translateY(-50%);
+}
+
+.gitapp-model-test {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.gitapp-model-test-result {
+  color: var(--ag-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.gitapp-model-test-result[data-result='success']::after {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-inline-start: 8px;
+  border-radius: 50%;
+  background: #168b58;
+}
+
+.gitapp-model-test-result[data-result='error'] {
+  color: var(--ag-danger);
+}
+
+.gitapp-model-advanced {
+  padding: 10px 0;
+}
+
+.gitapp-model-advanced summary {
+  width: fit-content;
+  color: var(--ag-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.gitapp-model-list {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.gitapp-model-list > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gitapp-model-list h3,
+.gitapp-model-account h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.gitapp-model-list h3 small {
+  margin-inline-start: 4px;
+  color: var(--ag-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.gitapp-model-list ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.gitapp-model-list li + li,
+.gitapp-model-list .gitapp-model-card > form + ul {
+  border-top: 1px solid var(--ag-model-rule);
+}
+
+.gitapp-model-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  box-sizing: border-box;
+  padding: 9px 14px;
+}
+
+.gitapp-model-description {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gitapp-model-description small {
+  overflow-wrap: anywhere;
+  color: var(--ag-muted);
+}
+
+.gitapp-model-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.gitapp-model-title code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.gitapp-model-title span {
+  padding: 1px 5px;
+  border: 1px solid var(--ag-model-rule);
+  border-radius: 5px;
+  color: var(--ag-muted);
+  font-size: 11px;
+}
+
+.gitapp-model-title span:last-child {
+  background: var(--ag-control);
+}
+
+.gitapp-model-panel input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--ag-accent);
+}
+
+.gitapp-model-row-actions {
+  flex-shrink: 0;
+  gap: 4px;
+  color: var(--ag-muted);
+}
+
+.gitapp-model-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.gitapp-model-empty {
+  margin: 0;
+  padding: 18px 14px;
+  color: var(--ag-muted);
+}
+
+.gitapp-model-account,
+.gitapp-model-editor {
+  padding: 16px;
+}
+
+.gitapp-model-account {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  overflow-wrap: anywhere;
+}
+
+.gitapp-model-account p {
+  margin: 0;
+}
+
+.gitapp-model-account small {
+  color: var(--ag-muted);
+}
+
+.gitapp-model-editor {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
+  gap: 10px;
+  background: var(--ag-control);
+  border-radius: 13px;
+}
+
+.gitapp-model-editor > label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--ag-muted);
   font-size: 12px;
 }
 
-.gitapp-settings-form label:nth-child(3) {
+.gitapp-model-editor-actions {
   grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.gitapp-model-editor-actions label {
+  margin-inline-end: auto;
+}
+
+.gitapp-model-footer {
+  align-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 var(--ag-model-padding) 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--ag-model-rule);
+  border-radius: 16px;
+  background: var(--ag-panel);
+  box-shadow: 0 4px 18px rgb(20 26 35 / 0.08);
+}
+
+.gitapp-model-footer > button:last-child {
+  margin-inline-start: auto;
+}
+
+@media (max-width: 680px) {
+  .gitapp-model-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding-block: 10px;
+  }
 }
 
 .gitapp-diff-root .gitapp-diff-dialog {
@@ -1165,10 +1432,6 @@ body {
 @media (max-width: 620px) {
   .gitapp-settings-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .gitapp-settings-tabs { flex-direction: row; flex-wrap: wrap; }
-  .gitapp-settings-form { grid-template-columns: 1fr; }
-  .gitapp-settings-form label:nth-child(3) { grid-column: auto; }
-  .gitapp-settings-row { flex-wrap: wrap; }
-  .gitapp-settings-row input { flex-basis: 100%; }
 }
 
 @media (max-width: 820px) {

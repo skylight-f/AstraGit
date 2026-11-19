@@ -169,7 +169,8 @@ export function createModelConnectionService(options: { settings: SettingReposit
     },
     async update(id, input) {
       const existing = await requireConnection(id);
-      return saveConnection(id, withTemplateDefaults(input), existing);
+      const protocolFamily = input.protocolFamily === undefined ? existing.protocolFamily : input.protocolFamily;
+      return saveConnection(id, withTemplateDefaults({ ...input, protocolFamily }), existing);
     },
     async remove(id) {
       await requireConnection(id);
@@ -182,8 +183,12 @@ export function createModelConnectionService(options: { settings: SettingReposit
       return { ...existing, apiKeyConfigured: false, updatedAt: now() };
     },
     async refreshModels(id) {
+      const requested = await requireConnection(id);
+      const modelIds = await fetchModelIds(requested);
       const connection = await requireConnection(id);
-      const modelIds = await fetchModelIds(connection);
+      if (buildModelsUrl(connection) !== buildModelsUrl(requested)) {
+        throw serviceError('ASTRAGIT_MODEL_CATALOG_CHANGED', '模型目录地址已更改，请重新同步。', 409);
+      }
       const thinkingFormat = connection.templateId === 'custom' ? 'openai' : modelConnectionTemplates[connection.templateId].thinkingFormat;
       const sync = syncDiscoveredModels(connection.models, modelIds, thinkingFormat, { templateId: connection.templateId, baseUrl: connection.baseUrl });
       const updated = await saveConnection(connection.id, { ...connection, models: sync.models }, connection);

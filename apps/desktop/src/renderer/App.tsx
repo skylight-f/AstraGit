@@ -10,7 +10,6 @@ import { X } from '@phosphor-icons/react/dist/csr/X';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardClient, GitAppProject, ProjectRecord } from './apiClient.js';
 import { ProjectGitWorkbench } from './git/ProjectGitWorkbench.js';
-import { ProjectSourceChanges } from './git/ProjectSourceChanges.js';
 import { useGitCommitModels } from './git/useGitCommitModels.js';
 import { Settings, type SettingsSection } from './Settings.js';
 import { useApplicationUpdates } from './useApplicationUpdates.js';
@@ -42,6 +41,20 @@ interface ProjectSlot {
   projectId: string;
 }
 
+type ProjectTabDropTarget = { id: string; side: 'before' | 'after' };
+type ProjectTabDragLayout = { sourceIndex: number; targets: Array<{ id: string; midpoint: number }> };
+
+function projectTabDropTarget(nav: HTMLElement, layout: ProjectTabDragLayout, x: number, y: number): ProjectTabDropTarget | null {
+  const bounds = nav.getBoundingClientRect();
+  if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return null;
+  const pointer = x - bounds.left + nav.scrollLeft;
+  const next = layout.targets.findIndex(tab => pointer < tab.midpoint);
+  const index = next < 0 ? layout.targets.length : next;
+  if (index === layout.sourceIndex) return null;
+  const target = layout.targets[index] ?? layout.targets.at(-1);
+  return target ? { id: target.id, side: next < 0 ? 'after' : 'before' } : null;
+}
+
 export function App(props: AppProps) {
   const [languagePreference, setLanguagePreference] = useState(readLanguagePreference);
   const language = resolveApplicationLanguage(languagePreference, props.language);
@@ -66,32 +79,26 @@ export function App(props: AppProps) {
   const [draftName, setDraftName] = useState('');
   const [pickBusy, setPickBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsReturnFocus = useRef<HTMLElement | null>(null);
   const [searchNavigation, setSearchNavigation] = useState<GitSearchNavigation | null>(null);
   const searchRequestId = useRef(0);
   const finishSearchNavigation = useCallback((requestId: number) => setSearchNavigation(current => current?.requestId === requestId ? null : current), []);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const openSettings = (section: SettingsSection = 'general') => {
-    if (!settingsOpen) settingsReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSettingsSection(section);
     setSettingsOpen(true);
-  };
-  const closeSettings = () => {
-    const target = settingsReturnFocus.current;
-    settingsReturnFocus.current = null;
-    setSettingsOpen(false);
-    requestAnimationFrame(() => { if (target?.isConnected && !target.closest('[hidden]')) target.focus(); });
   };
   const [modelSettingsRevision, setModelSettingsRevision] = useState(0);
   const [projectViews, setProjectViews] = useState<Record<string, 'workbench' | 'source'>>(() => {
     try { const value: unknown = JSON.parse(localStorage.getItem('astragit.project-views.v1') ?? '{}'); return value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([, view]) => view === 'source' || view === 'workbench')) : {}; } catch { return {}; }
   });
   const [sourceVisited, setSourceVisited] = useState<Record<string, boolean>>({});
-  const [sourceBatchBusy, setSourceBatchBusy] = useState(false);
-  const tabDrag = useRef<{ id: string; pointerId: number; button: HTMLButtonElement; x: number; y: number; started: boolean; target: { id: string; side: 'before' | 'after' } | null } | null>(null);
+  const [sourceChangesBusy, setSourceChangesBusy] = useState(false);
+  const [sourceToolbarBusy, setSourceToolbarBusy] = useState(false);
+  const sourceBatchBusy = sourceChangesBusy || sourceToolbarBusy;
+  const tabDrag = useRef<{ id: string; pointerId: number; button: HTMLButtonElement; x: number; y: number; layout?: ProjectTabDragLayout } | null>(null);
   const dragEndedAt = useRef(-Infinity);
   const [draggingSlotId, setDraggingSlotId] = useState<string | null>(null);
-  const [tabDropTarget, setTabDropTarget] = useState<{ id: string; side: 'before' | 'after' } | null>(null);
+  const [tabDropTarget, setTabDropTarget] = useState<ProjectTabDropTarget | null>(null);
   const [tabAnnouncement, setTabAnnouncement] = useState('');
   const workspaceInitialized = useRef(false);
   const projectOpenVersion = useRef(0);
@@ -107,7 +114,7 @@ export function App(props: AppProps) {
   }, [activeProjectId]);
   const activeView = activeProject ? projectViews[activeProject.id] ?? 'workbench' : 'workbench';
   const switchProjectView = (view: 'workbench' | 'source') => {
-    if (!activeProject || sourceBatchBusy) return;
+    if (!activeProject || sourceChangesBusy) return;
     if (view === 'source') setSourceVisited(current => ({ ...current, [activeProject.id]: true }));
     setProjectViews(current => {
       const next = { ...current, [activeProject.id]: view };
@@ -225,7 +232,7 @@ export function App(props: AppProps) {
   const endTabDrag = () => {
     const drag = tabDrag.current;
     tabDrag.current = null;
-    if (drag?.started) dragEndedAt.current = performance.now();
+    if (drag?.layout) dragEndedAt.current = performance.now();
     if (drag?.button.hasPointerCapture(drag.pointerId)) drag.button.releasePointerCapture(drag.pointerId);
     setDraggingSlotId(null);
     setTabDropTarget(null);
@@ -325,6 +332,9 @@ export function App(props: AppProps) {
       .map((slot) => ({ slot, project: map.get(slot.projectId) }))
       .filter((entry): entry is { slot: ProjectSlot; project: GitAppProject } => Boolean(entry.project));
   }, [projects, slots]);
+  const tabDropOrder = tabDropTarget
+    ? slotProjects.findIndex(({ slot }) => slot.id === tabDropTarget.id) * 2 + (tabDropTarget.side === 'before' ? -1 : 1)
+    : null;
 
   const inWorkbench = Boolean(activeProject) && !showList;
   const commitView = activeView === 'source' ? 'source' : activeGitTab === 'changes' || activeGitTab === 'ignored' ? 'staging' : null;
@@ -369,7 +379,7 @@ export function App(props: AppProps) {
           <button type="button" aria-label={zh ? '分支视图' : 'Branch view'} title={zh ? '分支' : 'Branch'} aria-current={!settingsOpen && inWorkbench && !commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectView('workbench')}>
             <GitBranch size={18} aria-hidden="true" />
           </button>
-          <button type="button" className="gitapp-rail-settings" aria-label={zh ? '设置' : 'Settings'} title={zh ? '设置' : 'Settings'} aria-current={settingsOpen ? 'page' : undefined} onClick={() => { if (!settingsOpen) openSettings(); }}>
+          <button type="button" className="gitapp-rail-settings" aria-label={zh ? '设置' : 'Settings'} title={zh ? '设置' : 'Settings'} aria-current={settingsOpen ? 'page' : undefined} onClick={() => { if (settingsOpen) setSettingsOpen(false); else openSettings(); }}>
             <GearSix size={18} aria-hidden="true" />
           </button>
         </nav>
@@ -379,10 +389,11 @@ export function App(props: AppProps) {
         <div className="gitapp-shell gitapp-shell--workbench macos-ai-app zeus-shell theme-light">
           <header className="gitapp-tabbar" aria-label={zh ? '项目页签' : 'Project tabs'}>
             <nav className="gitapp-tabbar-slots" aria-label={zh ? '已打开的项目' : 'Open projects'}>
-              {slotProjects.map(({ slot, project }) => {
+              {slotProjects.map(({ slot, project }, position) => {
                 const active = project.id === activeProject.id;
+                const dragging = draggingSlotId === slot.id;
                 return (
-                  <span key={slot.id} className={`gitapp-tab${active ? ' is-active' : ''}${draggingSlotId === slot.id ? ' is-dragging' : ''}`} data-project-slot-id={slot.id} data-drop-position={tabDropTarget?.id === slot.id ? tabDropTarget.side : undefined}>
+                  <span key={slot.id} className={`gitapp-tab${active ? ' is-active' : ''}${dragging ? ' is-dragging' : ''}`} data-project-slot-id={slot.id} style={{ order: dragging ? tabDropOrder ?? position * 2 : position * 2 }}>
                     <button
                       type="button"
                       className="gitapp-tab-body"
@@ -394,37 +405,41 @@ export function App(props: AppProps) {
                       title={project.localPath}
                       onPointerDown={event => {
                         if (event.button !== 0 || sourceBatchBusy || slots.length <= 1) return;
-                        tabDrag.current = { id: slot.id, pointerId: event.pointerId, button: event.currentTarget, x: event.clientX, y: event.clientY, started: false, target: null };
+                        tabDrag.current = { id: slot.id, pointerId: event.pointerId, button: event.currentTarget, x: event.clientX, y: event.clientY };
                         event.currentTarget.setPointerCapture(event.pointerId);
                       }}
                       onPointerMove={event => {
                         const drag = tabDrag.current;
                         if (!drag || drag.pointerId !== event.pointerId || sourceBatchBusy) return;
-                        if (!drag.started && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
+                        if (!drag.layout && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
                         event.preventDefault();
-                        drag.started = true;
-                        setDraggingSlotId(drag.id);
                         const nav = event.currentTarget.closest('nav')!;
                         const bounds = nav.getBoundingClientRect();
-                        let target: typeof drag.target = null;
+                        if (!drag.layout) {
+                          // Capture the original positions so moving the placeholder does not move the drop thresholds.
+                          const tabs = Array.from(nav.querySelectorAll<HTMLElement>('[data-project-slot-id]'));
+                          drag.layout = {
+                            sourceIndex: tabs.findIndex(tab => tab.dataset.projectSlotId === drag.id),
+                            targets: tabs.filter(tab => tab.dataset.projectSlotId !== drag.id).map(tab => {
+                              const rect = tab.getBoundingClientRect();
+                              return { id: tab.dataset.projectSlotId!, midpoint: rect.left + rect.width / 2 - bounds.left + nav.scrollLeft };
+                            }),
+                          };
+                          setDraggingSlotId(drag.id);
+                        }
                         if (event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom) {
                           if (event.clientX < bounds.left + 28) nav.scrollBy({ left: -18 });
                           else if (event.clientX > bounds.right - 28) nav.scrollBy({ left: 18 });
-                          for (const tab of nav.querySelectorAll<HTMLElement>('[data-project-slot-id]')) {
-                            const rect = tab.getBoundingClientRect();
-                            target = { id: tab.dataset.projectSlotId!, side: event.clientX < rect.left + rect.width / 2 ? 'before' : 'after' };
-                            if (event.clientX <= rect.right) break;
-                          }
-                          if (target?.id === drag.id) target = null;
                         }
-                        drag.target = target;
+                        const target = projectTabDropTarget(nav, drag.layout, event.clientX, event.clientY);
                         setTabDropTarget(current => current?.id === target?.id && current?.side === target?.side ? current : target);
                       }}
                       onPointerUp={event => {
                         const drag = tabDrag.current;
                         if (!drag || drag.pointerId !== event.pointerId) return;
-                        if (drag.started && drag.target && !sourceBatchBusy) {
-                          moveSlot(drag.id, drag.target.id, drag.target.side);
+                        const target = drag.layout && projectTabDropTarget(event.currentTarget.closest('nav')!, drag.layout, event.clientX, event.clientY);
+                        if (target && !sourceBatchBusy) {
+                          moveSlot(drag.id, target.id, target.side);
                           setTabAnnouncement(zh ? '已调整项目标签顺序' : 'Project tab order changed');
                         }
                         endTabDrag();
@@ -444,7 +459,7 @@ export function App(props: AppProps) {
                         setTabAnnouncement(zh ? `${project.name} 已向${event.key === 'ArrowLeft' ? '左' : '右'}移动` : `${project.name} moved ${event.key === 'ArrowLeft' ? 'left' : 'right'}`);
                       }}
                       onClick={() => {
-                        if (tabDrag.current?.started || performance.now() - dragEndedAt.current < 200) return;
+                        if (tabDrag.current?.layout || performance.now() - dragEndedAt.current < 200) return;
                         if (!active) void openProject(project);
                       }}
                     >
@@ -464,6 +479,7 @@ export function App(props: AppProps) {
                     >
                       <X size={13} weight="regular" aria-hidden="true" />
                     </button>
+                    {dragging ? <span className="gitapp-tab-placeholder" aria-hidden="true">{project.name}</span> : null}
                   </span>
                 );
               })}
@@ -477,18 +493,32 @@ export function App(props: AppProps) {
           </header>
 
           <div className="gitapp-workbench-host" key={activeProject.id}>
-            {commitView ? (
-              <nav className="gitapp-commit-viewbar" aria-label={zh ? '提交视图' : 'Commit views'}>
-                <button type="button" aria-pressed={commitView === 'source'} disabled={viewSwitchDisabled} onClick={() => showProjectView('source')}>{zh ? '项目提交' : 'Project commits'}</button>
-                <button type="button" aria-pressed={commitView === 'staging'} disabled={viewSwitchDisabled} onClick={() => showProjectView('staging')}>{zh ? '暂存与未暂存' : 'Staged and unstaged'}</button>
-              </nav>
-            ) : null}
-            <div className="gitapp-view-pane" hidden={activeView !== 'workbench'}>
-              <ProjectGitWorkbench project={activeProject} client={props.client} language={language} tab={activeGitTab} onTabChange={changeGitTab} commitModels={commitModels} onOpenModelSettings={() => openSettings('models')} navigationRequest={searchNavigation} onNavigationHandled={finishSearchNavigation} />
-            </div>
-            {sourceVisited[activeProject.id] || activeView === 'source' ? <div className="gitapp-view-pane" hidden={activeView !== 'source'}>
-              <ProjectSourceChanges project={activeProject} client={props.client} language={language} active={!settingsOpen && activeView === 'source'} commitModels={commitModels} onOpenModelSettings={() => openSettings('models')} onBusyChange={setSourceBatchBusy} />
-            </div> : null}
+            <ProjectGitWorkbench
+              project={activeProject}
+              client={props.client}
+              language={language}
+              tab={activeGitTab}
+              onTabChange={tab => {
+                if (activeView === 'source') switchProjectView('workbench');
+                changeGitTab(tab);
+              }}
+              commitModels={commitModels}
+              onOpenModelSettings={() => openSettings('models')}
+              navigationRequest={searchNavigation}
+              onNavigationHandled={finishSearchNavigation}
+              commitViewNavigation={commitView ? (
+                <nav className="gitapp-commit-viewbar" aria-label={zh ? '提交视图' : 'Commit views'}>
+                  <button type="button" aria-pressed={commitView === 'source'} disabled={viewSwitchDisabled} onClick={() => showProjectView('source')}>{zh ? '项目提交' : 'Project commits'}</button>
+                  <button type="button" aria-pressed={commitView === 'staging'} disabled={viewSwitchDisabled} onClick={() => showProjectView('staging')}>{zh ? '暂存与未暂存' : 'Staged and unstaged'}</button>
+                </nav>
+              ) : undefined}
+              sourceView={sourceVisited[activeProject.id] || activeView === 'source' ? {
+                visible: activeView === 'source',
+                active: !settingsOpen && activeView === 'source',
+                onBusyChange: setSourceChangesBusy,
+                onToolbarBusyChange: setSourceToolbarBusy,
+              } : undefined}
+            />
           </div>
         </div>
       ) : (
@@ -568,7 +598,7 @@ export function App(props: AppProps) {
       </div>
       {reviewVisible ? <GitPaneSeparator name="review-main" label={zh ? '调整代码评审宽度' : 'Resize code review'} initial={68} min={40} max={78} /> : null}
       {reviewVisited && activeProject ? <CodeReviewPanel key={activeProject.id} client={props.client} project={activeProject} zh={zh} active={reviewVisible} modelSettingsRevision={modelSettingsRevision} onSettings={() => openSettings('models')} onClose={() => { setReviewOpen(false); reviewButton.current?.focus(); }} onNavigate={navigateSearch} /> : null}
-      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} onClose={closeSettings} onModelsChanged={modelSettingsChanged} section={settingsSection} onSectionChange={setSettingsSection} update={applicationUpdates} updateDisabled={sourceBatchBusy || repositorySetup.busy} /> : null}
+      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} onModelsChanged={modelSettingsChanged} section={settingsSection} onSectionChange={setSettingsSection} update={applicationUpdates} updateDisabled={sourceBatchBusy || repositorySetup.busy} /> : null}
       </div>
       </div>
       </div>

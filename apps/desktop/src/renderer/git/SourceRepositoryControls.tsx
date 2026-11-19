@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { Archive } from '@phosphor-icons/react/dist/csr/Archive';
-import { ArrowUp } from '@phosphor-icons/react/dist/csr/ArrowUp';
 import type { DashboardClient, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../apiClient.js';
 import type { BusyState, ExecutionOutcome, OperationTone } from './gitWorkbenchTypes.js';
-import { BranchSwitcher, CheckoutRevisionDialog, NewBranchDialog, PushDialog, StashDialog, UpdateProjectDialog } from './GitRepositoryControls.js';
+import { BranchSwitcher, CheckoutRevisionDialog, NewBranchDialog, PushDialog, UpdateProjectDialog } from './GitRepositoryControls.js';
 import { ProjectGitDiffWindow } from './ProjectGitDiffViewer.js';
 import { ModalPortal } from '../ui/ModalPortal.js';
 import { MotionPresence } from '../ui/MotionPresence.js';
@@ -18,7 +16,7 @@ export function SourceRepositoryControls(props: {
   onExecute(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string): Promise<ExecutionOutcome>;
 }) {
   const { zh, repository, repositories } = props;
-  const [dialog, setDialog] = useState<'branch' | 'revision' | 'update' | 'push' | 'stash' | null>(null);
+  const [dialog, setDialog] = useState<'branch' | 'revision' | 'update' | 'push' | null>(null);
   const [baseRef, setBaseRef] = useState('');
   const [results, setResults] = useState<Array<{ repositoryId: string; repositoryName: string; tone: OperationTone; message: string }>>([]);
   const [preview, setPreview] = useState<{ repositoryId: string; filePath: string; comparisonRef?: string; comparisonMode?: 'current' | 'working-tree' } | null>(null);
@@ -34,14 +32,11 @@ export function SourceRepositoryControls(props: {
         onOpenUpdate={() => setDialog('update')} onOpenCommit={props.onCommit}
         onOpenPush={() => { setResults([]); setDialog('push'); }}
         onOpenNewBranch={ref => { setBaseRef(ref ?? ''); setDialog('branch'); }} onOpenRevision={() => setDialog('revision')} />
-      <button type="button" className="source-git-icon" disabled={props.locked || repository.snapshot.clean || !!repository.snapshot.conflictFiles.length} aria-label={zh ? '贮藏当前仓库更改' : 'Stash repository changes'} title={zh ? '贮藏当前仓库更改' : 'Stash repository changes'} onClick={() => setDialog('stash')}><Archive /></button>
-      <button type="button" className="source-git-icon" disabled={props.locked || !repository.snapshot.remotes.length} aria-label={zh ? '推送…' : 'Push…'} title={zh ? '推送…' : 'Push…'} onClick={() => { setResults([]); setDialog('push'); }}><ArrowUp /></button>
     </div>
     <MotionPresence>
       {dialog === 'branch' ? <NewBranchDialog open zh={zh} repositories={repositories} selectedRepository={repository} baseRef={baseRef} busy={busy} onClose={() => setDialog(null)} onExecute={execute} /> : null}
       {dialog === 'revision' ? <CheckoutRevisionDialog open zh={zh} repositories={repositories} selectedRepository={repository} busy={busy} onClose={() => setDialog(null)} onExecute={execute} /> : null}
       {dialog === 'update' ? <UpdateProjectDialog open projectId={props.projectId} zh={zh} repositories={repositories} busy={busy} errorsByRepository={props.errorsByRepository ?? {}} onClose={() => setDialog(null)} onExecute={execute} /> : null}
-      {dialog === 'stash' ? <StashDialog repository={repository} zh={zh} busy={busy} onClose={() => setDialog(null)} onExecute={execute} /> : null}
       {dialog === 'push' ? <PushDialog open zh={zh} repositories={repositories} selectedRepository={repository} busy={busy} results={results} onClose={() => setDialog(null)} onPush={async (selections, forceWithLease, pushTags) => {
         const next: typeof results = [];
         for (const selection of selections) {

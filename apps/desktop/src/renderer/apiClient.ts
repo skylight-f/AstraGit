@@ -21,6 +21,7 @@ export interface GitAppProject extends ProjectRecord {
 }
 
 export type ModelTemplateId = 'custom' | 'deepseek' | 'bailian' | 'kimi' | 'zai';
+export type ModelConnectionModel = ConfiguredModelDefinition;
 
 export interface ModelConnection {
   id: string;
@@ -28,9 +29,11 @@ export interface ModelConnection {
   templateId: ModelTemplateId;
   baseUrl: string;
   modelsPath: string;
+  protocolFamily?: ModelConnectionModel['protocolFamily'];
   enabled: boolean;
   apiKeyConfigured: boolean;
-  models: Array<{ id: string; displayName: string; enabled: boolean }>;
+  pricingUrl?: string;
+  models: ModelConnectionModel[];
 }
 
 export interface SaveModelConnection {
@@ -38,6 +41,7 @@ export interface SaveModelConnection {
   templateId: ModelTemplateId;
   baseUrl: string;
   modelsPath?: string;
+  protocolFamily?: ModelConnectionModel['protocolFamily'];
   enabled?: boolean;
   apiKey?: string;
   allowInsecureHttp?: boolean;
@@ -59,6 +63,7 @@ export interface CodexLogin {
 }
 
 import type { GitApiClient } from './features/git/gitApiClient.js';
+import type { ConfiguredModelDefinition } from '@astragit/ai-runtime';
 
 /** 工作台所需 DashboardClient 能力子集；独立应用不组合全站 client。 */
 export interface DashboardClient extends GitApiClient {
@@ -76,8 +81,9 @@ export interface DashboardClient extends GitApiClient {
   createModelConnection(input: SaveModelConnection): Promise<ModelConnection>;
   updateModelConnection(id: string, input: SaveModelConnection): Promise<ModelConnection>;
   removeModelConnection(id: string): Promise<{ ok: boolean }>;
+  testModelConnection(id: string): Promise<{ ok: boolean; message: string; discoveredModelCount: number | null }>;
   refreshModelConnectionModels(id: string): Promise<{ connection: ModelConnection; addedModelIds: string[] }>;
-  addManualModel(id: string, modelId: string): Promise<ModelConnection>;
+  addManualModel(id: string, model: string | { modelId: string; displayName: string; enabled: boolean }): Promise<ModelConnection>;
   loadCodexAccount(): Promise<CodexAccount>;
   startCodexLogin(): Promise<CodexLogin>;
   loadCodexLoginStatus(login: CodexLogin): Promise<{ status: 'pending' | 'succeeded' | 'failed'; error: string | null }>;
