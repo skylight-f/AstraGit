@@ -392,12 +392,14 @@ export function migrateCommandDeliverySchema(db: AstraGitDatabasePort): void {
       END
     `);
 
-    db.execute(`INSERT OR IGNORE INTO schema_migrations (migration_id, description, checksum, applied_at) VALUES (?, ?, ?, ?)`, [
-      commandDeliverySchemaMigrationId,
-      '扩展四类 Command destination、Core 原子回执与外部副作用稳定 operation 身份',
-      checksum,
-      new Date().toISOString(),
-    ]);
+    if (!existing) {
+      db.execute(`INSERT OR IGNORE INTO schema_migrations (migration_id, description, checksum, applied_at) VALUES (?, ?, ?, ?)`, [
+        commandDeliverySchemaMigrationId,
+        '扩展四类 Command destination、Core 原子回执与外部副作用稳定 operation 身份',
+        checksum,
+        new Date().toISOString(),
+      ]);
+    }
   });
 }
 

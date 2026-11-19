@@ -8,7 +8,7 @@ import { parseReleaseManifest } from '../packages/shared/dist/index.js';
 import { downloadVerifiedArtifact } from '../apps/desktop/src/main/releaseUpdateService.ts';
 import { selectAutomaticVersion } from '../scripts/prepare-automatic-release.mjs';
 import { renderHomebrewCask } from '../scripts/homebrew-cask.mjs';
-import { verifyHomebrewRelease } from '../scripts/sync-homebrew-tap.mjs';
+import { loadHomebrewRelease, verifyHomebrewRelease } from '../scripts/sync-homebrew-tap.mjs';
 
 test('release versions reserve existing tags and update manifests reject foreign apps, origins and invalid hashes', () => {
   assert.equal(selectAutomaticVersion('0.1.0', []), '0.1.0'); assert.equal(selectAutomaticVersion('0.1.0', ['v0.1.0', 'v0.1.2']), '0.1.3'); assert.equal(selectAutomaticVersion('0.2.0', ['v0.1.2']), '0.2.0');
@@ -33,6 +33,63 @@ test('Homebrew publication binds both architecture hashes to the public release 
   const forgedRelease = { ...release, assets: release.assets.map(a => a.name === 'astragit.rb' ? asset(a.name, forged) : a) };
   assert.throws(() => verifyHomebrewRelease(forgedRelease, manifest, bytes, forged), /不一致/u);
 });
+
+function homebrewReleaseFixture() {
+  const base = 'https://github.com/skylight-f/AstraGit/releases/download/v0.2.0';
+  const artifacts = ['arm64', 'x64'].map((arch, i) => ({ arch, kind: 'dmg', fileName: `AstraGit-0.2.0-${arch}.dmg`, sha256: String(i + 1).repeat(64), sizeBytes: 200_000 + i, downloadUrl: `${base}/AstraGit-0.2.0-${arch}.dmg` }));
+  const manifest = { schemaVersion: 1, appId: 'com.astragit.desktop', repository: 'skylight-f/AstraGit', version: '0.2.0', sourceCommit: 'b'.repeat(40), signed: false, notarized: false, minimumSystemVersion: '13.0', artifacts };
+  const files = { 'astragit-release-manifest.json': Buffer.from(JSON.stringify(manifest)), 'astragit.rb': Buffer.from(renderHomebrewCask(manifest)) };
+  const release = { tag_name: 'v0.2.0', draft: false, prerelease: false, html_url: 'https://github.com/skylight-f/AstraGit/releases/tag/v0.2.0', assets: [...artifacts.map(a => ({ name: a.fileName, size: a.sizeBytes, digest: `sha256:${a.sha256}`, browser_download_url: a.downloadUrl })), ...Object.entries(files).map(([name, body]) => ({ name, size: body.length, digest: `sha256:${createHash('sha256').update(body).digest('hex')}`, browser_download_url: `${base}/${name}` }))] };
+  return { manifest, files, release, input: { tag: 'v0.2.0', sourceCommit: manifest.sourceCommit, token: 'fixture-token' } };
+}
+
+test('Homebrew sync authenticates API reads, keeps credentials off public downloads and binds the exact published tag and commit', async t => {
+  const f = homebrewReleaseFixture();
+  const requests = [];
+  let tagCommit = f.manifest.sourceCommit;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push({ url, headers: new Headers(options.headers) });
+    if (url.endsWith('/releases/tags/v0.2.0')) return Response.json(f.release);
+    if (url.endsWith('/git/ref/tags/v0.2.0')) return Response.json({ object: { sha: tagCommit } });
+    const name = url.split('/').at(-1);
+    assert.ok(url.startsWith('https://github.com/skylight-f/AstraGit/releases/download/v0.2.0/'));
+    assert.ok(f.files[name], `Unexpected request: ${url}`);
+    return new Response(f.files[name]);
+  });
+  assert.deepEqual(await loadHomebrewRelease(f.input), { manifest: f.manifest, caskBytes: f.files['astragit.rb'] });
+  assert.equal(requests.length, 4);
+  for (const { url, headers } of requests) assert.equal(headers.get('authorization'), new URL(url).hostname === 'api.github.com' ? 'Bearer fixture-token' : null);
+  await assert.rejects(loadHomebrewRelease({ ...f.input, sourceCommit: 'c'.repeat(40) }), /清单源码与本次发布提交不一致/u);
+  tagCommit = 'c'.repeat(40);
+  await assert.rejects(loadHomebrewRelease(f.input), /标签与本次发布提交不一致/u);
+  f.release.tag_name = 'v0.3.0';
+  await assert.rejects(loadHomebrewRelease(f.input), /标签不匹配/u);
+});
+
+test('Homebrew sync fails before networking without credentials or a valid release identity', async t => {
+  const f = homebrewReleaseFixture();
+  const network = t.mock.method(globalThis, 'fetch', () => assert.fail('Invalid input must not make a request.'));
+  await assert.rejects(loadHomebrewRelease({ ...f.input, token: '' }), /缺少 GH_TOKEN/u);
+  await assert.rejects(loadHomebrewRelease({ ...f.input, tag: undefined }), /RELEASE_TAG/u);
+  await assert.rejects(loadHomebrewRelease({ ...f.input, sourceCommit: undefined }), /RELEASE_COMMIT/u);
+  assert.equal(network.mock.callCount(), 0);
+});
+
+test('Homebrew failures report HTTP, rate limits, request IDs and transport errors without revealing the token', async t => {
+  const f = homebrewReleaseFixture();
+  let status = 403;
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ message: `API rate limit exceeded: ${f.input.token}` }, { status, headers: { 'x-github-request-id': 'request-fixture', 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1900000000', 'retry-after': '60' } }));
+  await assert.rejects(loadHomebrewRelease(f.input), error => {
+    for (const expected of ['HTTP 403', '读取本次公开发行', 'request-fixture', 'x-ratelimit-remaining=0', 'x-ratelimit-reset=1900000000', 'retry-after=60', 'API rate limit exceeded', '[REDACTED]']) assert.ok(error.message.includes(expected), expected);
+    assert.ok(!error.message.includes(f.input.token));
+    return true;
+  });
+  status = 401;
+  await assert.rejects(loadHomebrewRelease(f.input), /请检查 GH_TOKEN/u);
+  t.mock.method(globalThis, 'fetch', async () => { throw new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } }); });
+  await assert.rejects(loadHomebrewRelease(f.input), /读取本次公开发行网络请求失败.*ECONNRESET/u);
+});
+
 test('update download verifies bytes, revalidates cached files and removes interrupted partial downloads', async t => {
   const root = await mkdtemp(join(tmpdir(), 'astragit-download-')); t.after(() => rm(root, { recursive: true, force: true }));
   const original = globalThis.fetch; t.after(() => { globalThis.fetch = original; });

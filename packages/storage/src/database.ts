@@ -21,6 +21,18 @@ export class StorageWriteFaultError extends Error {
   }
 }
 
+/** 数据库的迁移账本被其他写入方的结构围栏锁住；保留围栏本身，不代其他产品解锁或删库。 */
+export class DatabaseSchemaFenceError extends Error {
+  readonly code = 'ASTRAGIT_STORAGE_SCHEMA_FENCED';
+
+  constructor(cause: unknown) {
+    super('数据目录中的数据库受其他写入方的结构围栏保护，AstraGit 无法记录迁移。请改用新的数据目录；如确认不再需要该库，备份后移除其 git-app.db 再启动。', { cause });
+    this.name = 'DatabaseSchemaFenceError';
+  }
+}
+
+const schemaFenceMarker = /ZEUS_(?:DOWNGRADE_REQUIRES_SAFE_ROLLBACK_DATABASE|LEGACY_CONVERSATION_ITEMS_WRITE_FENCED)/u;
+
 /** Synchronous WAL commits preserve the command ledger before a Git side effect. */
 export class AstraGitDatabase implements AstraGitDatabasePort, AstraGitDatabaseWriteFaultReporter {
   private savepointSequence = 0;
@@ -269,6 +281,7 @@ export async function createAstraGitDatabase(filePath: string): Promise<AstraGit
     return db;
   } catch (error) {
     db.discardAndClose();
+    if (error instanceof Error && schemaFenceMarker.test(error.message)) throw new DatabaseSchemaFenceError(error);
     throw error;
   }
 }

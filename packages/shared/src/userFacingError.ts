@@ -1271,6 +1271,14 @@ const explanations: ReadonlyArray<readonly [codes: readonly string[], explanatio
     ['ASTRAGIT_STORAGE_READ_ONLY_FAULT'],
     ['AstraGit 的本地数据发生读写错误，已暂停修改以保护现有数据。请使用页面上的数据恢复入口。', 'AstraGit encountered a local data error and paused changes to protect existing data. Use the data recovery action on this page.'],
   ],
+  [
+    ['ASTRAGIT_STORAGE_SCHEMA_FENCED'],
+    ['数据目录中的数据库受其他写入方的结构围栏保护，AstraGit 无法记录迁移。请改用新的数据目录；如确认不再需要该库，备份后移除其 git-app.db 再启动。', 'The database in this data directory is structurally fenced by another writer and AstraGit cannot record its migrations. Use a fresh data directory, or back up and remove its git-app.db first if its contents are no longer needed.'],
+  ],
+  [
+    ['ASTRAGIT_ARTIFACT_SCHEMA_CONFLICT', 'ASTRAGIT_COMMAND_DELIVERY_SCHEMA_CONFLICT'],
+    ['数据目录中的数据库与当前 AstraGit 的数据结构定义不一致，已拒绝打开以免损坏现有数据。请改用新的数据目录，或备份后处理该库。', 'The database in this data directory does not match the current AstraGit data structure definitions and was not opened, to protect existing data. Use a fresh data directory, or back up and handle that database first.'],
+  ],
   [['ASTRAGIT_CONVERSATION_ARCHIVE_PENDING_MESSAGES'], ['还有消息等待处理，因此暂时不能归档。请先处理或取消这些消息。', 'Messages are still waiting to be processed. Finish or cancel them before archiving.']],
   [['ASTRAGIT_CONVERSATION_ARCHIVE_PENDING_REQUEST'], ['AI 正在等待你的回答或授权，因此暂时不能归档。请先处理会话中的问题。', 'The AI is waiting for your answer or approval. Resolve the request in the conversation before archiving.']],
   [['ASTRAGIT_CONVERSATION_ARCHIVE_ACTIVE'], ['AI 仍在处理这段对话，因此暂时不能归档。请等待处理结束，或先停止当前处理。', 'The AI is still working on this conversation. Wait for it to finish or stop the current work before archiving.']],

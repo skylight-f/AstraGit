@@ -6,6 +6,7 @@ import { writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { startGitServer, type RunningGitServer } from '@astragit/git-server';
+import { describeUserFacingError } from '@astragit/shared';
 import { resolveCliSearchPath } from '@astragit/ai-runtime';
 import { createReleaseUpdateService } from './releaseUpdateService.js';
 import { applicationIdentity } from './applicationIdentity.js';
@@ -354,6 +355,11 @@ app.whenReady().then(async () => {
   if (shuttingDown) return;
   console.error('[AstraGit] 启动失败', error);
   shuttingDown = true;
+  try {
+    const language = app.getLocale().startsWith('zh') ? 'zh-CN' : 'en-US';
+    const explanation = describeUserFacingError(error, language);
+    dialog.showErrorBox(language === 'zh-CN' ? 'AstraGit 无法启动' : 'AstraGit failed to start', [explanation.message, explanation.details].filter(Boolean).join('\n\n'));
+  } catch { /* 启动失败的次级错误不再打扰用户。 */ }
   try { await closeServices(); } finally { app.exit(1); }
 });
 

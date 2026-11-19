@@ -3,7 +3,8 @@ import { chmod, cp, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { ArtifactStore, CommandDeliveryRepository, SettingRepository, createAstraGitDatabase } from '../packages/storage/dist/index.js';
+import { DatabaseSync } from 'node:sqlite';
+import { ArtifactStore, CommandDeliveryRepository, DatabaseSchemaFenceError, SettingRepository, createAstraGitDatabase } from '../packages/storage/dist/index.js';
 import { canonicalCommandInputJson, commandEnvelopeSchemaGeneration } from '../packages/shared/dist/index.js';
 import { createHash } from 'node:crypto';
 import { GitCommandApplication } from '../packages/git-server/dist/gitCommandApplication.js';
@@ -30,6 +31,63 @@ test('AstraGit initializes its own schema and preserves settings across restart'
   } finally {
     await other.close();
   }
+});
+
+function installLegacySchemaLedgerFence(dbFile) {
+  const native = new DatabaseSync(dbFile);
+  try {
+    native.exec(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        migration_id TEXT PRIMARY KEY, description TEXT NOT NULL, checksum TEXT NOT NULL, applied_at TEXT NOT NULL
+      );
+      CREATE TABLE conversation_legacy_write_fence (singleton INTEGER PRIMARY KEY, current_writer_open INTEGER NOT NULL);
+      INSERT INTO conversation_legacy_write_fence (singleton, current_writer_open) VALUES (1, 0);
+      CREATE TRIGGER reject_legacy_schema_migrations_insert BEFORE INSERT ON schema_migrations
+      WHEN (SELECT current_writer_open FROM conversation_legacy_write_fence WHERE singleton = 1) = 0
+      BEGIN SELECT RAISE(ABORT, 'ZEUS_DOWNGRADE_REQUIRES_SAFE_ROLLBACK_DATABASE'); END;
+    `);
+  } finally {
+    native.close();
+  }
+}
+
+test('reopening a ledger fenced by another writer does not rewrite recorded migrations', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'astragit-fenced-'));
+  let db;
+  t.after(async () => { await db?.close(); await rm(root, { recursive: true, force: true }); });
+  const file = join(root, 'git-app.db');
+  db = await createAstraGitDatabase(file);
+  await db.close();
+  installLegacySchemaLedgerFence(file);
+  db = await createAstraGitDatabase(file);
+  const settings = new SettingRepository(db);
+  settings.setJson('models.connections', [{ id: 'fenced_connection', name: 'AstraGit model' }]);
+  await db.save();
+  assert.equal(settings.getJson('models.connections')[0].name, 'AstraGit model');
+  const probe = new DatabaseSync(file);
+  try {
+    assert.throws(
+      () => probe.prepare(`INSERT INTO schema_migrations (migration_id, description, checksum, applied_at) VALUES ('probe', 'probe', 'probe', 'probe')`).run(),
+      /ZEUS_DOWNGRADE_REQUIRES_SAFE_ROLLBACK_DATABASE/u,
+    );
+  } finally {
+    probe.close();
+  }
+});
+
+test('a fenced schema ledger reports an actionable error when a new migration must be recorded', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'astragit-fenced-new-'));
+  let db;
+  t.after(async () => { await db?.close(); await rm(root, { recursive: true, force: true }); });
+  const file = join(root, 'git-app.db');
+  installLegacySchemaLedgerFence(file);
+  await assert.rejects(() => createAstraGitDatabase(file), (error) => {
+    assert.ok(error instanceof DatabaseSchemaFenceError);
+    assert.equal(error.code, 'ASTRAGIT_STORAGE_SCHEMA_FENCED');
+    assert.match(error.message, /数据目录/u);
+    assert.match(String(error.cause?.message ?? ''), /ZEUS_DOWNGRADE_REQUIRES_SAFE_ROLLBACK_DATABASE/u);
+    return true;
+  });
 });
 
 test('savepoint and durable rollback discard writes and commit notifications', async (t) => {

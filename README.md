@@ -84,7 +84,9 @@ Apple Silicon 与 Intel 使用各自的 DMG 和摘要。Homebrew 安装采用 As
 
 卸载可用 `brew uninstall --cask skylight-f/tap/astragit`；只有主动增加 `--zap` 才清理 Cask 声明的本地配置。更新流程保留项目、模型配置与草稿。
 
-发行同时上传与清单一致的 `astragit.rb`。`skylight-f/homebrew-tap` 的独立工作流每 15 分钟核对公开发行并同步 Cask，也支持手动触发；定时任务实际执行时间由 GitHub 调度决定。它使用 Tap 自己的 `GITHUB_TOKEN`，无需跨仓库凭据。若在 AstraGit 设置 `HOMEBREW_TAP_TOKEN`，发布后还会立即同步 Tap。工作流模板位于 `scripts/templates/astragit-homebrew-sync.yml`，只更新 `Casks/astragit.rb`。
+发行同时上传与清单一致的 `astragit.rb`，并在同一次发布流程中核对本次标签、源码提交及公开资产后更新 `skylight-f/homebrew-tap` 的 `Casks/astragit.rb`；同步失败会使发布工作流失败。发布前必须在 AstraGit 的 Actions Secrets 中配置 `HOMEBREW_TAP_TOKEN`，授予目标 Tap 仓库 Contents 读写权限。GitHub API 查询使用发布流程的 `GH_TOKEN` 认证，失败日志包含请求 ID 和限流信息。Tap 无需定时轮询。
+
+在 [GitHub 细粒度令牌设置](https://github.com/settings/personal-access-tokens/new)创建 PAT，Resource owner 选择 `skylight-f`，Repository access 仅选择 `homebrew-tap`，Repository permissions 的 Contents 设置为 Read and write。将生成的值保存在 [AstraGit Actions Secrets](https://github.com/skylight-f/AstraGit/settings/secrets/actions) 中，名称为 `HOMEBREW_TAP_TOKEN`。令牌由 GitHub 生成，应用和发布脚本只读取 Secret；设置的有效期届满前需更新该 Secret。
 
 ### DMG 安装与升级
 

@@ -23,6 +23,7 @@ export type ArtifactStoreErrorCode =
   | 'ASTRAGIT_ARTIFACT_GC_CONFLICT'
   | 'ASTRAGIT_ARTIFACT_GC_DELAY_NOT_ELAPSED'
   | 'ASTRAGIT_ARTIFACT_CAPACITY_EXHAUSTED'
+  | 'ASTRAGIT_ARTIFACT_SCHEMA_CONFLICT'
   | 'ASTRAGIT_ARTIFACT_EXTERNAL_WRITE_FAILED';
 
 export class ArtifactStoreError extends Error {
@@ -204,6 +205,12 @@ const defaultMinimumFreeBytes = 512 * 1024 * 1024;
 
 /** 建立内容寻址对象、稳定 owner 关系、可恢复 staging 与两阶段 GC 清单。 */
 export function migrateArtifactStoreSchema(db: AstraGitDatabasePort): void {
+  const checksum = `sha256:${createHash('sha256').update('artifact-objects-owners-staging-gc-v1').digest('hex')}`;
+  // 迁移已记录时不再写账本：重复 INSERT 会触发遗留写入围栏，导致打开已有数据库失败。
+  const recorded = db.get<{ checksum: string }>(`SELECT checksum FROM schema_migrations WHERE migration_id = ?`, [artifactSchemaMigrationId]);
+  if (recorded && recorded.checksum !== checksum) {
+    throw new ArtifactStoreError('ASTRAGIT_ARTIFACT_SCHEMA_CONFLICT', `Artifact 迁移账本与当前结构定义不一致（${artifactSchemaMigrationId}），已拒绝继续打开数据库。`);
+  }
   db.execute(`
     CREATE TABLE IF NOT EXISTS artifact_objects (
       sha256 TEXT PRIMARY KEY,
@@ -310,12 +317,14 @@ export function migrateArtifactStoreSchema(db: AstraGitDatabasePort): void {
     )
   `);
   db.execute(`CREATE INDEX IF NOT EXISTS idx_artifact_storage_faults_open ON artifact_storage_faults(resolved_at, occurred_at)`);
-  db.execute(`INSERT OR IGNORE INTO schema_migrations (migration_id, description, checksum, applied_at) VALUES (?, ?, ?, ?)`, [
-    artifactSchemaMigrationId,
-    '建立内容寻址 ArtifactRef、staging 提升、稳定 owner 与延迟 GC 清单',
-    `sha256:${createHash('sha256').update('artifact-objects-owners-staging-gc-v1').digest('hex')}`,
-    new Date().toISOString(),
-  ]);
+  if (!recorded) {
+    db.execute(`INSERT OR IGNORE INTO schema_migrations (migration_id, description, checksum, applied_at) VALUES (?, ?, ?, ?)`, [
+      artifactSchemaMigrationId,
+      '建立内容寻址 ArtifactRef、staging 提升、稳定 owner 与延迟 GC 清单',
+      checksum,
+      new Date().toISOString(),
+    ]);
+  }
 }
 
 /**

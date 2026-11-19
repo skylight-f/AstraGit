@@ -20,26 +20,74 @@ export function verifyHomebrewRelease(release, manifest, bytes, caskBytes) {
   if (caskBytes.toString('utf8') !== renderHomebrewCask(parsed)) throw new Error('公开 Cask 与更新清单不一致。');
   return parsed;
 }
-export async function syncHomebrewTap(directory) {
-  const root = resolve(directory);
-  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-  const origin = git('remote', 'get-url', 'origin');
-  if (![ `git@github.com:${homebrewRepository}.git`, `https://github.com/${homebrewRepository}.git`, `https://github.com/${homebrewRepository}` ].includes(origin) || git('status', '--porcelain')) throw new Error('Homebrew Tap 来源或检出状态无效。');
-  const response = await fetch(`https://api.github.com/repos/${releaseRepository}/releases/latest`, { signal: AbortSignal.timeout(30_000), headers: { 'user-agent': 'AstraGit-Homebrew-Sync' } });
-  if (!response.ok) throw new Error(`读取公开发行失败：${response.status}`);
+async function fetchHomebrewResource(url, token, label) {
+  const api = new URL(url).origin === 'https://api.github.com';
+  const redact = value => String(value).replaceAll(token, '[REDACTED]');
+  let response;
+  try {
+    response = await fetch(url, {
+      signal: AbortSignal.timeout(30_000),
+      headers: {
+        'user-agent': 'AstraGit-Homebrew-Sync',
+        // 公开下载会跳转到资产 CDN，认证仅用于 GitHub API。
+        ...(api ? { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' } : {}),
+      },
+    });
+  } catch (error) {
+    throw new Error(`${label}网络请求失败（${url}）：${redact(error.cause?.code || error.message)}`);
+  }
+  if (response.ok) return response;
+  const diagnostics = [`${label}失败：HTTP ${response.status}（${url}）`];
+  for (const name of ['x-github-request-id', 'x-ratelimit-remaining', 'x-ratelimit-reset', 'retry-after']) {
+    const value = response.headers.get(name);
+    if (value) diagnostics.push(`${name}=${redact(value)}`);
+  }
+  if (response.status === 401) diagnostics.push('请检查 GH_TOKEN 是否有效以及是否可读取 AstraGit 发行。');
+  if (response.status === 403 || response.status === 429) {
+    diagnostics.push(response.headers.get('x-ratelimit-remaining') === '0' ? 'GitHub API 配额已耗尽，请在 x-ratelimit-reset 指定的时间后重试。' : '请检查令牌权限或 GitHub 限流信息，并遵守 retry-after 后重试。');
+  }
+  try {
+    const body = await response.text();
+    let message = body;
+    if (api) { try { message = JSON.parse(body).message || body; } catch { /* 保留非 JSON 错误正文。 */ } }
+    if (message) diagnostics.push(redact(message).replace(/\s+/gu, ' ').slice(0, 1000));
+  } catch { /* 错误正文读取失败时仍保留状态与响应头。 */ }
+  throw new Error(diagnostics.join('\n'));
+}
+
+export async function loadHomebrewRelease({ tag, sourceCommit, token }) {
+  if (!token?.trim()) throw new Error('Homebrew 同步缺少 GH_TOKEN（或 GITHUB_TOKEN），拒绝匿名请求 GitHub API。');
+  if (!/^v\d+\.\d+\.\d+$/u.test(tag) || !/^[a-f0-9]{40}$/u.test(sourceCommit)) throw new Error('Homebrew 同步需要有效的 RELEASE_TAG 和 RELEASE_COMMIT。');
+  const response = await fetchHomebrewResource(`https://api.github.com/repos/${releaseRepository}/releases/tags/${tag}`, token, '读取本次公开发行');
   const release = await response.json();
-  if (!/^v\d+\.\d+\.\d+$/u.test(release.tag_name)) throw new Error('公开发行标签无效。');
+  if (release.tag_name !== tag || release.draft || release.prerelease) throw new Error('本次发行标签不匹配或尚非公开稳定发行。');
   const download = async name => {
     const url = `https://github.com/${releaseRepository}/releases/download/${release.tag_name}/${name}`;
     const asset = release.assets.find(a => a.name === name);
     if (!asset || asset.browser_download_url !== url || asset.size > 128_000) throw new Error('发行缺少匹配的 Homebrew 资产。');
-    const r = await fetch(url, { signal: AbortSignal.timeout(30_000) }); if (!r.ok) throw new Error(`读取 ${name} 失败：${r.status}`);
+    const r = await fetchHomebrewResource(url, token, `读取 ${name}`);
     const bytes = Buffer.from(await r.arrayBuffer()); if (bytes.length > 128_000) throw new Error('Homebrew 资产过大。'); return bytes;
   };
   const [manifestBytes, caskBytes] = await Promise.all([download('astragit-release-manifest.json'), download('astragit.rb')]);
   const manifest = verifyHomebrewRelease(release, JSON.parse(manifestBytes), manifestBytes, caskBytes);
-  const tagResponse = await fetch(`https://api.github.com/repos/${releaseRepository}/git/ref/tags/${release.tag_name}`, { signal: AbortSignal.timeout(30_000) });
-  if (!tagResponse.ok || (await tagResponse.json()).object?.sha !== manifest.sourceCommit) throw new Error('发行标签与清单源码不一致。');
+  if (manifest.sourceCommit !== sourceCommit) throw new Error(`发行清单源码与本次发布提交不一致：expected=${sourceCommit} actual=${manifest.sourceCommit}`);
+  const tagResponse = await fetchHomebrewResource(`https://api.github.com/repos/${releaseRepository}/git/ref/tags/${tag}`, token, '核对发行标签');
+  if ((await tagResponse.json()).object?.sha !== sourceCommit) throw new Error('发行标签与本次发布提交不一致。');
+  return { manifest, caskBytes };
+}
+
+export async function syncHomebrewTap(directory) {
+  const { manifest, caskBytes } = await loadHomebrewRelease({ tag: process.env.RELEASE_TAG, sourceCommit: process.env.RELEASE_COMMIT, token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+  const root = resolve(directory);
+  const git = (...args) => {
+    try {
+      return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    } catch (error) {
+      throw new Error(`Homebrew Git ${args[0]} 失败（exit=${error.status ?? 'unknown'}）：${String(error.stderr || error.message).trim()}`);
+    }
+  };
+  const origin = git('remote', 'get-url', 'origin');
+  if (![ `git@github.com:${homebrewRepository}.git`, `https://github.com/${homebrewRepository}.git`, `https://github.com/${homebrewRepository}` ].includes(origin) || git('status', '--porcelain')) throw new Error('Homebrew Tap 来源或检出状态无效。');
   const path = join(root, 'Casks/astragit.rb');
   const previous = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
   const version = previous.match(/^\s*version "(\d+\.\d+\.\d+)"$/mu)?.[1];
