@@ -71,7 +71,7 @@ export type { GitResetMode, GitWritePreview } from './gitDestructivePreview.js';
 export type { ProjectGitRepositorySettings, RepositorySettingsAction } from './gitRepositorySettings.js';
 export { parseGitCommitTemplateChange } from './gitCommitTemplate.js';
 export type { GitCommitTemplate, GitCommitTemplateChange } from './gitCommitTemplate.js';
-import { readProjectConflict, saveProjectConflict, type ProjectGitConflictFile, type ProjectGitConflictWriteResult, type SaveProjectGitConflictInput } from './gitProjectConflict.js';
+import { readConflictWorktreeRevision, readProjectConflict, saveProjectConflict, type ProjectGitConflictFile, type ProjectGitConflictWriteResult, type SaveProjectGitConflictInput } from './gitProjectConflict.js';
 export type { ProjectGitConflictFile, ProjectGitConflictIndexStage, ProjectGitConflictWriteResult, SaveProjectGitConflictInput } from './gitProjectConflict.js';
 export { readSelectedCommitFingerprint, readSelectedGitCommitChanges, type GitCommitSelectionMode } from './gitCommitSelectionContext.js';
 
@@ -531,8 +531,8 @@ export type ProjectGitAction =
   | { type: 'merge'; branchName: string; commitMerge?: boolean; includeMergeLog?: boolean; noFastForward?: boolean; expectedHeadSha?: string; expectedBranch?: string; expectedSourceHeadSha?: string }
   | { type: 'rebase'; branchName: string }
   | { type: 'stash'; message?: string; includeUntracked?: boolean; keepIndex?: boolean }
-  | { type: 'apply_stash'; stashRef: string; pop?: boolean }
-  | { type: 'drop_stash'; stashRef: string }
+  | { type: 'apply_stash'; stashRef: string; expectedStashHash?: string; pop?: boolean }
+  | { type: 'drop_stash'; stashRef: string; expectedStashHash?: string }
   | { type: 'continue_integration' | 'abort_integration'; kind: 'merge' | 'rebase' | 'cherry_pick' | 'revert' | 'am' };
 
 export interface ProjectGitActionResult extends GitRunnerResult {
@@ -3396,6 +3396,19 @@ export async function executeProjectGitAction(cwd: string, action: ProjectGitAct
   return projectGitExecution.run({ signal, env: actionEnvironment, onCommand }, () => executeProjectGitActionInternal(cwd, action));
 }
 
+/** 轻量检查外部工具是否修改了冲突索引或当前编辑的文件。 */
+export async function getProjectGitConflictRevision(cwd: string, path?: string, signal?: AbortSignal): Promise<string> {
+  return projectGitExecution.run({ signal, env: { ...gitDirectoryEnvironment, GIT_OPTIONAL_LOCKS: '0' } }, async () => {
+    const root = await requireGitStdout(cwd, ['rev-parse', '--show-toplevel']);
+    if (canonicalFilesystemPath(root) !== cwd) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是 Git 仓库根目录。');
+    const [index, worktree] = await Promise.all([
+      runGit(cwd, ['ls-files', '--unmerged', '-z']),
+      path ? readConflictWorktreeRevision(cwd, path) : '',
+    ]);
+    return createHash('sha256').update(JSON.stringify([index.stdout, worktree])).digest('hex');
+  });
+}
+
 /** 冲突编辑直接使用当前项目仓库的 Git stage，不复用任务集成的来源/任务重映射。 */
 export async function readProjectGitConflict(cwd: string, path: string, signal?: AbortSignal): Promise<ProjectGitConflictFile> {
   return projectGitExecution.run({ signal }, async () => {
@@ -3808,11 +3821,15 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
       args = ['stash', 'push', ...(action.includeUntracked ? ['-u'] : []), ...(action.keepIndex ? ['--keep-index'] : []), '-m', requireSafeGitText(action.message || 'AstraGit shelf', 'stash message')];
       break;
     case 'apply_stash':
-      args = ['stash', action.pop ? 'pop' : 'apply', requireStashRef(action.stashRef)];
+    case 'drop_stash': {
+      const stashRef = requireStashRef(action.stashRef);
+      if (action.expectedStashHash !== undefined && await resolveCommit(repositoryPath, stashRef).catch(() => null) !== action.expectedStashHash) {
+        throw Object.assign(gitCoreError('ASTRAGIT_GIT_STASH_REF_INVALID', 'The selected stash reference changed. Refresh the stash list and select the entry again.'), { operationStatus: 'failed_before_write' });
+      }
+      if (action.type === 'drop_stash') args = ['stash', 'drop', stashRef];
+      else args = ['stash', action.pop ? 'pop' : 'apply', stashRef];
       break;
-    case 'drop_stash':
-      args = ['stash', 'drop', requireStashRef(action.stashRef)];
-      break;
+    }
   }
   const conflictCapable =
     action.type === 'skip_integration' ||

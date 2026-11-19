@@ -245,8 +245,8 @@ export type ProjectGitAction =
   | { type: 'merge'; branchName: string; commitMerge?: boolean; includeMergeLog?: boolean; noFastForward?: boolean; expectedHeadSha?: string; expectedBranch?: string; expectedSourceHeadSha?: string }
   | { type: 'rebase'; branchName: string }
   | { type: 'stash'; message?: string; includeUntracked?: boolean; keepIndex?: boolean }
-  | { type: 'apply_stash'; stashRef: string; pop?: boolean }
-  | { type: 'drop_stash'; stashRef: string }
+  | { type: 'apply_stash'; stashRef: string; expectedStashHash?: string; pop?: boolean }
+  | { type: 'drop_stash'; stashRef: string; expectedStashHash?: string }
   | { type: 'continue_integration' | 'abort_integration'; kind: 'merge' | 'rebase' | 'cherry_pick' | 'revert' | 'am' };
 
 export interface ProjectGitActionResponse {

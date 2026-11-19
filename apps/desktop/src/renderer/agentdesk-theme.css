@@ -2191,18 +2191,6 @@ body:has(.macos-ai-app.zeus-shell) {
 }
 .project-git-commit-push-option input { flex: 0 0 auto; }
 .project-git-commit-push-option:has(input:disabled) { color: var(--zeus-product-muted); cursor: default; }
-.macos-ai-app.zeus-shell .project-git-commit-composer .project-git-commit-generation-controls .zeus-button {
-  min-height: 28px;
-  height: 28px;
-  padding: 3px 8px;
-  font-size: 12px;
-}
-.macos-ai-app.zeus-shell .project-git-commit-composer .project-git-commit-generation-controls .zeus-button[aria-label] {
-  width: 28px;
-  min-width: 28px;
-  padding: 6px;
-}
-
 .project-git-commit-message-heading {
   flex-wrap: wrap;
 }
@@ -2213,26 +2201,9 @@ body:has(.macos-ai-app.zeus-shell) {
   flex-wrap: wrap;
   min-width: 0;
 }
-.macos-ai-app.zeus-shell .project-git-commit-generation-controls select {
-  width: 200px;
-  height: 28px;
+.project-git-commit-generation-controls .git-commit-ai-tools {
+  width: 280px;
   max-width: 100%;
-  min-width: 0;
-  padding: 4px 28px 4px 8px;
-  border: 1px solid var(--zeus-product-line);
-  border-radius: 6px;
-  background-color: var(--zeus-product-panel);
-  background-image: var(--zeus-select-caret-icon);
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  background-size: 12px 12px;
-  color: inherit;
-  font: inherit;
-  text-overflow: ellipsis;
-}
-.project-git-commit-generation-controls svg {
-  width: 14px;
-  height: 14px;
 }
 .project-git-commit-generation-feedback {
   max-width: 280px;

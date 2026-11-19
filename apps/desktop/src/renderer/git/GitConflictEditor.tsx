@@ -18,7 +18,7 @@ interface ConflictEditorProps {
   filePath: string;
   zh: boolean;
   disabled?: boolean;
-  externalRevision?: number;
+  revision?: string;
   onExternalMerge?: () => void;
   onSaved: (result: { resolved: boolean; snapshot?: ProjectGitRepositorySnapshot }) => void | Promise<void>;
 }
@@ -55,6 +55,7 @@ function ConflictDocument(props: ConflictEditorProps) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const pendingSave = useRef(false);
+  const resolvedExternally = useRef(false);
   const [error, setError] = useState<unknown>(null);
   const [feedback, setFeedback] = useState('');
   const [storageFailed, setStorageFailed] = useState(false);
@@ -75,22 +76,32 @@ function ConflictDocument(props: ConflictEditorProps) {
     if (value) setStorageFailed(!retainDraft(key, value.dirty || value.draft.side ? value.draft : null));
   };
 
-  async function load(restore = true) {
+  async function load({ restore = true, background = false } = {}) {
     const version = ++loadVersion.current;
-    setLoading(true); setError(null); setFeedback('');
+    if (!background || !latest.current) { setLoading(true); setError(null); setFeedback(''); }
     try {
       const file = await props.client.readProjectGitConflict(props.projectId, props.repositoryId, props.filePath);
       if (!live.current || version !== loadVersion.current) return;
-      const cached = restore ? storedDraft(key) : null;
+      resolvedExternally.current = false;
+      const previous = latest.current;
+      if (background && previous?.file.fingerprint === file.fingerprint) return;
+      const cached = restore ? previous ? (previous.dirty || previous.draft.side ? previous.draft : null) : storedDraft(key) : null;
       const dirty = Boolean(cached && (cached.side || cached.exists !== file.worktreeExists || cached.content !== (file.worktree ?? '')));
       const draft = dirty && cached ? cached : { schemaVersion: 1 as const, fingerprint: file.fingerprint, content: file.worktree ?? '', exists: file.worktreeExists };
       const next = { file, draft, dirty };
-      latest.current = next; setDocument(next); setBlockIndex(0); setUndoChoice(null);
-      setRequiresReload(false);
+      latest.current = next; setDocument(next); setBlockIndex(0); setUndoChoice(null); setError(null); setRequiresReload(false);
       const first = parseConflictBlocks(draft.content, { markerSize: file.markerSize }).blocks[0];
       setReveal(current => ({ offset: first?.start ?? 0, token: current.token + 1 }));
-      if (dirty) setFeedback(text('已恢复此文件的本地合并草稿，尚未写入仓库。', 'Restored this file’s local merge draft. It has not been written to the repository.'));
-    } catch (reason) { if (live.current && version === loadVersion.current) setError(reason); }
+      setFeedback(dirty && !background ? text('已恢复此文件的本地合并草稿，尚未写入仓库。', 'Restored this file’s local merge draft. It has not been written to the repository.') : '');
+    } catch (reason) {
+      if (!live.current || version !== loadVersion.current) return;
+      if (userFacingErrorCause(reason).code === 'ASTRAGIT_GIT_CONFLICT_NOT_FOUND') {
+        setRequiresReload(true);
+        if (!background || !resolvedExternally.current) notifyProjectGitChanged(props.projectId);
+        resolvedExternally.current = true;
+      }
+      if (!background || !latest.current) setError(reason);
+    }
     finally { if (live.current && version === loadVersion.current) setLoading(false); }
   }
   useEffect(() => {
@@ -125,14 +136,12 @@ function ConflictDocument(props: ConflictEditorProps) {
   const stale = requiresReload || Boolean(file && draft && file.fingerprint !== draft.fingerprint);
   const locked = busy || loading || props.disabled;
   const editable = Boolean(file?.editable && file.kind === 'text');
-  const previousExternal = useRef(props.externalRevision);
+  const previousRevision = useRef(props.revision);
   useEffect(() => {
-    if (previousExternal.current === props.externalRevision) return;
-    previousExternal.current = props.externalRevision;
-    if (latest.current?.dirty || latest.current?.draft.side) {
-      setRequiresReload(true); setFeedback(text('外部工具已返回，磁盘内容可能已变化。已保留内置草稿，请重新载入并核对；重新载入会保留备份。', 'The external tool returned and disk contents may have changed. Your built-in draft is retained. Reload and review; reloading keeps a backup.'));
-    } else void load(false);
-  }, [props.externalRevision]);
+    if (props.disabled || busy || previousRevision.current === props.revision) return;
+    previousRevision.current = props.revision;
+    void load({ background: true });
+  }, [props.revision, props.disabled, busy]);
 
   const deleted = Boolean(draft && !draft.exists);
   const deletionUnconfirmed = deleted && !draft?.side;
@@ -194,6 +203,7 @@ function ConflictDocument(props: ConflictEditorProps) {
     if (!value || pendingSave.current || props.disabled || requiresReload || !value.file.editable || value.file.fingerprint !== value.draft.fingerprint) return;
     if (!value.draft.exists && !value.draft.side) return;
     if (markResolved && !parseConflictBlocks(value.draft.content, { markerSize: value.file.markerSize }).canComplete) return;
+    loadVersion.current += 1;
     pendingSave.current = true; setBusy(true); setError(null); setFeedback('');
     try {
       const response = await props.client.saveProjectGitConflict(props.projectId, props.repositoryId, {
@@ -235,11 +245,11 @@ function ConflictDocument(props: ConflictEditorProps) {
   }
   async function reload() {
     if (document?.dirty) { setReloadConfirm(true); return; }
-    await load(false);
+    await load({ restore: false });
   }
   async function confirmReload() {
     if (document?.dirty) { retainDraft(`${key}.backup`, document.draft); setBackup(document.draft); }
-    retainDraft(key, null); setReloadConfirm(false); await load(false);
+    retainDraft(key, null); setReloadConfirm(false); await load({ restore: false });
   }
   function restoreBackup() {
     if (!backup || !document || locked) return;
@@ -275,7 +285,7 @@ function ConflictDocument(props: ConflictEditorProps) {
         <button type="button" disabled={locked || !block} onClick={() => choose('both')}>{text('接受双方（当前在前）', 'Accept both (current first)')}</button>
         <button type="button" disabled={locked || !undoChoice} onClick={() => { if (undoChoice) { const prior = undoChoice; change(prior.content, prior.side, true, prior.exists); setUndoChoice(null); } }}>{text('撤销上次选择', 'Undo last choice')}</button>
       </div>
-      {!parsed.hasMarkers && !draft?.side ? <p className="git-conflict-hint">{text('请核对工作区结果后标记为已解决。当前/传入按 Git 索引阶段显示；变基时“当前”代表目标基线。', 'Review the working tree result before marking it resolved. Current/incoming follow Git index stages; during rebase, current is the target baseline.')}</p> : null}
+      {!parsed.hasMarkers && !draft?.side && !document?.dirty && file.worktreeExists ? <p className="git-conflict-hint">{text('磁盘上的结果已无冲突标记。核对后可勾选左侧文件暂存，或点击下方「保存并标记为已解决」。', 'The result on disk has no conflict markers. After reviewing it, stage the file in the list or choose Save and mark resolved below.')}</p> : null}
       {!parsed.blocks.length && (!file.worktreeExists || file.indexStages.some(stage => stage.stage === 2) !== file.indexStages.some(stage => stage.stage === 3)) ? <div className="git-conflict-file-actions"><strong>{text('文件删除冲突：', 'File deletion conflict:')}</strong><button type="button" disabled={locked || !file.canAcceptCurrent} onClick={() => chooseFile('current')}>{text('采用当前版本', 'Use current version')}</button><button type="button" disabled={locked || !file.canAcceptIncoming} onClick={() => chooseFile('incoming')}>{text('采用传入版本', 'Use incoming version')}</button></div> : null}
       <div ref={mergeLayout} className="git-conflict-merge-layout">
         <div className="git-conflict-inputs">

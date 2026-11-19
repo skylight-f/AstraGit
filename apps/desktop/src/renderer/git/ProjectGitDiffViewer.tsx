@@ -51,14 +51,17 @@ export function ProjectGitDiffWindow(props: {
   filePath: string;
   stage: 'combined' | 'staged' | 'unstaged';
   commitHash?: string;
+  expectedCommitHash?: string;
   comparisonRef?: string;
   comparisonMode?: 'current' | 'working-tree';
   revisions?: [string, string];
   language: 'zh-CN' | 'en-US';
   appearance?: 'light' | 'dark' | 'system';
+  embeddedTitle?: string;
 }) {
   const zh = props.language === 'zh-CN';
   const appearance = props.appearance ?? 'system';
+  const Surface = props.embeddedTitle ? 'section' : 'main';
   const [diff, setDiff] = useState<GitDiffSummary | null>(null);
   const [title, setTitle] = useState(props.filePath || (zh ? 'Git 差异' : 'Git diff'));
   const [selectedPath, setSelectedPath] = useState(props.filePath);
@@ -73,7 +76,7 @@ export function ProjectGitDiffWindow(props: {
   useEffect(() => { externalAlive.current = true; return () => { externalAlive.current = false; }; }, []);
   const fileLayout = useRef<HTMLDivElement>(null);
   const [filePaneBounds, setFilePaneBounds] = useState({ min: 15, max: 55 });
-  useApplicationErrorDialog(error, { language: zh ? 'zh-CN' : 'en' });
+  useApplicationErrorDialog(props.embeddedTitle ? null : error, { language: zh ? 'zh-CN' : 'en' });
 
   useLayoutEffect(() => {
     const layout = fileLayout.current;
@@ -103,7 +106,12 @@ export function ProjectGitDiffWindow(props: {
     const request = props.revisions
       ? props.client.loadProjectGitRevisionsDiff(props.projectId, props.repositoryId, props.revisions, controller.signal).then(comparison => ({ diff: comparison.diff, title: `${comparison.revisions[0].slice(0, 8)} → ${comparison.revisions[1].slice(0, 8)}`, revisions: comparison.revisions }))
       : props.commitHash
-      ? props.client.loadProjectGitCommit(props.projectId, props.repositoryId, props.commitHash).then(detail => ({ diff: detail.diff, title: detail.commit.subject }))
+      ? props.client.loadProjectGitCommit(props.projectId, props.repositoryId, props.commitHash).then(detail => {
+          if (props.expectedCommitHash && detail.commit.hash !== props.expectedCommitHash) {
+            throw new Error(zh ? '贮藏列表已变化，请刷新后重试。' : 'The stash list changed. Refresh it and try again.');
+          }
+          return { diff: detail.diff, title: detail.commit.subject };
+        })
       : props.comparisonRef
         ? props.client.loadProjectGitComparisonDiff(props.projectId, props.repositoryId, props.comparisonRef, props.comparisonMode ?? 'current').then(summary => ({ diff: summary, title: `${props.comparisonRef} · ${zh ? '分支差异' : 'Branch diff'}` }))
         : props.client.loadProjectGitWorkbench(props.projectId).then((workbench) => {
@@ -127,13 +135,14 @@ export function ProjectGitDiffWindow(props: {
       cancelled = true;
       controller.abort();
     };
-  }, [props.projectId, props.repositoryId, props.filePath, props.stage, props.commitHash, props.comparisonRef, props.comparisonMode, props.revisions?.[0], props.revisions?.[1], props.client, zh, readRevision]);
+  }, [props.projectId, props.repositoryId, props.filePath, props.stage, props.commitHash, props.expectedCommitHash, props.comparisonRef, props.comparisonMode, props.revisions?.[0], props.revisions?.[1], props.client, zh, readRevision]);
 
   useEffect(() => {
+    if (props.embeddedTitle) return;
     const previousTitle = document.title;
     document.title = selectedPath ? `${title} · ${selectedPath}` : title;
     return () => { document.title = previousTitle; };
-  }, [selectedPath, title]);
+  }, [props.embeddedTitle, selectedPath, title]);
 
   const selectedDiff = useMemo(() => (diff && selectedPath ? { ...diff, files: [selectedPath], fileDiffs: diff.fileDiffs.filter((file) => file.newPath === selectedPath || file.oldPath === selectedPath) } : diff), [diff, selectedPath]);
 
@@ -149,8 +158,12 @@ export function ProjectGitDiffWindow(props: {
     finally { if (externalAlive.current) setExternalLoading(false); }
   }
   return (
-    <main className={`macos-ai-app zeus-shell theme-${appearance} project-git-diff-window`} aria-label={zh ? 'Git 差异窗口' : 'Git diff window'}>
-      <div className="project-git-diff-external-actions"><button type="button" disabled={loading || externalBusy || externalLoading} onClick={() => setReadRevision(value => value + 1)}>{zh ? '重新载入' : 'Reload'}</button><button type="button" disabled={loading || !selectedPath || externalBusy || externalLoading || Boolean(props.revisions && !comparedRevisions)} onClick={() => void openExternal()}>{zh ? '使用外部工具比较…' : 'Compare with external tool…'}</button></div>
+    <Surface className={`macos-ai-app zeus-shell theme-${appearance} project-git-diff-window`} aria-label={props.embeddedTitle ?? (zh ? 'Git 差异窗口' : 'Git diff window')}>
+      <div className="project-git-diff-external-actions">
+        {props.embeddedTitle ? <strong title={props.embeddedTitle}>{props.embeddedTitle}</strong> : null}
+        <button type="button" disabled={loading || externalBusy || externalLoading} onClick={() => setReadRevision(value => value + 1)}>{zh ? '重新载入' : 'Reload'}</button>
+        <button type="button" disabled={loading || !selectedPath || externalBusy || externalLoading || Boolean(props.revisions && !comparedRevisions)} onClick={() => void openExternal()}>{zh ? '使用外部工具比较…' : 'Compare with external tool…'}</button>
+      </div>
       {comparedRevisions ? <p className="project-git-diff-parent" title={comparedRevisions.join(' → ')}>{zh ? '所选提交总差异' : 'Selected commit comparison'} · {comparedRevisions[0].slice(0, 8)} → {comparedRevisions[1].slice(0, 8)}</p> : null}
       {external ? <GitExternalToolDialog request={external} projectId={props.projectId} client={props.client} zh={zh} busy={externalBusy} onClose={() => setExternal(null)} onAbort={async () => { await props.client.cancelProjectGitAction(props.projectId, props.repositoryId); }} onExecute={async (repository, action) => {
         setExternalBusy(true);
@@ -190,7 +203,7 @@ export function ProjectGitDiffWindow(props: {
       ) : (
         <p className="project-git-diff-loading">{error ? <VisibleApplicationError error={error} language={zh ? 'zh-CN' : 'en'} /> : zh ? '正在读取差异…' : 'Loading diff…'}</p>
       )}
-    </main>
+    </Surface>
   );
 }
 

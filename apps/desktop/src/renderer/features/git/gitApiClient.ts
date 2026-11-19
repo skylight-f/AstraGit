@@ -93,6 +93,7 @@ export interface GitApiClient {
   loadProjectGitComparisonDiff: (projectId: string, repositoryId: string, ref: string, mode: 'current' | 'working-tree') => Promise<GitDiffSummary>;
   loadProjectGitRevisionsDiff: (projectId: string, repositoryId: string, revisions: [string, string], signal?: AbortSignal) => Promise<GitRevisionComparison>;
   readProjectGitConflict: (projectId: string, repositoryId: string, path: string) => Promise<ProjectGitConflictFile>;
+  loadProjectGitConflictRevision: (projectId: string, repositoryId: string, repositoryPath: string, path?: string, signal?: AbortSignal) => Promise<{ revision: string }>;
   saveProjectGitConflict: (projectId: string, repositoryId: string, input: SaveProjectGitConflictInput) => Promise<ProjectGitConflictSaveResponse>;
   executeProjectGitAction: (projectId: string, repositoryId: string, input: ProjectGitAction) => Promise<ProjectGitActionResponse>;
   cancelProjectGitAction: (projectId: string, repositoryId: string) => Promise<{ cancelled: boolean }>;
@@ -214,6 +215,10 @@ export function createGitApiClient(transport: LocalApiTransport): GitApiClient {
     loadProjectGitComparisonDiff: (projectId, repositoryId, ref, mode) => transport.request<GitDiffSummary>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/compare?ref=${encodeURIComponent(ref)}&mode=${mode}`),
     loadProjectGitRevisionsDiff: (projectId, repositoryId, revisions, signal) => transport.request<GitRevisionComparison>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/compare-revisions?from=${encodeURIComponent(revisions[0])}&to=${encodeURIComponent(revisions[1])}`, { signal }),
     readProjectGitConflict: (projectId, repositoryId, path) => transport.request<ProjectGitConflictFile>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/conflict?path=${encodeURIComponent(path)}`),
+    loadProjectGitConflictRevision: (projectId, repositoryId, repositoryPath, path, signal) => {
+      const query = new URLSearchParams({ repositoryPath, ...(path ? { path } : {}) });
+      return transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/conflict-revision?${query}`, { signal });
+    },
     saveProjectGitConflict: (projectId, repositoryId, input) => transport.request<ProjectGitConflictSaveResponse>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/conflict`, jsonRequest('PUT', input)),
     executeProjectGitAction: async (projectId, repositoryId, input) => {
       const body = await buildWorkspaceGitCommandRequest({

@@ -11,7 +11,7 @@ export interface MenuSubmenuAnchor {
 }
 
 /** 右键菜单与操作菜单共用定位、关闭、键盘和退出反馈。 */
-export function MenuSurface({ onClose, ref: forwardedRef, submenuAnchor, ...props }: HTMLAttributes<HTMLDivElement> & { onClose: () => void; ref?: RefObject<HTMLDivElement | null>; submenuAnchor?: MenuSubmenuAnchor }) {
+export function MenuSurface({ onClose, ref: forwardedRef, anchor, submenuAnchor, ...props }: HTMLAttributes<HTMLDivElement> & { onClose: () => void; ref?: RefObject<HTMLDivElement | null>; anchor?: HTMLElement; submenuAnchor?: MenuSubmenuAnchor }) {
   /** 定位、焦点与动画共用真实表面。 */
   const localRef = useRef<HTMLDivElement>(null);
   const ref = forwardedRef ?? localRef;
@@ -37,6 +37,11 @@ export function MenuSurface({ onClose, ref: forwardedRef, submenuAnchor, ...prop
         const leftSpace = parent.left - 12;
         left = rightSpace >= width || rightSpace >= leftSpace ? parent.right + 4 : parent.left - width - 4;
         top = row.top - 5;
+      } else if (anchor) {
+        const bounds = anchor.getBoundingClientRect();
+        left = bounds.left;
+        const spaceBelow = window.innerHeight - bounds.bottom - 8;
+        top = height + 4 <= spaceBelow || spaceBelow >= bounds.top - 8 ? bounds.bottom + 4 : bounds.top - height - 4;
       }
       if (typeof left === 'number') element.style.left = `${Math.max(8, Math.min(left, window.innerWidth - width - 8))}px`;
       if (typeof top === 'number') element.style.top = `${Math.max(8, Math.min(top, window.innerHeight - height - 8))}px`;
@@ -44,14 +49,15 @@ export function MenuSurface({ onClose, ref: forwardedRef, submenuAnchor, ...prop
     updatePosition();
     const observer = new ResizeObserver(updatePosition);
     observer.observe(element);
-    const previous = submenuAnchor?.row ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    const previous = submenuAnchor?.row ?? anchor ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     activeMenus.push(element);
     /** 禁用项不可被方向键或首次聚焦选中。 */
     const items = () => [...element.querySelectorAll<HTMLElement>(':is([role="menuitem"], button, summary):not(:disabled):not([aria-disabled="true"])')].filter((item) => item.checkVisibility() && !item.closest('[inert]'));
     items()[0]?.focus({ preventScroll: true });
     /** 点在菜单外即关闭，保留该次点击原本要执行的动作。 */
     const outside = (event: Event) => {
-      if (activeMenus.at(-1) === element && !element.closest('[inert]') && !element.contains(event.target as Node)) closeRef.current();
+      const target = event.target as Node;
+      if (activeMenus.at(-1) === element && !element.closest('[inert]') && !element.contains(target) && !anchor?.contains(target)) closeRef.current();
     };
     /** 页面滚动或尺寸变化后关闭旧定位，菜单内滚动不关闭。 */
     const resized = () => closeRef.current();
@@ -97,6 +103,6 @@ export function MenuSurface({ onClose, ref: forwardedRef, submenuAnchor, ...prop
       if (index >= 0) activeMenus.splice(index, 1);
       if (element.contains(document.activeElement) && previous?.isConnected && !previous.closest('[inert]')) previous.focus({ preventScroll: true });
     };
-  }, [open, ref, props.style?.left, props.style?.top, submenuAnchor?.row, submenuAnchor?.parent]);
+  }, [open, ref, props.style?.left, props.style?.top, anchor, submenuAnchor?.row, submenuAnchor?.parent]);
   return <PopoverSurface {...props} ref={ref} role="menu" data-zeus-primitive="menu" />;
 }

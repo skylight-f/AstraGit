@@ -474,6 +474,12 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     finally { reply.raw.off('close', disconnected); }
   });
 
+  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/conflict-revision', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: { repositoryPath?: string; path?: string } }>, reply) => {
+    const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
+    try { return await workbench.loadConflictRevision(request.params.projectId, request.params.repositoryId, request.query.repositoryPath ?? '.', request.query.path, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); } finally { reply.raw.off('close', disconnected); }
+  });
+
   server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/conflict', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Querystring: { path?: string } }>, reply) => {
     try { return await workbench.readConflict(request.params.projectId, request.params.repositoryId, request.query.path ?? ''); }
     catch (error) { return sendError(reply, error); }

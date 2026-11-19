@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { Writable } from 'node:stream';
 import {
@@ -57,6 +59,7 @@ import {
   type GitIgnoredQuery,
   type GitIgnoreScope,
   type GitResetMode,
+  getProjectGitConflictRevision,
   readProjectGitConflict,
   saveProjectGitConflict,
   redactGitOutput,
@@ -341,6 +344,19 @@ export class ProjectGitWorkbenchService {
     return this.withReadQuery(signal, async combined => {
       const resolved = await this.resolveRepository(projectId, repositoryId, combined);
       return getProjectGitRevisionsDiff(resolved.repository.localPath, revisions, combined);
+    });
+  }
+
+  async loadConflictRevision(projectId: string, repositoryId: string, repositoryPath: string, path: string | undefined, signal?: AbortSignal): Promise<{ revision: string }> {
+    return this.withReadQuery(signal, async combined => {
+      const project = this.requireProject(projectId);
+      const root = await realpath(project.localPath);
+      const directory = resolve(root, repositoryPath);
+      const scoped = relative(root, directory);
+      if (isAbsolute(scoped) || scoped === '..' || scoped.startsWith(`..${sep}`) || stableRepositoryId(projectId, scoped.split(sep).join('/') || '.') !== repositoryId || await realpath(directory) !== directory) {
+        throw projectError('ASTRAGIT_REPOSITORY_NOT_FOUND', '所选仓库已不属于当前项目，请刷新 Git 工作台。');
+      }
+      return { revision: await getProjectGitConflictRevision(directory, path, combined) };
     });
   }
 
@@ -692,9 +708,16 @@ export function parseProjectGitAction(value: unknown): ProjectGitAction {
     case 'stash':
       return { type: 'stash', message: stringValue('message'), includeUntracked: value.includeUntracked === true, keepIndex: value.keepIndex === true };
     case 'apply_stash':
-      return { type: 'apply_stash', stashRef: stringValue('stashRef') ?? '', pop: value.pop === true };
-    case 'drop_stash':
-      return { type: 'drop_stash', stashRef: stringValue('stashRef') ?? '' };
+    case 'drop_stash': {
+      const expectedStashHash = stringValue('expectedStashHash');
+      if (value.expectedStashHash !== undefined && (!expectedStashHash || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(expectedStashHash))) {
+        throw projectGitError('ASTRAGIT_GIT_STASH_REF_INVALID', '所选贮藏记录无效，请刷新列表后重新选择。');
+      }
+      const stashRef = stringValue('stashRef') ?? '';
+      return value.type === 'apply_stash'
+        ? { type: 'apply_stash', stashRef, expectedStashHash, pop: value.pop === true }
+        : { type: 'drop_stash', stashRef, expectedStashHash };
+    }
     default:
       throw projectGitError('ASTRAGIT_ACTION_UNSUPPORTED', `不支持的项目 Git 动作：${value.type}`);
   }

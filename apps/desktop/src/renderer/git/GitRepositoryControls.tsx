@@ -1453,7 +1453,7 @@ export function PushDialog(props: {
   const [selections, setSelections] = useState<PushSelection[]>(() => {
     const current = props.selectedRepository ?? props.repositories[0];
     if (!current || current.snapshot.detached || !current.snapshot.localBranches.includes(current.snapshot.branch) || !current.snapshot.remotes.length) return [];
-    return [{ repositoryId: current.id, ...defaultPushTarget(current), sourceBranch: current.snapshot.branch, setUpstream: true }];
+    return [{ repositoryId: current.id, remote: defaultPushTarget(current).remote, sourceBranch: current.snapshot.branch, targetBranch: current.snapshot.branch, setUpstream: true }];
   });
   const [remotes, setRemotes] = useState<Record<string, string>>({});
   const [targets, setTargets] = useState<Record<string, { targetBranch: string; setUpstream: boolean }>>({});
@@ -1468,8 +1468,9 @@ export function PushDialog(props: {
   const remoteBranches = repository.snapshot.remoteBranches.filter((ref) => ref.startsWith(remote + '/') && !ref.endsWith('/HEAD')).map((ref) => ref.slice(remote.length + 1));
   const branchTarget = (sourceBranch: string) => {
     const configured = targets[JSON.stringify([repositoryId, remote, sourceBranch])];
-    const upstream = repository.snapshot.branchUpstreams?.[sourceBranch];
-    return configured ?? { targetBranch: upstream?.startsWith(remote + '/') ? upstream.slice(remote.length + 1) : sourceBranch, setUpstream: true };
+    // A branch may still track the branch it was created from. Publish its own
+    // name by default; pushing with setUpstream creates and tracks that branch.
+    return configured ?? { targetBranch: sourceBranch, setUpstream: true };
   };
   const selectionFor = (sourceBranch: string): PushSelection => ({ repositoryId, remote, sourceBranch, ...branchTarget(sourceBranch) });
   const selected = (sourceBranch: string) => selections.some((item) => item.repositoryId === repositoryId && item.sourceBranch === sourceBranch);
@@ -1531,7 +1532,7 @@ export function PushDialog(props: {
                                 remote: next,
                                 targetBranch:
                                   targets[JSON.stringify([repositoryId, next, item.sourceBranch])]?.targetBranch ??
-                                  (repository.snapshot.branchUpstreams?.[item.sourceBranch]?.startsWith(next + '/') ? repository.snapshot.branchUpstreams[item.sourceBranch]!.slice(next.length + 1) : item.sourceBranch),
+                                  item.sourceBranch,
                                 setUpstream: targets[JSON.stringify([repositoryId, next, item.sourceBranch])]?.setUpstream ?? true,
                               }
                             : item,
@@ -1568,9 +1569,10 @@ export function PushDialog(props: {
                                 aria-label={(props.zh ? '推送分支 ' : 'Push branch ') + branch}
                                 type="checkbox"
                                 checked={selected(branch)}
-                                onChange={(event) =>
-                                  setSelections((current) => (event.currentTarget.checked ? [...current, selectionFor(branch)] : current.filter((item) => item.repositoryId !== repositoryId || item.sourceBranch !== branch)))
-                                }
+                                onChange={(event) => {
+                                  const checked = event.currentTarget.checked;
+                                  setSelections((current) => (checked ? [...current, selectionFor(branch)] : current.filter((item) => item.repositoryId !== repositoryId || item.sourceBranch !== branch)));
+                                }}
                               />
                             </td>
                             <th scope="row">
@@ -1581,7 +1583,7 @@ export function PushDialog(props: {
                               <input
                                 aria-label={(props.zh ? '远程目标 ' : 'Remote target ') + branch}
                                 list={optionsId}
-                                value={target.targetBranch}
+                                value={selected(branch) || remoteBranches.includes(branch) || targets[JSON.stringify([repositoryId, remote, branch])] ? target.targetBranch : ''}
                                 onChange={(event) => changeTarget(branch, { ...target, targetBranch: event.currentTarget.value })}
                               />
                             </td>

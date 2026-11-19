@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
 import { lstat, readlink, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import { hasUnresolvedGitConflictMarkers } from '@astragit/shared';
 import { GitHistoryReader } from './gitFileHistory.js';
 import { gitFileSelection } from './gitFileTracking.js';
+import { parseGitConflictMarkerSize, workingConflictHasMarkers } from './gitProjectConflict.js';
 
 export const defaultGitLargeFileThreshold = 10 * 1024 * 1024;
 export interface GitLargeFileReview { thresholdBytes?: number; skipWarning?: boolean; expectedFingerprint?: string }
@@ -82,7 +84,26 @@ async function collect(cwd: string, input: GitStagePreviewInput, runtime: Runtim
       else if (sizes.get(path!)! >= input.thresholdBytes!) largeFiles.push({ path: path!, byteLength: sizes.get(path!)! });
     }
   }
-  const fingerprint = createHash('sha256').update(JSON.stringify([await realpath(cwd), input, headSha, branch, index, flags, config, metadata, attributes])).digest('hex');
+  const unmerged = new Set<string>();
+  for (const record of index.split('\0')) {
+    const split = record.indexOf('\t');
+    if (split > 0 && / [123]$/u.test(record.slice(0, split)) && sizes.has(record.slice(split + 1))) unmerged.add(record.slice(split + 1));
+  }
+  let conflictAttributes = '';
+  if (unmerged.size) {
+    conflictAttributes = await reader.text(['check-attr', '-z', '--stdin', 'conflict-marker-size'], [...unmerged].join('\0') + '\0');
+    const fields = conflictAttributes.split('\0');
+    if (fields.pop() !== '' || fields.length !== unmerged.size * 3) throw fail('READ', 'Git 未返回完整的冲突标记属性。');
+    const blocked: string[] = [];
+    for (let position = 0; position < fields.length; position += 3) {
+      const path = fields[position]!;
+      if (fields[position + 1] !== 'conflict-marker-size' || !unmerged.delete(path)) throw fail('READ', 'Git 返回了无效的冲突标记属性。');
+      const markerSize = parseGitConflictMarkerSize(fields[position + 2]!);
+      if (await workingConflictHasMarkers(cwd, path, markerSize, hasUnresolvedGitConflictMarkers, runtime.signal)) blocked.push(path);
+    }
+    if (blocked.length) throw Object.assign(fail('CONFLICT_MARKERS', '所选文件仍有冲突标记，请处理后再暂存。'), { affectedFiles: blocked.slice(0, 200), affectedFileCount: blocked.length });
+  }
+  const fingerprint = createHash('sha256').update(JSON.stringify([await realpath(cwd), input, headSha, branch, index, flags, config, metadata, attributes, conflictAttributes])).digest('hex');
   const filterValues = new Map(config.split('\0').filter(Boolean).map(record => { const split = record.indexOf('\n'); return [record.slice(0, split).toLowerCase(), record.slice(split + 1)] as const; }));
   const lfsSetupRequired = lfsFiles.length > 0 && !filterValues.get('filter.lfs.clean')?.trim() && !filterValues.get('filter.lfs.process')?.trim();
   return { fingerprint, paths: input.paths, forceIgnored: input.forceIgnored === true, thresholdBytes: input.thresholdBytes!, headSha, branch, largeFiles, totalBytes: largeFiles.reduce((sum, file) => sum + file.byteLength, 0), lfsSetupRequired, lfsFiles };

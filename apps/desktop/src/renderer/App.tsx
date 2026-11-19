@@ -3,20 +3,22 @@ import { CodeReviewPanel } from './CodeReviewPanel.js';
 import { GitPaneSeparator } from './git/GitPaneSeparator.js';
 import { FolderOpen } from '@phosphor-icons/react/dist/csr/FolderOpen';
 import { GearSix } from '@phosphor-icons/react/dist/csr/GearSix';
+import { GitBranch } from '@phosphor-icons/react/dist/csr/GitBranch';
+import { GitCommit } from '@phosphor-icons/react/dist/csr/GitCommit';
 import { Plus } from '@phosphor-icons/react/dist/csr/Plus';
 import { X } from '@phosphor-icons/react/dist/csr/X';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardClient, GitAppProject, ProjectRecord } from './apiClient.js';
 import { ProjectGitWorkbench } from './git/ProjectGitWorkbench.js';
 import { ProjectSourceChanges } from './git/ProjectSourceChanges.js';
+import { useGitCommitModels } from './git/useGitCommitModels.js';
 import { Settings, type SettingsSection } from './Settings.js';
 import { useApplicationUpdates } from './useApplicationUpdates.js';
 import { readLanguagePreference, resolveApplicationLanguage, saveLanguagePreference, type LanguagePreference } from './applicationPreferences.js';
 import { ReleaseUpdateButton } from './ReleaseUpdateButton.js';
-import { ZeusSelect } from './ZeusSelect.js';
 import { Button } from './ui/Button.js';
 import { ApplicationErrorDialogHost, reportApplicationError, useApplicationErrorDialog } from './ui/ApplicationErrorDialog.js';
-import { resolveProjectWorkspaceTabs, writeProjectWorkspaceTabs } from './projectWorkspacePersistence.js';
+import { readProjectGitTab, resolveProjectWorkspaceTabs, writeProjectGitTab, writeProjectWorkspaceTabs, type ProjectGitTab } from './projectWorkspacePersistence.js';
 import { useRepositorySetup } from './useRepositorySetup.js';
 import { RepositorySetupForm } from './RepositorySetupForm.js';
 import { WorkspaceSearch } from './WorkspaceSearch.js';
@@ -54,6 +56,7 @@ export function App(props: AppProps) {
   const [reviewVisited, setReviewVisited] = useState(false);
   const reviewButton = useRef<HTMLButtonElement>(null);
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null);
+  const [projectGitTabs, setProjectGitTabs] = useState<Partial<Record<string, ProjectGitTab>>>({});
   const [slots, setSlots] = useState<ProjectSlot[]>([]);
   const [showList, setShowList] = useState(false);
   const [projectAddMode, setProjectAddMode] = useState<'open' | 'clone' | 'init'>('open');
@@ -63,11 +66,22 @@ export function App(props: AppProps) {
   const [draftName, setDraftName] = useState('');
   const [pickBusy, setPickBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsReturnFocus = useRef<HTMLElement | null>(null);
   const [searchNavigation, setSearchNavigation] = useState<GitSearchNavigation | null>(null);
   const searchRequestId = useRef(0);
   const finishSearchNavigation = useCallback((requestId: number) => setSearchNavigation(current => current?.requestId === requestId ? null : current), []);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
-  const openSettings = (section: SettingsSection = 'general') => { setSettingsSection(section); setSettingsOpen(true); };
+  const openSettings = (section: SettingsSection = 'general') => {
+    if (!settingsOpen) settingsReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setSettingsSection(section);
+    setSettingsOpen(true);
+  };
+  const closeSettings = () => {
+    const target = settingsReturnFocus.current;
+    settingsReturnFocus.current = null;
+    setSettingsOpen(false);
+    requestAnimationFrame(() => { if (target?.isConnected && !target.closest('[hidden]')) target.focus(); });
+  };
   const [modelSettingsRevision, setModelSettingsRevision] = useState(0);
   const [projectViews, setProjectViews] = useState<Record<string, 'workbench' | 'source'>>(() => {
     try { const value: unknown = JSON.parse(localStorage.getItem('astragit.project-views.v1') ?? '{}'); return value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([, view]) => view === 'source' || view === 'workbench')) : {}; } catch { return {}; }
@@ -82,6 +96,15 @@ export function App(props: AppProps) {
   const workspaceInitialized = useRef(false);
   const projectOpenVersion = useRef(0);
   const pendingProjectId = useRef<string | null>(null);
+  const activeProjectId = activeProject?.id;
+  const commitModels = useGitCommitModels(props.client, showList ? undefined : activeProjectId, modelSettingsRevision);
+  const rememberedGitTab = useMemo(() => activeProjectId ? readProjectGitTab(activeProjectId) : 'log', [activeProjectId]);
+  const activeGitTab = activeProjectId ? projectGitTabs[activeProjectId] ?? rememberedGitTab : 'log';
+  const changeGitTab = useCallback((tab: ProjectGitTab) => {
+    if (!activeProjectId) return;
+    setProjectGitTabs(current => current[activeProjectId] === tab ? current : { ...current, [activeProjectId]: tab });
+    writeProjectGitTab(activeProjectId, tab);
+  }, [activeProjectId]);
   const activeView = activeProject ? projectViews[activeProject.id] ?? 'workbench' : 'workbench';
   const switchProjectView = (view: 'workbench' | 'source') => {
     if (!activeProject || sourceBatchBusy) return;
@@ -304,6 +327,17 @@ export function App(props: AppProps) {
   }, [projects, slots]);
 
   const inWorkbench = Boolean(activeProject) && !showList;
+  const commitView = activeView === 'source' ? 'source' : activeGitTab === 'changes' || activeGitTab === 'ignored' ? 'staging' : null;
+  const viewSwitchDisabled = !activeProject || sourceBatchBusy || repositorySetup.busy;
+  const reviewVisible = !settingsOpen && reviewOpen && Boolean(activeProject);
+  const showProjectView = (view: 'workbench' | 'source' | 'staging') => {
+    if (viewSwitchDisabled) return;
+    setSearchNavigation(null);
+    switchProjectView(view === 'source' ? 'source' : 'workbench');
+    if (view !== 'source') changeGitTab(view === 'staging' ? 'changes' : 'log');
+    setShowList(false);
+    setSettingsOpen(false);
+  };
   async function navigateSearch(destination: WorkspaceSearchDestination) {
     if (sourceBatchBusy || repositorySetup.busy) return;
     if (destination.kind === 'project') {
@@ -316,6 +350,7 @@ export function App(props: AppProps) {
       setShowList(false);
       setSearchNavigation({ ...destination, requestId: ++searchRequestId.current });
     }
+    setSettingsOpen(false);
   }
 
   return (
@@ -324,38 +359,25 @@ export function App(props: AppProps) {
         <header className="gitapp-titlebar" aria-label={zh ? '标题栏' : 'Title bar'}>
           <strong className="gitapp-titlebar-brand">AstraGit</strong>
           <WorkspaceSearch client={props.client} projects={sortedProjects} project={activeProject} zh={zh} mac={props.customTitlebar === true} disabled={sourceBatchBusy || repositorySetup.busy} onNavigate={navigateSearch} />
-          <div className="gitapp-titlebar-actions"><button ref={reviewButton} type="button" disabled={!activeProject} aria-label={zh ? '代码评审' : 'Code review'} title={zh ? '代码评审' : 'Code review'} aria-expanded={reviewOpen} aria-controls="gitapp-code-review" onClick={() => { setReviewVisited(true); setReviewOpen(value => !value); }}><ShieldCheck size={19} /><span>{zh ? '评审' : 'Review'}</span></button></div>
+          <div className="gitapp-titlebar-actions"><button ref={reviewButton} type="button" disabled={!activeProject || settingsOpen} aria-label={zh ? '代码评审' : 'Code review'} title={zh ? '代码评审' : 'Code review'} aria-expanded={reviewVisible} aria-controls="gitapp-code-review" onClick={() => { setReviewVisited(true); setReviewOpen(value => !value); }}><ShieldCheck size={19} /><span>{zh ? '评审' : 'Review'}</span></button></div>
         </header>
       <div className="gitapp-layout">
         <nav className="gitapp-activity-rail" aria-label={zh ? '应用操作栏' : 'Application actions'}>
-          <button type="button" aria-label={zh ? '项目列表' : 'Projects'} title={zh ? '项目列表' : 'Projects'} aria-current={!inWorkbench ? 'page' : undefined} disabled={sourceBatchBusy} onClick={() => setShowList(true)}>
-            <FolderOpen size={21} aria-hidden="true" />
+          <button type="button" aria-label={zh ? '项目提交视图' : 'Project commits view'} title={zh ? '提交' : 'Commit'} aria-current={!settingsOpen && inWorkbench && commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectView('source')}>
+            <GitCommit size={18} aria-hidden="true" />
           </button>
-          <button type="button" className="gitapp-rail-settings" aria-label={zh ? '设置' : 'Settings'} title={zh ? '设置' : 'Settings'} aria-haspopup="dialog" aria-expanded={settingsOpen} onClick={() => openSettings()}>
-            <GearSix size={21} aria-hidden="true" />
+          <button type="button" aria-label={zh ? '分支视图' : 'Branch view'} title={zh ? '分支' : 'Branch'} aria-current={!settingsOpen && inWorkbench && !commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectView('workbench')}>
+            <GitBranch size={18} aria-hidden="true" />
+          </button>
+          <button type="button" className="gitapp-rail-settings" aria-label={zh ? '设置' : 'Settings'} title={zh ? '设置' : 'Settings'} aria-current={settingsOpen ? 'page' : undefined} onClick={() => { if (!settingsOpen) openSettings(); }}>
+            <GearSix size={18} aria-hidden="true" />
           </button>
         </nav>
-      <div className={`gitapp-content-layout${reviewOpen && activeProject ? " has-review" : ""}`}>
+      <div className={`gitapp-content-layout${reviewVisible ? ' has-review' : ''}`}>
+      <div className="gitapp-workspace-pane" hidden={settingsOpen}>
       {inWorkbench && activeProject ? (
         <div className="gitapp-shell gitapp-shell--workbench macos-ai-app zeus-shell theme-light">
           <header className="gitapp-tabbar" aria-label={zh ? '项目页签' : 'Project tabs'}>
-            <ZeusSelect
-              className="gitapp-view-switch"
-              triggerClassName="gitapp-view-trigger"
-              ariaLabel={zh ? '切换项目视图' : 'Switch project view'}
-              triggerTitle={zh ? '切换项目视图' : 'Switch project view'}
-              value={activeView}
-              options={[
-                { value: 'workbench', label: zh ? '仓库管理' : 'Repository management' },
-                { value: 'source', label: zh ? '项目提交' : 'Project commits' },
-              ]}
-              onChange={switchProjectView}
-              disabled={sourceBatchBusy}
-              searchable={false}
-              popoverMinWidth={160}
-              popoverArrowAlignment="start"
-              size="compact"
-            />
             <nav className="gitapp-tabbar-slots" aria-label={zh ? '已打开的项目' : 'Open projects'}>
               {slotProjects.map(({ slot, project }) => {
                 const active = project.id === activeProject.id;
@@ -455,14 +477,19 @@ export function App(props: AppProps) {
           </header>
 
           <div className="gitapp-workbench-host" key={activeProject.id}>
+            {commitView ? (
+              <nav className="gitapp-commit-viewbar" aria-label={zh ? '提交视图' : 'Commit views'}>
+                <button type="button" aria-pressed={commitView === 'source'} disabled={viewSwitchDisabled} onClick={() => showProjectView('source')}>{zh ? '项目提交' : 'Project commits'}</button>
+                <button type="button" aria-pressed={commitView === 'staging'} disabled={viewSwitchDisabled} onClick={() => showProjectView('staging')}>{zh ? '暂存与未暂存' : 'Staged and unstaged'}</button>
+              </nav>
+            ) : null}
             <div className="gitapp-view-pane" hidden={activeView !== 'workbench'}>
-              <ProjectGitWorkbench project={activeProject} client={props.client} language={language} modelSettingsRevision={modelSettingsRevision} navigationRequest={searchNavigation} onNavigationHandled={finishSearchNavigation} />
+              <ProjectGitWorkbench project={activeProject} client={props.client} language={language} tab={activeGitTab} onTabChange={changeGitTab} commitModels={commitModels} onOpenModelSettings={() => openSettings('models')} navigationRequest={searchNavigation} onNavigationHandled={finishSearchNavigation} />
             </div>
             {sourceVisited[activeProject.id] || activeView === 'source' ? <div className="gitapp-view-pane" hidden={activeView !== 'source'}>
-              <ProjectSourceChanges project={activeProject} client={props.client} language={language} active={activeView === 'source'} modelSettingsRevision={modelSettingsRevision} onBusyChange={setSourceBatchBusy} />
+              <ProjectSourceChanges project={activeProject} client={props.client} language={language} active={!settingsOpen && activeView === 'source'} commitModels={commitModels} onOpenModelSettings={() => openSettings('models')} onBusyChange={setSourceBatchBusy} />
             </div> : null}
           </div>
-          <ApplicationErrorDialogHost language={zh ? 'zh-CN' : 'en'} />
         </div>
       ) : (
         <div className="gitapp-shell gitapp-list-page macos-ai-app theme-light">
@@ -536,15 +563,16 @@ export function App(props: AppProps) {
             )}
           </section>
 
-          <ApplicationErrorDialogHost language={zh ? 'zh-CN' : 'en'} />
         </div>
       )}
-      {reviewOpen && activeProject ? <GitPaneSeparator name="review-main" label={zh ? '调整代码评审宽度' : 'Resize code review'} initial={68} min={40} max={78} /> : null}
-      {reviewVisited && activeProject ? <CodeReviewPanel key={activeProject.id} client={props.client} project={activeProject} zh={zh} active={reviewOpen} modelSettingsRevision={modelSettingsRevision} onSettings={() => openSettings('models')} onClose={() => { setReviewOpen(false); reviewButton.current?.focus(); }} onNavigate={navigateSearch} /> : null}
+      </div>
+      {reviewVisible ? <GitPaneSeparator name="review-main" label={zh ? '调整代码评审宽度' : 'Resize code review'} initial={68} min={40} max={78} /> : null}
+      {reviewVisited && activeProject ? <CodeReviewPanel key={activeProject.id} client={props.client} project={activeProject} zh={zh} active={reviewVisible} modelSettingsRevision={modelSettingsRevision} onSettings={() => openSettings('models')} onClose={() => { setReviewOpen(false); reviewButton.current?.focus(); }} onNavigate={navigateSearch} /> : null}
+      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} onClose={closeSettings} onModelsChanged={modelSettingsChanged} section={settingsSection} onSectionChange={setSettingsSection} update={applicationUpdates} updateDisabled={sourceBatchBusy || repositorySetup.busy} /> : null}
       </div>
       </div>
       </div>
-      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} onClose={() => setSettingsOpen(false)} onModelsChanged={modelSettingsChanged} initialSection={settingsSection} update={applicationUpdates} updateDisabled={sourceBatchBusy || repositorySetup.busy} /> : null}
+      <ApplicationErrorDialogHost language={zh ? 'zh-CN' : 'en'} />
     </>
   );
 }

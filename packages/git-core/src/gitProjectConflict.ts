@@ -61,6 +61,47 @@ function textFromBytes(bytes: Buffer): string | null {
   try { return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { return null; }
 }
 
+export function parseGitConflictMarkerSize(raw: string): number {
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 && value <= 1024 ? value : 7;
+}
+
+export async function readConflictWorktreeRevision(root: string, value: string): Promise<string> {
+  const path = safePath(value);
+  if (!(await inspectParents(root, path))) return '';
+  const entry = await lstat(resolve(root, path)).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
+  return entry ? `${entry.dev}:${entry.ino}:${entry.mode}:${entry.size}:${entry.mtimeMs}:${entry.ctimeMs}` : '';
+}
+
+/** Check the working copy even when it is too large for the merge editor. */
+export async function workingConflictHasMarkers(root: string, path: string, markerSize: number, hasMarkers: Runtime['hasConflictMarkers'], signal?: AbortSignal): Promise<boolean> {
+  if (!(await inspectParents(root, path))) return false;
+  const absolute = resolve(root, path);
+  const entry = await lstat(absolute).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error; });
+  if (!entry?.isFile()) return false;
+  const handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const opened = await handle.stat();
+    if (opened.dev !== entry.dev || opened.ino !== entry.ino) throw conflictError('ASTRAGIT_GIT_STAGE_CHANGED', '冲突文件在核对时发生变化，请重新暂存。');
+    const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+    let prefix = '';
+    let found = false;
+    for await (const chunk of handle.createReadStream({ autoClose: false, signal })) {
+      if (chunk.includes(0)) return false;
+      let decoded: string;
+      try { decoded = decoder.decode(chunk, { stream: true }); } catch { return false; }
+      if (found) continue;
+      const lines = decoded.split('\n');
+      prefix = (prefix + lines[0]!).slice(0, markerSize);
+      if (lines.length === 1) continue;
+      found = hasMarkers(prefix, markerSize) || lines.slice(1, -1).some(line => hasMarkers(line.slice(0, markerSize), markerSize));
+      prefix = lines.at(-1)!.slice(0, markerSize);
+    }
+    try { decoder.decode(); } catch { return false; }
+    return found || hasMarkers(prefix, markerSize);
+  } finally { await handle.close(); }
+}
+
 /** 不沿任一父目录或末端链接读取文件；缺失目录只在显式保存时逐层创建。 */
 async function inspectParents(root: string, path: string, create = false): Promise<boolean> {
   let parent = root;
@@ -119,7 +160,7 @@ async function optionalRef(run: Runner, ref: string): Promise<string> {
 }
 async function markerSize(path: string, run: Runner): Promise<number> {
   const raw = (await run(['--literal-pathspecs', 'check-attr', '-z', 'conflict-marker-size', '--', path])).stdout.split('\0')[2] ?? '';
-  const value = Number(raw); return Number.isSafeInteger(value) && value > 0 && value <= 1024 ? value : 7;
+  return parseGitConflictMarkerSize(raw);
 }
 
 async function loadConflict(root: string, path: string, runtime: Runtime): Promise<{ file: ProjectGitConflictFile; workspace: WorktreeFile }> {

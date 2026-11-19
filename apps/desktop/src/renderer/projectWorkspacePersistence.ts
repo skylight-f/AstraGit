@@ -1,4 +1,7 @@
 const projectWorkspaceTabsStorageKey = 'astragit.workspace.project-tabs.v1';
+const projectGitTabStoragePrefix = 'astragit.project-git-tab-v2:';
+
+export type ProjectGitTab = 'changes' | 'ignored' | 'stash' | 'log' | 'console';
 
 export interface ProjectWorkspaceTabsState {
   projectIds: string[];
@@ -11,6 +14,23 @@ function browserProjectWorkspaceStorage(): Pick<Storage, 'getItem' | 'setItem'> 
     return window.localStorage;
   } catch {
     return undefined;
+  }
+}
+
+export function readProjectGitTab(projectId: string, storage = browserProjectWorkspaceStorage()): ProjectGitTab {
+  try {
+    const value = storage?.getItem(projectGitTabStoragePrefix + projectId);
+    return value === 'changes' || value === 'ignored' || value === 'stash' || value === 'console' ? value : 'log';
+  } catch {
+    return 'log';
+  }
+}
+
+export function writeProjectGitTab(projectId: string, tab: ProjectGitTab, storage = browserProjectWorkspaceStorage()): void {
+  try {
+    storage?.setItem(projectGitTabStoragePrefix + projectId, tab);
+  } catch {
+    return;
   }
 }
 

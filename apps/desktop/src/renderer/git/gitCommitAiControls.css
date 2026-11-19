@@ -1,0 +1,93 @@
+.git-commit-ai-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.macos-ai-app :is(.git-commit-ai-button, .git-commit-model-trigger) {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  min-block-size: var(--ag-tool-size);
+  padding: 2px 7px;
+  border: 1px solid var(--ag-control-line);
+  border-radius: var(--ag-control-radius);
+  background: var(--zeus-control-bg);
+  color: var(--zeus-product-text);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.git-commit-ai-button > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.macos-ai-app .git-commit-model-trigger {
+  flex: 1 1 auto;
+  justify-content: space-between;
+  min-width: 0;
+  text-align: left;
+}
+.git-commit-model-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.git-commit-model-trigger[data-placeholder='true'] > span {
+  color: var(--zeus-product-muted);
+}
+.git-commit-model-trigger > svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--zeus-product-muted);
+}
+.git-commit-model-menu.project-git-context-menu {
+  max-height: min(320px, calc(100vh - 16px));
+}
+.git-commit-model-menu.project-git-context-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.git-commit-model-menu > button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-commit-model-menu > button[role='menuitemradio'] > span {
+  flex: 1;
+}
+.git-commit-model-menu > button > svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.git-commit-model-menu > hr {
+  margin: 4px 2px;
+  border: 0;
+  border-top: 1px solid var(--zeus-product-line);
+}
+
+.macos-ai-app .git-commit-model-trigger:hover:not(:disabled),
+.macos-ai-app .git-commit-model-trigger[aria-expanded='true'],
+.macos-ai-app .git-commit-ai-button:hover:not(:disabled),
+.macos-ai-app .git-commit-ai-button[data-generating='true']:not(:disabled) {
+  background: var(--ag-brand-selected);
+  border-color: var(--ag-brand-edge);
+  color: var(--ag-brand-ink);
+}
+
+.macos-ai-app :is(.git-commit-ai-button, .git-commit-model-trigger):focus-visible {
+  outline: 2px solid var(--ag-focus);
+  outline-offset: 1px;
+}
+
+.macos-ai-app :is(.git-commit-ai-button, .git-commit-model-trigger):disabled {
+  opacity: 0.5;
+  cursor: default;
+}
