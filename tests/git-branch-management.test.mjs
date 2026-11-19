@@ -137,7 +137,18 @@ test('canonical branch snapshots distinguish tags, retain real HEAD-suffixed bra
   assert.deepEqual(splitGitRemoteBranch('team/origin/main', ['team', 'team/origin']), { remote: 'team/origin', branch: 'main' });
   await f.run(await upstream(f, 'main', 'refs/remotes/team/origin/main'));
   assert.equal(await git(f.cwd, 'config', 'branch.main.remote'), 'team/origin');
-  assert.equal((await f.snapshot()).branchUpstreamRefs.main, 'refs/remotes/team/origin/main');
+  const tracked = await f.snapshot();
+  assert.equal(tracked.branchUpstreamRefs.main, 'refs/remotes/team/origin/main');
+  assert.deepEqual(tracked.branchRemoteUpstreams.main, { remote: 'team/origin', branch: 'main' });
+  await git(f.cwd, 'branch', '--track', 'local-feature', 'origin/feature/HEAD');
+  await git(f.cwd, 'remote', 'add', 'mirror', f.remote);
+  await git(f.cwd, 'config', 'remote.mirror.fetch', '+refs/heads/*:refs/remotes/mirror/mapped/*');
+  await git(f.cwd, 'fetch', 'mirror');
+  await git(f.cwd, 'branch', '--track', 'local-mapped', 'mirror/mapped/main');
+  const snapshotWithAliases = await f.snapshot();
+  assert.deepEqual(snapshotWithAliases.branchRemoteUpstreams['local-feature'], { remote: 'origin', branch: 'feature/HEAD' });
+  assert.equal(snapshotWithAliases.branchUpstreamRefs['local-mapped'], 'refs/remotes/mirror/mapped/main');
+  assert.equal(snapshotWithAliases.branchRemoteUpstreams['local-mapped'], undefined);
 });
 
 test('branch merges select the branch instead of its same-named tag and tracking checkout uses an explicit remote ref', async t => {

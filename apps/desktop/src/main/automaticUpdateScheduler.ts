@@ -243,6 +243,7 @@ function isIndicatorState(value: unknown, currentVersion: string): value is Home
     typeof value.updatedAt === 'string' &&
     normalizeIsoDate(value.updatedAt) !== null &&
     (value.progress === undefined || (typeof value.progress === 'number' && Number.isFinite(value.progress) && value.progress >= 0 && value.progress <= 1)) &&
+    (value.progressText === undefined || typeof value.progressText === 'string') &&
     (value.retryAt === undefined || (typeof value.retryAt === 'string' && normalizeIsoDate(value.retryAt) !== null)) &&
     (value.failure === undefined ||
       (isRecord(value.failure) &&

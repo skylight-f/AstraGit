@@ -1,11 +1,12 @@
 import { distributionAppName, astragitDistribution, astragitHomebrewCask } from './desktopDistribution.js';
 import { execFile as execFileCallback } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { access, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { access, lstat, stat } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { compareReleaseVersions, type ReleaseUpdateStatus as DesktopReleaseUpdateStatus } from '@astragit/shared';
+import { compareReleaseVersions, type ReleaseArtifact, type ReleaseUpdateStatus as DesktopReleaseUpdateStatus } from '@astragit/shared';
 
 const execFile = promisify(execFileCallback);
 const caskToken = astragitHomebrewCask;
@@ -55,7 +56,12 @@ export function createHomebrewUpdateService(options: CreateHomebrewUpdateService
     if (compareReleaseVersions(current.version, options.currentAppVersion) > 0) return { update, brewPath, installed: current };
     onProgress({ phase: 'installing' });
     // 与终端手动升级使用相同参数，交由 Homebrew 自行刷新元数据和处理安装包。
-    await runBrew(brewPath, ['upgrade', '--cask', caskToken], true, 30 * 60_000);
+    const stopMonitoring = update.artifact ? monitorBrewDownload(update.artifact, onProgress) : undefined;
+    try {
+      await runBrew(brewPath, ['upgrade', '--cask', caskToken], true, 30 * 60_000);
+    } finally {
+      stopMonitoring?.();
+    }
     onProgress({ phase: 'verifying' });
     const installed = await validateManagedCask(await inspectCask(brewPath), options);
     if (compareReleaseVersions(installed.version, options.currentAppVersion) <= 0) {
@@ -93,6 +99,44 @@ export function createHomebrewUpdateService(options: CreateHomebrewUpdateService
     },
     // 升级是一个 Homebrew 命令，不再由应用终止或重连其下载子进程。
     reconnectDownload: () => false,
+  };
+}
+
+function monitorBrewDownload(artifact: ReleaseArtifact, onProgress: (value: HomebrewUpdateProgress) => void): () => void {
+  const cache = process.env.HOMEBREW_CACHE?.trim() || join(homedir(), 'Library', 'Caches', 'Homebrew');
+  const urlHash = createHash('sha256').update(artifact.downloadUrl).digest('hex');
+  const partialPath = join(cache, 'downloads', `${urlHash}--${artifact.fileName}.incomplete`);
+  const startedAt = Date.now();
+  let previous: { bytes: number; time: number } | undefined;
+  let downloading = false;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  // Only observe the matching release artifact. Brew can proceed with another version, a cache hit, or a different strategy.
+  async function sample(): Promise<void> {
+    const partial = await lstat(partialPath).catch(() => null);
+    if (stopped) return;
+    const time = performance.now();
+    const bytes = partial?.isFile() ? partial.size : 0;
+    if (partial && bytes > 0 && bytes <= artifact.sizeBytes && (downloading || partial.mtimeMs >= startedAt)) {
+      const bytesPerSecond = previous && bytes >= previous.bytes && time > previous.time
+        ? (bytes - previous.bytes) * 1_000 / (time - previous.time)
+        : undefined;
+      onProgress({ phase: 'downloading', downloadedBytes: bytes, totalBytes: artifact.sizeBytes, bytesPerSecond });
+      downloading = true;
+    } else if (downloading) {
+      onProgress({ phase: 'installing' });
+      downloading = false;
+    }
+    previous = { bytes, time };
+    timer = setTimeout(() => void sample(), 500);
+    timer.unref();
+  }
+
+  void sample();
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
   };
 }
 

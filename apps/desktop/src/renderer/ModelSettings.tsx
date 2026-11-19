@@ -8,6 +8,7 @@ import { PencilSimple } from '@phosphor-icons/react/dist/csr/PencilSimple';
 import { Plus } from '@phosphor-icons/react/dist/csr/Plus';
 import { Trash } from '@phosphor-icons/react/dist/csr/Trash';
 import type { CodexAccount, CodexLogin, DashboardClient, ModelConnection, ModelConnectionModel, ModelTemplateId } from './apiClient.js';
+import { readDisabledCodexModels, saveDisabledCodexModels } from './git/gitCommitModels.js';
 import { Button } from './ui/Button.js';
 
 type Protocol = ModelConnectionModel['protocolFamily'];
@@ -31,6 +32,7 @@ export function ModelSettings({ client, language, onChanged }: { client: Dashboa
   const [showKey, setShowKey] = useState(false);
   const [editor, setEditor] = useState<ModelEditor>();
   const [account, setAccount] = useState<CodexAccount | null>(null);
+  const [disabledCodexModels, setDisabledCodexModels] = useState(readDisabledCodexModels);
   const [login, setLogin] = useState<CodexLogin | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -41,6 +43,7 @@ export function ModelSettings({ client, language, onChanged }: { client: Dashboa
   const provider = draft ?? (connection ? { ...connection, apiKey: '' } : emptyProvider);
   const models = connection?.models ?? provider.models;
   const isCodex = selection === 'codex';
+  const codexModels = account?.models ?? [];
   const providerProtocol = provider.protocolFamily ?? (models.length ? '' : defaultProtocol);
 
   useEffect(() => {
@@ -182,6 +185,15 @@ export function ModelSettings({ client, language, onChanged }: { client: Dashboa
     });
   }
 
+  function toggleCodexModel(id: string, enabled: boolean): void {
+    const next = enabled ? disabledCodexModels.filter(model => model !== id) : [...disabledCodexModels, id];
+    try { saveDisabledCodexModels(next); }
+    catch { setMessage(zh ? '无法保存 Codex 模型选择。' : 'Could not save Codex model selection.'); return; }
+    setMessage('');
+    setDisabledCodexModels(next);
+    onChanged();
+  }
+
   const diagnosticText = diagnostic?.ok
     ? (zh ? `${diagnostic.discoveredModelCount} 个模型` : `${diagnostic.discoveredModelCount} models`)
     : diagnostic?.message;
@@ -226,10 +238,10 @@ export function ModelSettings({ client, language, onChanged }: { client: Dashboa
 
           {message ? <p className="gitapp-settings-message" role="status">{message}</p> : null}
 
-          {isCodex ? (
+          {isCodex ? <>
             <section className="gitapp-model-card gitapp-model-account" aria-label={zh ? 'Codex 账户' : 'Codex account'}>
               <h3>{zh ? 'Codex 账户' : 'Codex account'}</h3>
-              <p>{account === null ? (zh ? '正在读取账户状态…' : 'Loading account…') : account.signedIn ? (zh ? '已登录，可在提交区选择 Codex 模型。' : 'Signed in. Codex models are available in the commit panel.') : account.code === 'ASTRAGIT_CODEX_DISABLED' ? (zh ? 'Codex 尚未启用。' : 'Codex is disabled.') : account.message || (zh ? '尚未登录。' : 'Not signed in.')}</p>
+              <p>{account === null ? (zh ? '正在读取账户状态…' : 'Loading account…') : account.signedIn ? (zh ? '已登录。' : 'Signed in.') : account.code === 'ASTRAGIT_CODEX_DISABLED' ? (zh ? 'Codex 尚未启用。' : 'Codex is disabled.') : account.message || (zh ? '尚未登录。' : 'Not signed in.')}</p>
               {account?.codexHome ? <small>{zh ? '独立数据目录：' : 'Separate data directory: '}{account.codexHome}</small> : null}
               {account?.available && !account.signedIn ? <Button size="compact" disabled={busy || Boolean(login)} onClick={() => void perform(async () => {
                 const next = await client.startCodexLogin();
@@ -238,7 +250,34 @@ export function ModelSettings({ client, language, onChanged }: { client: Dashboa
               })}>{zh ? '登录 Codex' : 'Sign in to Codex'}</Button> : null}
               {login ? <a href={login.authUrl} target="_blank" rel="noopener noreferrer">{zh ? '在浏览器中打开登录页面 ↗' : 'Open sign in page ↗'}</a> : null}
             </section>
-          ) : connections ? (
+            <section className="gitapp-model-list" aria-labelledby="gitapp-codex-model-list-heading">
+              <header>
+                <h3 id="gitapp-codex-model-list-heading">{zh ? '模型列表' : 'Models'} <small>{codexModels.length}</small></h3>
+                <Button size="compact" disabled={busy || Boolean(login) || !account?.available} onClick={() => void perform(async () => {
+                  setAccount(await client.refreshCodexModels());
+                  onChanged();
+                })}><ArrowsClockwise size={15} aria-hidden="true" />{zh ? '同步目录' : 'Sync catalog'}</Button>
+              </header>
+              <div className="gitapp-model-card">
+                {codexModels.length ? <ul>{codexModels.map(model => {
+                  const name = model.id.slice('codex:'.length);
+                  return <li key={model.id}>
+                    <div className="gitapp-model-row">
+                      <div className="gitapp-model-description">
+                        <div className="gitapp-model-title"><code>{name}</code></div>
+                        {model.displayName && model.displayName !== name ? <small>{model.displayName}</small> : null}
+                      </div>
+                      <div className="gitapp-model-row-actions">
+                        <input type="checkbox" aria-label={zh ? `启用模型 ${name}` : `Enable model ${name}`} title={zh ? '启用模型' : 'Enable model'} checked={!disabledCodexModels.includes(model.id)} disabled={busy} onChange={event => toggleCodexModel(model.id, event.currentTarget.checked)} />
+                      </div>
+                    </div>
+                  </li>;
+                })}</ul> : <p className="gitapp-model-empty" role="status">{account === null ? (zh ? '正在读取模型目录…' : 'Loading model catalog…')
+                  : account.available && !account.signedIn && account.requiresOpenaiAuth !== false && !account.message ? (zh ? '登录 Codex 后即可选择模型。' : 'Sign in to Codex to choose models.')
+                    : (zh ? '暂无可选的 Codex 模型。' : 'No Codex models are available.')}</p>}
+              </div>
+            </section>
+          </> : connections ? (
             <>
               <form key={selection} id="gitapp-provider-form" className="gitapp-model-card gitapp-model-provider-form" onSubmit={event => { event.preventDefault(); if (canSave && !busy) saveProvider(); }}>
                 {connection ? (

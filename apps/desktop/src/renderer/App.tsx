@@ -367,7 +367,10 @@ export function App(props: AppProps) {
     <>
       <div className={`gitapp-frame${props.customTitlebar ? ' has-native-traffic-lights' : ''}`}>
         <header className="gitapp-titlebar" aria-label={zh ? '标题栏' : 'Title bar'}>
-          <strong className="gitapp-titlebar-brand">AstraGit</strong>
+          <div className="gitapp-titlebar-leading">
+            <strong className="gitapp-titlebar-brand">AstraGit</strong>
+            <ReleaseUpdateButton zh={zh} update={applicationUpdates} disabled={sourceBatchBusy || repositorySetup.busy} onInspect={() => openSettings('updates')} />
+          </div>
           <WorkspaceSearch client={props.client} projects={sortedProjects} project={activeProject} zh={zh} mac={props.customTitlebar === true} disabled={sourceBatchBusy || repositorySetup.busy} onNavigate={navigateSearch} />
           <div className="gitapp-titlebar-actions"><button ref={reviewButton} type="button" disabled={!activeProject || settingsOpen} aria-label={zh ? '代码评审' : 'Code review'} title={zh ? '代码评审' : 'Code review'} aria-expanded={reviewVisible} aria-controls="gitapp-code-review" onClick={() => { setReviewVisited(true); setReviewOpen(value => !value); }}><ShieldCheck size={19} /><span>{zh ? '评审' : 'Review'}</span></button></div>
         </header>
@@ -489,7 +492,6 @@ export function App(props: AppProps) {
               <Plus size={17} weight="regular" aria-hidden="true" />
             </button>
             {repositorySetup.busy ? <Button variant="secondary" size="compact" onClick={() => { setProjectAddMode(repositorySetup.job?.kind ?? 'clone'); setShowList(true); }}>{zh ? '仓库创建中…' : 'Repository setup…'}</Button> : null}
-            <ReleaseUpdateButton zh={zh} update={applicationUpdates} disabled={sourceBatchBusy || repositorySetup.busy} onInspect={() => openSettings('updates')} />
           </header>
 
           <div className="gitapp-workbench-host" key={activeProject.id}>
@@ -536,7 +538,6 @@ export function App(props: AppProps) {
                 {zh ? '返回工作台' : 'Back to workbench'}
               </Button>
             ) : null}
-            <ReleaseUpdateButton zh={zh} update={applicationUpdates} onInspect={() => openSettings('updates')} />
           </header>
 
           <nav className="repository-setup-tabs" aria-label={zh ? '添加仓库方式' : 'Add repository method'}>{(['open', 'clone', 'init'] as const).map(mode => <button type="button" key={mode} aria-pressed={projectAddMode === mode} onClick={() => setProjectAddMode(mode)}>{mode === 'open' ? (zh ? '打开已有项目' : 'Open existing project') : mode === 'clone' ? (zh ? '克隆仓库' : 'Clone repository') : zh ? '初始化仓库' : 'Initialize repository'}</button>)}</nav>

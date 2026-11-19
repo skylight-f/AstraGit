@@ -47,30 +47,103 @@
   color: var(--zeus-product-muted);
 }
 .git-commit-model-menu.project-git-context-menu {
-  max-height: min(320px, calc(100vh - 16px));
+  width: min(320px, calc(100vw - 16px));
+  min-width: 0;
+  max-height: min(420px, calc(100vh - 16px));
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 4px;
+  border-color: var(--ag-line);
+  border-radius: var(--ag-card-radius);
+  background: var(--ag-panel);
+  color: var(--ag-ink);
+  box-shadow: 0 8px 28px rgb(25 30 50 / .16);
 }
-.git-commit-model-menu.project-git-context-menu > button {
-  display: flex;
+.git-commit-model-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.git-commit-model-group + .git-commit-model-group {
+  border-top: 1px solid var(--ag-line);
+  margin-top: 4px;
+}
+.git-commit-model-group-title {
+  overflow: hidden;
+  padding: 8px 8px 4px;
+  color: var(--ag-muted);
+  font: 600 11px/1.4 system-ui;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-commit-model-menu button {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: 12px/1.35 system-ui;
+  text-align: left;
+  cursor: pointer;
+}
+.git-commit-model-menu button:not(:disabled):is(:hover, :focus-visible) {
+  background: var(--zeus-brand-hover);
+}
+.git-commit-model-menu button:focus-visible {
+  outline: 1px solid var(--ag-focus);
+  outline-offset: -1px;
+}
+.git-commit-model-menu button:disabled {
+  color: var(--ag-muted);
+  opacity: .55;
+  cursor: default;
+}
+.git-commit-model-option {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 15px;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
-.git-commit-model-menu > button > span {
+.git-commit-model-menu button[aria-checked='true'] {
+  background: var(--ag-brand-selected);
+  color: var(--ag-brand-ink);
+  font-weight: 600;
+}
+.git-commit-model-symbol {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--ag-control);
+  color: var(--ag-brand-ink);
+  font-size: 11px;
+  font-weight: 650;
+}
+.git-commit-model-option-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.git-commit-model-menu > button[role='menuitemradio'] > span {
-  flex: 1;
+.git-commit-model-actions {
+  flex: none;
+  padding-top: 3px;
 }
-.git-commit-model-menu > button > svg {
+.git-commit-model-list + .git-commit-model-actions {
+  margin-top: 3px;
+  border-top: 1px solid var(--ag-line);
+}
+.git-commit-model-actions button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.git-commit-model-menu svg {
   width: 14px;
   height: 14px;
   flex: none;
-}
-.git-commit-model-menu > hr {
-  margin: 4px 2px;
-  border: 0;
-  border-top: 1px solid var(--zeus-product-line);
 }
 
 .macos-ai-app .git-commit-model-trigger:hover:not(:disabled),

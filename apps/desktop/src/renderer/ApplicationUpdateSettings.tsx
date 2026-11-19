@@ -7,7 +7,8 @@ export function ApplicationUpdateSettings(props: { zh: boolean; update: Applicat
   const text = (cn: string, en: string) => zh ? cn : en;
   const state = update.state;
   const homebrew = state?.method === 'homebrew';
-  const downloading = state?.phase === 'preparing' || state?.phase === 'retrying';
+  const preparing = state?.phase === 'preparing';
+  const downloading = preparing || state?.phase === 'retrying';
   const locked = props.disabled || update.busy !== null;
   const status = update.busy === 'check' && !downloading ? text('正在检查更新…', 'Checking for updates…')
     : state?.phase === 'failed' ? text('更新未完成', 'Update incomplete')
@@ -27,7 +28,16 @@ export function ApplicationUpdateSettings(props: { zh: boolean; update: Applicat
       <div className="gitapp-update-status" role="status">
         <strong>{status}</strong>
         {state?.phase === 'failed' ? <VisibleApplicationError error={{ message: state.detail, details: state.failure?.technicalDetail }} language={zh ? 'zh-CN' : 'en'} /> : detail ? <p>{state?.detail || detail}</p> : null}
-        {downloading ? <progress aria-label={homebrew ? text('更新进度', 'Update progress') : text('更新下载进度', 'Update download progress')} max={1} value={state?.phase === 'preparing' && state.progress !== undefined ? state.progress : undefined} /> : null}
+        {preparing && state.progressText ? <div className="gitapp-update-progress-summary" aria-hidden="true">
+          <span>{text('下载进度', 'Download progress')}</span>
+          <span>{state.progressText}</span>
+        </div> : null}
+        {downloading ? <progress
+          aria-label={preparing && state.progressText ? text('下载进度', 'Download progress') : text('更新进度', 'Update progress')}
+          aria-valuetext={preparing ? state.progressText : undefined}
+          max={1}
+          value={preparing ? state.progress : undefined}
+        /> : null}
       </div>
       {update.error ? <p role="alert"><VisibleApplicationError error={update.error} language={zh ? 'zh-CN' : 'en'} /></p> : null}
       {props.disabled ? <p>{text('当前 Git 操作结束后可检查或安装更新。', 'Finish the current Git operation before checking or installing updates.')}</p> : null}

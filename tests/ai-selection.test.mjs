@@ -8,8 +8,33 @@ import test from 'node:test';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
 import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
+import { loadGitCommitModelOptions, saveDisabledCodexModels } from '../apps/desktop/src/renderer/git/gitCommitModels.ts';
 
 const execute = promisify(execFile);
+test('disabled Codex models are filtered and an unavailable remembered model falls back', async t => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else delete globalThis.localStorage;
+  });
+  const values = new Map([['astragit.commit-model.test-project', 'codex:disabled']]);
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) },
+  });
+  saveDisabledCodexModels(['codex:disabled']);
+  const client = { loadGitCommitModels: async () => ({ items: [
+    { id: 'codex:disabled', label: 'Codex · Disabled' },
+    { id: 'codex:enabled', label: 'Codex · Enabled' },
+    { id: 'provider:model', label: 'Provider · Model' },
+  ], warning: '' }) };
+  const result = await loadGitCommitModelOptions(client, 'test-project');
+  assert.deepEqual(result.items.map(model => model.id), ['codex:enabled', 'provider:model']);
+  assert.equal(result.modelRef, 'codex:enabled');
+  saveDisabledCodexModels([]);
+  assert.equal((await loadGitCommitModelOptions(client, 'test-project')).modelRef, 'codex:disabled');
+});
+
 test('AI drafts use the selected mode across project repositories and reject content changed during generation', async t => {
   const root = await mkdtemp(join(tmpdir(), 'astragit-ai-selection-'));
   let server;

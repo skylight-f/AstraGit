@@ -52,8 +52,10 @@ export interface CodexAccount {
   code?: string;
   available: boolean;
   signedIn: boolean;
+  requiresOpenaiAuth?: boolean;
   message?: string;
   codexHome?: string;
+  models?: GitCommitModelOption[];
 }
 
 export interface CodexLogin {
@@ -62,7 +64,7 @@ export interface CodexLogin {
   authUrl: string;
 }
 
-import type { GitApiClient } from './features/git/gitApiClient.js';
+import type { GitApiClient, GitCommitModelOption } from './features/git/gitApiClient.js';
 import type { ConfiguredModelDefinition } from '@astragit/ai-runtime';
 
 /** 工作台所需 DashboardClient 能力子集；独立应用不组合全站 client。 */
@@ -75,7 +77,6 @@ export interface DashboardClient extends GitApiClient {
   createProject(input: { name?: string; localPath: string }): Promise<GitAppProject>;
   removeProject(projectId: string): Promise<{ ok: boolean }>;
   touchProject(projectId: string): Promise<GitAppProject>;
-  loadGitCommitModels(projectId: string): Promise<{ items: Array<{ id: string; label: string }>; warning: string }>;
   loadModelConnectionTemplates(): Promise<Record<Exclude<ModelTemplateId, 'custom'>, { name: string; baseUrl: string; modelsPath: string }>>;
   loadModelConnections(): Promise<ModelConnection[]>;
   createModelConnection(input: SaveModelConnection): Promise<ModelConnection>;
@@ -85,6 +86,7 @@ export interface DashboardClient extends GitApiClient {
   refreshModelConnectionModels(id: string): Promise<{ connection: ModelConnection; addedModelIds: string[] }>;
   addManualModel(id: string, model: string | { modelId: string; displayName: string; enabled: boolean }): Promise<ModelConnection>;
   loadCodexAccount(): Promise<CodexAccount>;
+  refreshCodexModels(): Promise<CodexAccount>;
   startCodexLogin(): Promise<CodexLogin>;
   loadCodexLoginStatus(login: CodexLogin): Promise<{ status: 'pending' | 'succeeded' | 'failed'; error: string | null }>;
 }

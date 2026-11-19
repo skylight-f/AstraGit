@@ -11,6 +11,21 @@ export type GitBranchManagementRequest =
   | { kind: 'delete-remote'; repository: ProjectGitRepositoryWorkbenchItem; branchName: string; remote: string }
   | { kind: 'upstream'; repository: ProjectGitRepositoryWorkbenchItem; branchName: string; initialUpstreamRef?: string | null };
 
+type RemoteDeleteAction = Extract<ProjectGitAction, { type: 'delete_remote_branch' }>;
+
+function remoteDeletionKey({ remote, branchName }: RemoteDeleteAction): string {
+  return JSON.stringify([remote, branchName]);
+}
+
+function reviewRemoteDeletion(snapshot: ProjectGitRepositoryWorkbenchItem['snapshot'], remote: string, branchName: string) {
+  const name = `${remote}/${branchName}`;
+  const head = snapshot.remoteBranchHeads?.[name];
+  const target = snapshot.remoteDetails?.find(item => item.name === remote);
+  if (!head || !target?.pushFingerprint || !target.pushUrls?.length) return null;
+  const action: RemoteDeleteAction = { type: 'delete_remote_branch', remote, branchName, expectedTargetHeadSha: head, expectedRemotePushFingerprint: target.pushFingerprint };
+  return { name, action, pushUrls: target.pushUrls };
+}
+
 export function branchActionNeedsReview(error: unknown): boolean {
   if (describeUserFacingError(error).outcomeUnconfirmed) return true;
   for (let cause: ReturnType<typeof userFacingErrorCause> | undefined = userFacingErrorCause(error); cause; cause = cause.cause) {
@@ -35,10 +50,11 @@ export function GitBranchManagementDialog(props: {
   if (!snapshot.detached) unavailable.add(snapshot.branch);
   const [selected, setSelected] = useState(() => new Set(request.kind === 'delete-local' && request.branchName && !unavailable.has(request.branchName) ? [request.branchName] : []));
   const [force, setForce] = useState(false);
+  const [deleteRemote, setDeleteRemote] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [upstream, setUpstream] = useState(request.kind === 'upstream' ? (request.initialUpstreamRef === undefined ? snapshot.branchUpstreamRefs?.[request.branchName] : request.initialUpstreamRef) ?? '' : '');
   const [running, setRunning] = useState(false);
-  const [completed, setCompleted] = useState<string[]>([]);
+  const [completed, setCompleted] = useState<Array<{ name: string; action: ProjectGitAction }>>([]);
   const [error, setError] = useState<unknown>(null);
   const [review, setReview] = useState(false);
   const [stopped, setStopped] = useState(false);
@@ -47,32 +63,64 @@ export function GitBranchManagementDialog(props: {
   const alive = useRef(true); const stop = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; stop.current = true; }; }, []);
   const title = request.kind === 'delete-local' ? text('删除本地分支', 'Delete local branches') : request.kind === 'delete-remote' ? text('删除远程分支', 'Delete remote branch') : text('设置上游分支', 'Set upstream branch');
-  const remote = request.kind === 'delete-remote' ? snapshot.remoteDetails?.find(item => item.name === request.remote) : undefined;
-  const expectedHead = request.kind === 'upstream' ? snapshot.localBranchHeads?.[request.branchName] : request.kind === 'delete-remote' ? snapshot.remoteBranchHeads?.[`${request.remote}/${request.branchName}`] : undefined;
+  const remote = request.kind === 'delete-remote' ? reviewRemoteDeletion(snapshot, request.remote, request.branchName) : null;
+  const expectedHead = request.kind === 'upstream' ? snapshot.localBranchHeads?.[request.branchName] : remote?.action.expectedTargetHeadSha;
+  const removedLocal = new Set(completed.filter(item => item.action.type === 'delete_branch').map(item => item.name));
+  const removedRemote = new Set(completed.flatMap(item => item.action.type === 'delete_remote_branch' ? [remoteDeletionKey(item.action)] : []));
+  const pendingLocal = [...selected].filter(branch => !removedLocal.has(branch));
+  const remoteTargets = new Map<string, NonNullable<ReturnType<typeof reviewRemoteDeletion>> & { localBranches: string[] }>();
+  const pendingRemoteForLocal = new Set<string>();
+  if (deleteRemote) {
+    for (const branch of selected) {
+      const upstreamTarget = snapshot.branchRemoteUpstreams?.[branch];
+      const target = upstreamTarget && reviewRemoteDeletion(snapshot, upstreamTarget.remote, upstreamTarget.branch);
+      if (!target) continue;
+      const key = remoteDeletionKey(target.action);
+      if (removedRemote.has(key)) continue;
+      pendingRemoteForLocal.add(branch);
+      const existing = remoteTargets.get(key);
+      if (existing) existing.localBranches.push(branch);
+      else remoteTargets.set(key, { ...target, localBranches: [branch] });
+    }
+  }
+  const remoteDeletes = [...remoteTargets.values()];
   const choices = [...snapshot.localBranches.filter(branch => request.kind !== 'upstream' || branch !== request.branchName).map(branch => ({ ref: `refs/heads/${branch}`, label: `${text('本地', 'Local')} · ${branch}` })), ...snapshot.remoteBranches.map(branch => ({ ref: `refs/remotes/${branch}`, label: `${text('远程', 'Remote')} · ${branch}` }))];
-  const metadataMissing = request.kind === 'delete-local' ? [...selected].some(branch => !snapshot.localBranchHeads?.[branch]) : !expectedHead || (request.kind === 'delete-remote' && (!remote?.pushFingerprint || !remote.pushUrls?.length));
+  const metadataMissing = request.kind === 'delete-local' ? pendingLocal.some(branch => !snapshot.localBranchHeads?.[branch]) : !expectedHead;
   const disabled = running || props.busy;
-  const ready = !review && !metadataMissing && (request.kind === 'delete-local' ? selected.size > 0 : request.kind === 'delete-remote' ? confirmed : upstream !== (snapshot.branchUpstreamRefs?.[request.branchName] ?? ''));
+  const ready = !review && !metadataMissing && (request.kind === 'delete-local' ? pendingLocal.length + remoteDeletes.length > 0 : request.kind === 'delete-remote' ? confirmed : upstream !== (snapshot.branchUpstreamRefs?.[request.branchName] ?? ''));
+  const deleteLabel = remoteDeletes.length
+    ? pendingLocal.length
+      ? text(`删除 ${pendingLocal.length} 个本地、${remoteDeletes.length} 个远程分支`, `Delete ${pendingLocal.length} local and ${remoteDeletes.length} remote branches`)
+      : text(`删除 ${remoteDeletes.length} 个远程分支`, `Delete ${remoteDeletes.length} remote branches`)
+    : text(`删除 ${pendingLocal.length} 个分支`, `Delete ${pendingLocal.length} branches`);
   const accept = async () => {
     if (disabled || !ready || gate.current) return;
     gate.current = true; stop.current = false; setStopped(false); setRunning(true); setError(null);
     try {
-      const actions: Array<{ name: string; action: ProjectGitAction }> = request.kind === 'delete-local'
-        ? [...selected].map(branchName => ({ name: branchName, action: { type: 'delete_branch', branchName, force, expectedTargetHeadSha: snapshot.localBranchHeads![branchName] } }))
+      const actions: Array<{ name: string; action: ProjectGitAction; localBranches?: string[] }> = request.kind === 'delete-local'
+        ? [
+          ...pendingLocal.map(branchName => ({ name: branchName, action: { type: 'delete_branch' as const, branchName, force, expectedTargetHeadSha: snapshot.localBranchHeads![branchName] } })),
+          ...remoteDeletes,
+        ]
         : request.kind === 'delete-remote'
-          ? [{ name: `${request.remote}/${request.branchName}`, action: { type: 'delete_remote_branch', remote: request.remote, branchName: request.branchName, expectedTargetHeadSha: expectedHead!, expectedRemotePushFingerprint: remote!.pushFingerprint! } }]
+          ? [remote!]
           : [{ name: request.branchName, action: { type: 'set_upstream', branchName: request.branchName, upstreamRef: upstream || null, expectedUpstreamRef: snapshot.branchUpstreamRefs?.[request.branchName] || null, expectedTargetHeadSha: expectedHead! } }];
       for (const item of actions) {
         if (!alive.current || stop.current) return;
-        const result = await props.onExecute(repository, item.action, `${title} · ${item.name}`);
+        const actionTitle = item.action.type === 'delete_remote_branch' ? text('删除远程分支', 'Delete remote branch') : title;
+        const result = await props.onExecute(repository, item.action, `${actionTitle} · ${item.name}`);
         if (!alive.current) return;
         if (result.outcome !== 'completed') {
           setError(result.error ?? new Error(text('操作尚未完成，请核对仓库状态。', 'The operation did not complete. Review the repository state.')));
           setReview(Boolean(result.error && branchActionNeedsReview(result.error)));
           return;
         }
-        setCompleted(current => [...current, item.name]);
-        setSelected(current => { const next = new Set(current); next.delete(item.name); return next; });
+        setCompleted(current => [...current, { name: item.name, action: item.action }]);
+        if (item.action.type === 'delete_branch' && pendingRemoteForLocal.has(item.name)) continue;
+        if (request.kind === 'delete-local') {
+          const finishedBranches = new Set(item.localBranches ?? [item.name]);
+          setSelected(current => new Set([...current].filter(branch => !finishedBranches.has(branch))));
+        }
       }
       if (!stop.current) props.onClose();
     } catch (reason) { setError(reason); setReview(branchActionNeedsReview(reason)); }
@@ -83,9 +131,54 @@ export function GitBranchManagementDialog(props: {
       <header><strong>{title}</strong><p>{repository.name}{request.kind === 'delete-local' ? '' : ` · ${request.kind === 'delete-remote' ? `${request.remote}/` : ''}${request.branchName}`}</p></header>
       {request.kind === 'delete-local' ? <>
         <p>{text('选择要删除的本地分支。Git 会检查合入情况；正在工作区使用的分支不能删除。', 'Select local branches to delete. Git checks merge status; checked-out branches cannot be deleted.')}</p>
-        <div className="git-branch-delete-list">{snapshot.localBranches.map(branch => <label key={branch} className="git-branch-choice"><input type="checkbox" checked={selected.has(branch)} disabled={disabled || unavailable.has(branch) || completed.includes(branch) || !snapshot.localBranchHeads?.[branch]} onChange={event => setSelected(current => { const next = new Set(current); if (event.target.checked) next.add(branch); else next.delete(branch); return next; })} /><span>{branch}<small>{completed.includes(branch) ? text('已删除', 'Deleted') : unavailable.has(branch) ? text('工作区正在使用', 'Checked out in a worktree') : snapshot.localBranchHeads?.[branch]?.slice(0, 12) ?? text('请刷新后重开', 'Refresh and reopen')}</small></span></label>)}</div>
+        <div className="git-branch-delete-list">
+          {snapshot.localBranches.map(branch => {
+            const head = snapshot.localBranchHeads?.[branch];
+            const deleted = removedLocal.has(branch);
+            const inUse = unavailable.has(branch);
+            const status = deleted ? text('已删除', 'Deleted')
+              : inUse ? text('工作区正在使用', 'Checked out in a worktree')
+              : !head ? text('请刷新后重开', 'Refresh and reopen') : null;
+            return (
+              <label key={branch} className="git-branch-choice">
+                <input
+                  type="checkbox"
+                  checked={selected.has(branch)}
+                  disabled={disabled || deleted || inUse || !head}
+                  onChange={event => {
+                    const checked = event.currentTarget.checked;
+                    setSelected(current => {
+                      const next = new Set(current);
+                      if (checked) next.add(branch);
+                      else next.delete(branch);
+                      return next;
+                    });
+                  }}
+                />
+                <span className="git-branch-choice-name" title={branch}>{branch}</span>
+                {status ? <small className="git-branch-choice-status">{status}</small> : <code>{head?.slice(0, 12)}</code>}
+              </label>
+            );
+          })}
+        </div>
         <label className="git-branch-choice"><input type="checkbox" checked={force} disabled={disabled || review} onChange={event => setForce(event.target.checked)} /><span>{text('强制删除（允许删除尚未合入的分支）', 'Force delete regardless of merge status')}</span></label>
         {force ? <p role="note">{text('强制删除会移除所选本地分支引用。仅由这些分支保留的提交可能无法再访问，请先核对需要保留的提交。', 'Force deletion removes the selected local branch refs. Commits reachable only from those branches may become unavailable. Review any commits you need to keep first.')}</p> : null}
+        <div className="git-branch-remote-delete">
+          <label className="git-branch-choice">
+            <input type="checkbox" checked={deleteRemote} disabled={disabled || review} onChange={event => {
+              setDeleteRemote(event.currentTarget.checked);
+              if (!event.currentTarget.checked) setSelected(current => new Set([...current].filter(branch => !removedLocal.has(branch))));
+            }} />
+            <span>{text('同时删除远程上游分支', 'Also delete tracked remote branches')}</span>
+          </label>
+          {deleteRemote ? remoteDeletes.length ? (
+            <ul className="git-branch-remote-targets" aria-label={text('待删除的远程分支与推送地址', 'Remote branches and push destinations to delete from')}>
+              {remoteDeletes.map(target => <li key={remoteDeletionKey(target.action)}><code>{target.name}</code><small>{target.pushUrls.join(' · ')}</small></li>)}
+            </ul>
+          ) : <small className="git-branch-remote-empty">{selected.size
+            ? text('所选分支没有可核对的远程上游。', 'The selected branches have no reviewable remote upstreams.')
+            : text('勾选本地分支后可查看待删除的远程上游。', 'Select local branches to review their remote upstreams.')}</small> : null}
+        </div>
       </> : request.kind === 'delete-remote' ? <>
         <p>{text('从以下推送目标删除服务器上的分支：', 'Delete the server branch from these push destinations:')}</p>
         <ul>{remote?.pushUrls?.map((url, index) => <li key={index}>{url}</li>)}</ul>
@@ -96,11 +189,11 @@ export function GitBranchManagementDialog(props: {
         <label>{text('新的上游分支', 'New upstream branch')}<select value={upstream} disabled={disabled || review} onChange={event => setUpstream(event.target.value)}><option value="">{text('不跟踪上游', 'No upstream')}</option>{upstream && !choices.some(choice => choice.ref === upstream) ? <option value={upstream} disabled>{upstream} · {text('不可用', 'Unavailable')}</option> : null}{choices.map(choice => <option key={choice.ref} value={choice.ref}>{choice.label}</option>)}</select></label>
         <p>{upstream ? text('更新该分支的跟踪关系，之后拉取与默认推送会使用此上游。', 'Update this branch’s tracking relationship for subsequent pulls and default pushes.') : text('清除该分支的上游跟踪关系。', 'Clear this branch’s upstream tracking relationship.')}</p>
       </>}
-      {completed.length ? <p role="status">{text(`已完成：${completed.join('、')}。其余选择尚待处理。`, `Completed: ${completed.join(', ')}. Other selections remain pending.`)}</p> : null}
+      {completed.length ? <p role="status">{text('已完成 ', 'Completed ')}{completed.map(item => item.action.type === 'delete_remote_branch' ? `${text('远程', 'Remote')} ${item.name}` : item.name).join(text('、', ', '))}</p> : null}
       {stopped ? <p role="status">{text('已请求停止后续删除。当前单项结束后可核对已完成结果。', 'Further deletions are stopped. Review completed results after the current item finishes.')}</p> : null}
       {error ? <VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /> : null}
       {metadataMissing || review ? <p role="status">{text('请关闭此窗口，刷新或抓取仓库，核对最新状态后重新操作。', 'Close this dialog, refresh or fetch the repository, then review its current state before continuing.')}</p> : null}
-      <footer>{running && request.kind === 'delete-local' ? <Button variant="secondary" disabled={stopped} onClick={() => { stop.current = true; setStopped(true); }}>{text('停止后续删除', 'Stop further deletions')}</Button> : running && request.kind === 'delete-remote' ? <Button variant="secondary" disabled={aborting} onClick={async () => { setAborting(true); try { await props.onAbort(); } catch (reason) { if (alive.current) setError(reason); } finally { if (alive.current) setAborting(false); } }}>{text('中止当前操作', 'Abort operation')}</Button> : null}<Button autoFocus variant="secondary" disabled={disabled} onClick={props.onClose}>{review ? text('关闭', 'Close') : text('取消', 'Cancel')}</Button><Button variant={request.kind === 'upstream' ? 'primary' : 'danger'} disabled={disabled || !ready} busy={running} onClick={() => void accept()}>{request.kind === 'delete-local' ? text(`删除 ${selected.size} 个分支`, `Delete ${selected.size} branches`) : request.kind === 'delete-remote' ? text('删除远程分支', 'Delete remote branch') : text('保存跟踪关系', 'Save tracking')}</Button></footer>
+      <footer>{running && request.kind === 'delete-local' ? <Button variant="secondary" disabled={stopped} onClick={() => { stop.current = true; setStopped(true); }}>{text('停止后续删除', 'Stop further deletions')}</Button> : running && request.kind === 'delete-remote' ? <Button variant="secondary" disabled={aborting} onClick={async () => { setAborting(true); try { await props.onAbort(); } catch (reason) { if (alive.current) setError(reason); } finally { if (alive.current) setAborting(false); } }}>{text('中止当前操作', 'Abort operation')}</Button> : null}<Button autoFocus variant="secondary" disabled={disabled} onClick={props.onClose}>{review ? text('关闭', 'Close') : text('取消', 'Cancel')}</Button><Button variant={request.kind === 'upstream' ? 'primary' : 'danger'} disabled={disabled || !ready} busy={running} onClick={() => void accept()}>{request.kind === 'delete-local' ? deleteLabel : request.kind === 'delete-remote' ? text('删除远程分支', 'Delete remote branch') : text('保存跟踪关系', 'Save tracking')}</Button></footer>
     </section>
   </ModalPortal>;
 }

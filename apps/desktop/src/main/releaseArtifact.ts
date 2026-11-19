@@ -12,7 +12,7 @@ export async function downloadVerifiedArtifact(artifact: ReleaseArtifact, path: 
   progress({ phase: 'verifying', receivedBytes: 0, totalBytes: artifact.sizeBytes });
   if (await verifyDownloadedArtifact(path, artifact).then(() => true, () => false)) { progress({ phase: 'ready', receivedBytes: artifact.sizeBytes, totalBytes: artifact.sizeBytes }); return; }
   const temporary = `${path}.${randomUUID()}.partial`; const output = await open(temporary, 'wx', 0o600);
-  let received = 0; let notifiedAt = 0; const hash = createHash('sha256');
+  let received = 0; const hash = createHash('sha256');
   try {
     const source = new URL(artifact.downloadUrl);
     if (source.protocol !== 'https:' || !artifact.downloadUrl.startsWith(`${releasePageUrl}/download/`)) throw new Error('更新安装包来源无效。');
@@ -20,10 +20,17 @@ export async function downloadVerifiedArtifact(artifact: ReleaseArtifact, path: 
     // Electron net.fetch 的标准 Response 可以缺少 url；来源仍绑定固定发布仓库，最终字节必须匹配摘要。
     const destination = response.url ? new URL(response.url) : source;
     if (destination.protocol !== 'https:' || !(destination.hostname === 'github.com' || destination.hostname.endsWith('.githubusercontent.com')) || !response.ok || !response.body) throw new Error(`更新下载失败：HTTP ${response.status}`);
+    let lastReport = { time: performance.now(), bytes: 0 };
+    progress({ phase: 'downloading', receivedBytes: 0, totalBytes: artifact.sizeBytes });
     for await (const chunk of response.body) {
       received += chunk.byteLength; if (received > artifact.sizeBytes) throw new Error('下载内容超过更新清单大小。');
       hash.update(chunk); await output.writeFile(chunk);
-      if (Date.now() - notifiedAt > 150) { notifiedAt = Date.now(); progress({ phase: 'downloading', receivedBytes: received, totalBytes: artifact.sizeBytes }); }
+      const time = performance.now();
+      if (time - lastReport.time >= 500) {
+        const bytesPerSecond = (received - lastReport.bytes) * 1_000 / (time - lastReport.time);
+        progress({ phase: 'downloading', receivedBytes: received, totalBytes: artifact.sizeBytes, bytesPerSecond });
+        lastReport = { time, bytes: received };
+      }
     }
     progress({ phase: 'verifying', receivedBytes: received, totalBytes: artifact.sizeBytes });
     if (received !== artifact.sizeBytes || hash.digest('hex') !== artifact.sha256) throw new Error('更新安装包不完整或 SHA-256 不匹配。');

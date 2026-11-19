@@ -639,19 +639,36 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     }
   });
 
-  // —— Codex 账户 ——
-  server.get('/api/codex/account', async () => {
+  function codexModelOptions(models: readonly CodexModelCapability[]) {
+    return models.filter(model => model.raw.hidden !== true).map(model => {
+      const displayName = model.displayName || model.model;
+      return { id: `codex:${model.model}`, sourceId: 'codex', sourceName: 'Codex', displayName, label: `Codex · ${displayName}` };
+    });
+  }
+
+  async function loadCodexAccount(refresh = false) {
     if (!codexAppServerManager) return { available: false, signedIn: false, code: 'ASTRAGIT_CODEX_DISABLED', message: 'Codex 尚未启用。' };
     try {
-      const capabilities = await codexAppServerManager.ensureReady({
+      let capabilities = await codexAppServerManager.ensureReady({
         commandPath: options.currentCodexRuntimeCommandPath?.() ?? '',
         ...(options.codexExternalAgentHome ? { externalAgentHome: options.codexExternalAgentHome } : {}),
       });
       const account = await codexAppServerManager.readAccount();
-      return { available: true, signedIn: account.signedIn, requiresOpenaiAuth: account.requiresOpenaiAuth, modelCount: capabilities.models.length, codexHome };
+      const canUseModels = account.signedIn || !account.requiresOpenaiAuth;
+      if (refresh && canUseModels) capabilities = await codexAppServerManager.refreshModels();
+      const models = canUseModels ? codexModelOptions(capabilities.models) : [];
+      return { available: true, signedIn: account.signedIn, requiresOpenaiAuth: account.requiresOpenaiAuth, modelCount: capabilities.models.length, codexHome, models };
     } catch (error) {
-      return { available: true, signedIn: false, message: error instanceof Error ? error.message : 'Codex 不可用。', codexHome };
+      if (refresh) throw error;
+      return { available: true, signedIn: false, message: redactSensitiveText(error instanceof Error ? error.message : 'Codex 不可用。').text, codexHome };
     }
+  }
+
+  // —— Codex 账户 ——
+  server.get('/api/codex/account', async () => loadCodexAccount());
+  server.post('/api/codex/models/refresh', async (_request, reply) => {
+    try { return await loadCodexAccount(true); }
+    catch (error) { return sendError(reply, error); }
   });
 
   server.post('/api/codex/account/login/chatgpt', async (_request, reply) => {
@@ -683,7 +700,7 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     if (!projects.getById(request.params.projectId)) return reply.code(404).send({ error: 'ASTRAGIT_PROJECT_NOT_FOUND', message: '项目不存在。' });
     const items = (await modelConnections.listSelectableModels())
       .filter((model: SelectableConnectionModel) => model.available && model.enabled && model.runtimeAdapter === 'http')
-      .map((model: SelectableConnectionModel) => ({ id: model.id, label: `${model.sourceName} · ${model.displayName}` }));
+      .map(({ id, sourceId, sourceName, displayName }: SelectableConnectionModel) => ({ id, sourceId, sourceName, displayName, label: `${sourceName} · ${displayName}` }));
     let warning = '';
     try {
       if (!codexNativeEnabled || !codexAppServerManager) throw new Error('Codex 尚未启用。');
@@ -694,11 +711,7 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
       });
       const account = await codexAppServerManager.readAccount();
       if (!account.signedIn && account.requiresOpenaiAuth) throw new Error('请先登录 Codex，再刷新模型列表。');
-      items.push(
-        ...capabilities.models
-          .filter((model: CodexModelCapability) => model.raw.hidden !== true)
-          .map((model: CodexModelCapability) => ({ id: `codex:${model.model}`, label: `Codex · ${model.displayName || model.model}` })),
-      );
+      items.push(...codexModelOptions(capabilities.models));
     } catch (error) {
       warning = redactSensitiveText(error instanceof Error ? error.message : 'Codex 模型加载失败。').text;
     }

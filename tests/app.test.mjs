@@ -136,6 +136,9 @@ test('isolated application stages changes, generates a draft, commits and restor
   } });
   const available = await json(`/api/projects/${project.id}/git/commit-models`);
   assert.equal(available.items.length, 1);
+  assert.equal(available.items[0].sourceId, connection.id);
+  assert.equal(available.items[0].sourceName, 'Local mock');
+  assert.equal(available.items[0].displayName, 'test-model');
   const stream = await request(`/api/projects/${project.id}/git/commit-message`, { method: 'POST', body: { repositoryId: repo.id, relativePath: repo.relativePath, language: 'zh-CN', modelRef: available.items[0].id, stream: true } });
   const result = stream.trim().split('\n').map((line) => JSON.parse(line)).find((event) => event.type === 'result');
   assert.equal(result?.message, 'docs: 补充独立应用说明', stream);

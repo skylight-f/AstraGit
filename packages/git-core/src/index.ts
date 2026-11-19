@@ -469,6 +469,7 @@ export interface ProjectGitRepositorySnapshot {
   localBranchHeads?: Record<string, string>;
   remoteBranchHeads?: Record<string, string>;
   branchUpstreamRefs?: Record<string, string>;
+  branchRemoteUpstreams?: Record<string, { remote: string; branch: string }>;
   branchUpstreams?: Record<string, string>;
   /** 每个已设置上游的本地分支，相对其远端跟踪分支的提交差异。 */
   branchDivergences?: Record<string, { ahead: number; behind: number }>;
@@ -3277,7 +3278,7 @@ export async function getProjectGitRepositorySnapshot(cwd: string): Promise<Proj
         return { name, fetchUrl: redactGitOutput(fetchUrl), pushUrl: redactGitOutput(push?.urls[0] ?? ''), ...(push ? { pushUrls: push.urls.map(redactGitOutput), pushFingerprint: push.fingerprint } : {}) };
       }),
     ),
-    readGitStdout(context.topLevel, ['for-each-ref', '--format=%(refname:lstrip=2)%09%(upstream:short)%09%(upstream:track)%09%(objectname)%09%(upstream)%09%(refname)%09%(symref)', 'refs/heads/', 'refs/remotes/'], { ...process.env, LANG: 'C', LC_ALL: 'C' }),
+    readGitStdout(context.topLevel, ['for-each-ref', '--format=%(refname:lstrip=2)%09%(upstream:short)%09%(upstream:track)%09%(objectname)%09%(upstream)%09%(refname)%09%(symref)%09%(upstream:remotename)%09%(upstream:remoteref)', 'refs/heads/', 'refs/remotes/'], { ...process.env, LANG: 'C', LC_ALL: 'C' }),
   ]);
   const parsedBranchTracking = parseProjectGitBranchTracking(branchTracking);
   const recentRefs = await readProjectGitRecentRefs(context.topLevel, reflogText, context, tags);
@@ -3303,6 +3304,7 @@ export async function getProjectGitRepositorySnapshot(cwd: string): Promise<Proj
     remoteDetails,
     branchUpstreams: parsedBranchTracking.upstreams,
     branchUpstreamRefs: parsedBranchTracking.upstreamRefs,
+    branchRemoteUpstreams: parsedBranchTracking.remoteUpstreams,
     localBranchHeads: parsedBranchTracking.localHeads,
     remoteBranchHeads: parsedBranchTracking.remoteHeads,
     branchDivergences: parsedBranchTracking.divergences,
@@ -4308,20 +4310,28 @@ function parseProjectGitBranchTracking(stdout: string): {
   upstreams: Record<string, string>;
   divergences: Record<string, { ahead: number; behind: number }>;
   upstreamRefs: Record<string, string>;
+  remoteUpstreams: Record<string, { remote: string; branch: string }>;
   localHeads: Record<string, string>;
   remoteHeads: Record<string, string>;
 } {
   const rows = splitLines(stdout).map((line) => {
-    const [branch = '', upstream = '', track = '', head = '', upstreamRef = '', ref = '', symbolic = ''] = line.split('\t');
+    const [branch = '', upstream = '', track = '', head = '', upstreamRef = '', ref = '', symbolic = '', remote = '', remoteRef = ''] = line.split('\t');
     const ahead = Number.parseInt(track.match(/\bahead (\d+)\b/u)?.[1] ?? '0', 10) || 0;
     const behind = Number.parseInt(track.match(/\bbehind (\d+)\b/u)?.[1] ?? '0', 10) || 0;
-    return { branch, upstream, ahead, behind, head, upstreamRef, ref, symbolic };
+    return { branch, upstream, ahead, behind, head, upstreamRef, ref, symbolic, remote, remoteRef };
   });
   const local = rows.filter(row => row.ref.startsWith('refs/heads/'));
   return {
     upstreams: Object.fromEntries(local.map(row => [row.ref.slice(11), row.upstream])),
     divergences: Object.fromEntries(local.filter(row => row.upstream).map(row => [row.ref.slice(11), { ahead: row.ahead, behind: row.behind }])),
     upstreamRefs: Object.fromEntries(local.map(row => [row.ref.slice(11), row.upstreamRef])),
+    remoteUpstreams: Object.fromEntries(local.flatMap(row => {
+      if (row.symbolic || !row.remote || row.remote === '.' || !row.remoteRef.startsWith('refs/heads/')) return [];
+      const branch = row.remoteRef.slice(11);
+      // The remote deletion action verifies the canonical tracking ref before pushing.
+      return row.upstreamRef === `refs/remotes/${row.remote}/${branch}`
+        ? [[row.ref.slice(11), { remote: row.remote, branch }]] : [];
+    })),
     localHeads: Object.fromEntries(local.filter(row => /^[a-f0-9]{40,64}$/u.test(row.head)).map(row => [row.ref.slice(11), row.head])),
     remoteHeads: Object.fromEntries(rows.filter(row => row.ref.startsWith('refs/remotes/') && !(row.symbolic && row.ref.endsWith('/HEAD')) && /^[a-f0-9]{40,64}$/u.test(row.head)).map(row => [row.ref.slice(13), row.head])),
   };

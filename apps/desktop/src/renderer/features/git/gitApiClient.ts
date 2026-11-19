@@ -41,6 +41,14 @@ import { jsonRequest, type LocalApiTransport } from '../../transport/localApiTra
 import { buildGitCommandRequest, gitClientCommandTypes } from './gitCommandClient.js';
 import { buildWorkspaceGitCommandRequest, workspaceGitClientCommandTypes } from './workspaceGitCommandClient.js';
 
+export interface GitCommitModelOption {
+  id: string;
+  label: string;
+  sourceId?: string;
+  sourceName?: string;
+  displayName?: string;
+}
+
 export interface GitApiClient {
   reviewProjectCode: (projectId: string, input: GitCodeReviewInput, signal?: AbortSignal, onEvent?: (event: GitCodeReviewEvent) => void) => Promise<GitCodeReviewReport>;
   loadCodeReviewScope: (projectId: string, input: GitCodeReviewInput, signal?: AbortSignal) => Promise<GitCodeReviewScope>;
@@ -66,7 +74,7 @@ export interface GitApiClient {
   validateGitPushTargets: (projectId: string, targets: Array<{ repositoryId: string; relativePath: string; remote: string; sourceBranch: string; targetBranch: string }>) => Promise<{ ok: true }>;
   /** 操作账本属于桌面实例，不能回退到独立执行宿主的其他记录。 */
   loadProjectGitOperations: (projectId: string, cursor?: string) => Promise<ProjectGitOperationPage>;
-  loadGitCommitModels: (projectId: string) => Promise<{ items: Array<{ id: string; label: string }>; warning: string }>;
+  loadGitCommitModels: (projectId: string) => Promise<{ items: GitCommitModelOption[]; warning: string }>;
   generateGitCommitMessage: (
     projectId: string,
     input: { repositoryId: string; relativePath?: string; language: 'zh-CN' | 'en'; modelRef: string; selection?: GitCommitSelectionTarget[]; selectionMode?: GitCommitSelectionMode },

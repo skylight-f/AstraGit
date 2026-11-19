@@ -226,7 +226,7 @@
   backdrop-filter: saturate(165%) blur(24px);
 }
 
-.macos-ai-app.zeus-shell :where(.zeus-modal-backdrop, .workspace-drawer-backdrop) {
+.macos-ai-app.zeus-shell :where(.workspace-drawer-backdrop) {
   background: var(--agentdesk-modal-backdrop);
   -webkit-backdrop-filter: blur(10px) saturate(112%);
   backdrop-filter: blur(10px) saturate(112%);

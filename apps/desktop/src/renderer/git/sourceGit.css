@@ -440,7 +440,7 @@
   overflow: hidden;
 }
 .source-git-results{padding:12px 16px;min-height:0;overflow:auto;background:#fafbfe}.source-git-results header{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}.source-git-results>div{display:flex;gap:12px;flex-wrap:wrap;align-items:center;padding:7px 0;border-top:1px solid #eee}.source-git-results span{margin-left:auto;color:#67708a}.source-git-results p{width:100%;color:#ad4652;font-size:12px;margin:0;overflow-wrap:anywhere}
-.source-git-review{border:1px solid #d9dcea;border-radius:14px;box-shadow:0 20px 70px #18203b33;color:#202b3e;width:min(720px,80vw);max-height:86vh;padding:0;font-size:13px}.source-git-review::backdrop{background:#1d23385c}
+.source-git-review{border:1px solid #d9dcea;border-radius:14px;box-shadow:0 20px 70px #18203b33;color:#202b3e;width:min(720px,80vw);max-height:86vh;padding:0;font-size:13px}.source-git-review::backdrop{background:var(--ag-modal-backdrop)}
 .source-git-review > header {
   display: flex;
   align-items: flex-start;

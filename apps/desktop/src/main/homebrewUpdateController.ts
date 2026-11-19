@@ -233,8 +233,9 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
         /** 两条下载路径只用真实进度驱动同一窗口。 */
         const onProgress = (progress: HomebrewUpdateProgress): void => {
           lastFailureStep = updateMethod === 'homebrew' ? 'install' : progress.phase === 'downloading' || progress.phase === 'reconnecting' ? 'download' : 'prepare';
-          setIndicator(indicatorFromProgress(options.language(), progress, update, updateMethod!));
-          void publish(progressCopy(options.language(), progress, update, updateMethod === 'direct'));
+          const copy = progressCopy(options.language(), progress, update, updateMethod === 'direct');
+          setIndicator({ phase: 'preparing', currentVersion: update.currentVersion, latestVersion: update.latestVersion, detail: copy.detail, progress: copy.progress, progressText: copy.progressText });
+          void publish(copy);
         };
         if (updateMethod === 'homebrew') {
           options.canInstall();
@@ -555,15 +556,6 @@ function indicatorForPreparing(language: 'zh-CN' | 'en-US', update: DesktopRelea
   };
 }
 
-function indicatorFromProgress(language: 'zh-CN' | 'en-US', progress: HomebrewUpdateProgress, update: DesktopReleaseUpdateStatus, method: 'homebrew' | 'direct'): Omit<HomebrewUpdateIndicatorState, 'updatedAt'> {
-  const ratio = progress.downloadedBytes !== undefined && progress.totalBytes !== undefined && progress.totalBytes > 0 ? Math.min(1, progress.downloadedBytes / progress.totalBytes) : undefined;
-  return {
-    ...indicatorForPreparing(language, update, method),
-    detail: progressCopy(language, progress, update, method === 'direct').detail,
-    ...(ratio === undefined ? {} : { progress: ratio }),
-  };
-}
-
 function indicatorForRetry(language: 'zh-CN' | 'en-US', update: DesktopReleaseUpdateStatus, retryAt: string): Omit<HomebrewUpdateIndicatorState, 'updatedAt'> {
   return {
     phase: 'retrying',
@@ -695,7 +687,7 @@ function progressCopy(language: 'zh-CN' | 'en-US', progress: HomebrewUpdateProgr
   if (progress.phase === 'installing') return direct ? copyFor(language, 'installing', update.currentVersion, update) : {
     state: 'installing',
     title: zh ? '正在通过 Homebrew 升级' : 'Upgrading through Homebrew',
-    detail: zh ? 'Homebrew 正在下载并安装 AstraGit，你可以继续工作。完成后再决定何时重启。' : 'Homebrew is downloading and installing AstraGit. You can keep working and choose when to restart after it finishes.',
+    detail: zh ? 'Homebrew 正在准备并安装 AstraGit，你可以继续工作。完成后再决定何时重启。' : 'Homebrew is preparing and installing AstraGit. You can keep working and choose when to restart after it finishes.',
     progressCaption: zh ? '正在运行 brew upgrade' : 'Running brew upgrade',
   };
   const totalBytes = progress.totalBytes;

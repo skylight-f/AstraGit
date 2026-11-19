@@ -154,6 +154,7 @@ export interface ProjectGitRepositorySnapshot {
   localBranchHeads?: Record<string, string>;
   remoteBranchHeads?: Record<string, string>;
   branchUpstreamRefs?: Record<string, string>;
+  branchRemoteUpstreams?: Record<string, { remote: string; branch: string }>;
   branchUpstreams?: Record<string, string>;
   /** 混合版本宿主缺失时仅降级为不显示非当前分支的差异标识。 */
   branchDivergences?: Record<string, { ahead: number; behind: number }>;

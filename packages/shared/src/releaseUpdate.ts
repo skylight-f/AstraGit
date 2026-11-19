@@ -25,10 +25,11 @@ export interface HomebrewUpdateIndicatorState {
   detail: string;
   updatedAt: string;
   progress?: number;
+  progressText?: string;
   retryAt?: string;
   failure?: { step: 'check' | 'prepare' | 'download' | 'install'; title: string; technicalDetail?: string; canRetry: boolean };
 }
-export interface ReleaseUpdateProgress { phase: 'updating' | 'downloading' | 'reconnecting' | 'verifying' | 'installing' | 'ready'; receivedBytes: number; totalBytes: number }
+export interface ReleaseUpdateProgress { phase: 'updating' | 'downloading' | 'reconnecting' | 'verifying' | 'installing' | 'ready'; receivedBytes: number; totalBytes: number; bytesPerSecond?: number }
 export function compareReleaseVersions(left: string, right: string): number {
   if (![left, right].every(value => /^\d+\.\d+\.\d+$/u.test(value))) throw new Error('发行版本号无效。');
   const a = left.split('.').map(Number); const b = right.split('.').map(Number);

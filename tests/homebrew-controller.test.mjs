@@ -69,7 +69,7 @@ function actionFixture(t, input = {}) {
       isManaged: async () => !input.manual && !input.direct,
       prepare: async (_update, progress) => {
         prepares++; events.push('brew-upgrade');
-        progress({ phase: 'downloading', downloadedBytes: 1, totalBytes: 2 });
+        progress({ phase: 'downloading', downloadedBytes: 60_000, totalBytes: 120_000, bytesPerSecond: 2048 });
         await input.waitForPrepare;
         if (failPrepare) throw new Error('Homebrew upgrade failed');
         return { update, brewPath: '/brew', installed: { appPath: '/Applications/AstraGit.app', bundleId: 'com.astragit.desktop', version: input.installedVersion ?? '0.2.0' } };
@@ -108,10 +108,14 @@ test('repeated prepare/check actions share one pending brew upgrade and cannot r
   let release; const waitForPrepare = new Promise(resolve => { release = resolve; });
   const f = actionFixture(t, { waitForPrepare });
   const check = f.controller.performAction('check'); await waitFor(() => f.prepares() === 1);
+  const downloading = f.controller.getIndicatorState();
+  assert.equal(downloading.progress, 0.5);
+  assert.equal(downloading.progressText, '50% · 2.0 KiB/s');
   const prepare = f.controller.performAction('prepare'); const duplicate = f.controller.performAction('check');
   await f.controller.performAction('restart'); assert.deepEqual(f.events, ['brew-upgrade']); assert.equal(f.hosts(), 0);
   release(); await Promise.all([check, prepare, duplicate]);
   assert.equal(f.prepares(), 1); assert.equal(f.controller.getIndicatorState().phase, 'ready'); assert.equal(f.hosts(), 0);
+  assert.equal(f.controller.getIndicatorState().progressText, undefined);
 });
 
 test('failed brew upgrade is not automatically retried; explicit prepare may retry, while restart identity failure cannot replay upgrade', async t => {

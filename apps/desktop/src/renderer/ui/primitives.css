@@ -1085,9 +1085,9 @@ html[data-zeus-theme='dark'] body > .macos-ai-app {
   background: transparent;
 }
 
-/* Modal：portal 根层永远透明，只有统一 backdrop 可以绘制遮罩与虚化。 */
+/* Portal 继承主题变量，透明根层覆盖工作区的实色主题背景。 */
 .zeus-modal-portal-root.macos-ai-app[data-zeus-primitive='modal'] {
-  background: transparent;
+  background: transparent !important;
   block-size: auto;
   color: var(--zeus-product-text);
   display: block;
@@ -1103,8 +1103,7 @@ html[data-zeus-theme='dark'] body > .macos-ai-app {
 
 .zeus-modal-portal-root.macos-ai-app[data-zeus-primitive='modal'] .zeus-modal-backdrop {
   animation: none;
-  backdrop-filter: var(--zeus-overlay-backdrop-filter);
-  background: var(--zeus-overlay-backdrop-bg);
+  background: var(--ag-modal-backdrop);
   display: grid;
   inset: 0;
   padding: clamp(12px, 2.4vw, 20px);

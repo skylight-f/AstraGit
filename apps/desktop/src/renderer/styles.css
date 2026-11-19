@@ -4035,8 +4035,7 @@ a {
 }
 .project-git-modal-backdrop {
   align-items: center;
-  background: var(--zeus-overlay-backdrop-bg);
-  backdrop-filter: var(--zeus-overlay-backdrop-filter);
+  background: var(--ag-modal-backdrop);
   display: flex;
   inset: 0;
   justify-content: center;

@@ -121,7 +121,7 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
     manualInstallReason: async (update: ReleaseUpdateStatus) => update.automaticInstallEnabled ? null : update.reason,
     download: async (onProgress: (progress: HomebrewUpdateProgress) => void) => ({ accepted: true as const, update: await prepare(progress => {
       if (progress.phase === 'ready') return;
-      onProgress({ phase: progress.phase, downloadedBytes: progress.receivedBytes, totalBytes: progress.totalBytes });
+      onProgress({ phase: progress.phase, downloadedBytes: progress.receivedBytes, totalBytes: progress.totalBytes, bytesPerSecond: progress.bytesPerSecond });
     }) }),
     openDownloaded: async () => {
       if (!options.openDownloadedArtifact) throw new Error('安装包打开入口尚未就绪。');

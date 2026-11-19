@@ -27,6 +27,7 @@ export function createDashboardClientLike(options: { baseUrl: string; apiToken: 
     refreshModelConnectionModels: (id: string) => transport.request<{ connection: ModelConnection; addedModelIds: string[] }>(`/api/model-connections/${encodeURIComponent(id)}/refresh-models`, jsonRequest('POST', {})),
     addManualModel: (id, model) => transport.request<ModelConnection>(`/api/model-connections/${encodeURIComponent(id)}/models`, jsonRequest('POST', typeof model === 'string' ? { modelId: model } : model)),
     loadCodexAccount: () => transport.request<CodexAccount>('/api/codex/account'),
+    refreshCodexModels: () => transport.request<CodexAccount>('/api/codex/models/refresh', jsonRequest('POST', {})),
     startCodexLogin: () => transport.request<CodexLogin>('/api/codex/account/login/chatgpt', jsonRequest('POST', {})),
     loadCodexLoginStatus: (login: CodexLogin) => transport.request(`/api/codex/account/login/chatgpt/status?generationId=${encodeURIComponent(login.generationId)}&loginId=${encodeURIComponent(login.loginId)}`),
   };

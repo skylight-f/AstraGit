@@ -751,8 +751,62 @@
 .git-branch-management .git-branch-choice { display: flex; align-items: flex-start; gap: 8px; }
 .git-branch-choice > input { flex: 0 0 auto; margin: 2px 0 0; }
 .git-branch-choice > span { min-width: 0; overflow-wrap: anywhere; }
-.git-branch-choice small { display: block; color: var(--zeus-product-text-muted); font-size: 11px; }
-.git-branch-delete-list { display: grid; gap: 8px; max-height: 260px; overflow: auto; border: 1px solid var(--zeus-product-line); border-radius: 8px; padding: 12px; }
+.git-branch-delete-list {
+  display: grid;
+  gap: 2px;
+  max-height: min(280px, 42vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--zeus-product-line);
+  border-radius: 8px;
+  padding: 4px;
+}
+.git-branch-delete-list .git-branch-choice {
+  align-items: center;
+  min-height: 30px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  border-radius: 5px;
+}
+.git-branch-delete-list .git-branch-choice:has(> input:enabled) { cursor: pointer; }
+.git-branch-delete-list .git-branch-choice:has(> input:enabled):hover { background: var(--zeus-brand-hover); }
+.git-branch-delete-list .git-branch-choice:has(> input:checked) { background: var(--zeus-product-selected); }
+.git-branch-delete-list .git-branch-choice > input { margin: 0; }
+.git-branch-choice-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-branch-delete-list .git-branch-choice > :is(code, small) {
+  flex-shrink: 0;
+  color: var(--zeus-product-muted);
+  font-size: 11px;
+}
+.git-branch-choice-status {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--zeus-product-panel-muted);
+}
+.git-branch-remote-delete {
+  display: grid;
+  gap: 6px;
+}
+.git-branch-remote-targets {
+  display: grid;
+  gap: 5px;
+  max-height: 120px;
+  margin: 0 0 0 24px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--zeus-product-panel-muted);
+  list-style: none;
+}
+.git-branch-remote-targets li { display: grid; gap: 2px; }
+.git-branch-remote-targets small, .git-branch-remote-empty { color: var(--zeus-product-muted); }
+.git-branch-remote-empty { margin-left: 24px; }
 .git-branch-management li { overflow-wrap: anywhere; }
 .git-history-selection-tools { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:6px 12px; border-bottom:1px solid var(--zeus-product-line); font-size:11px; color:var(--zeus-product-muted); }
 .git-history-comparison-detail > code { display:block; margin-block:6px; overflow-wrap:anywhere; font-size:12px; }
