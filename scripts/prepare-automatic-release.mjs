@@ -15,6 +15,15 @@ export function selectAutomaticVersion(current, tags) {
   const highest = published.at(-1); if (!highest || compare(current, highest) > 0) return current;
   const parts = highest.split('.').map(Number); return `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
 }
+
+export function formatReleaseChanges(subjects) {
+  const changes = subjects.split('\n')
+    .map(subject => subject.trim())
+    .filter(subject => subject && !/^chore\(release\):\s*v\d/u.test(subject))
+    .map(subject => subject.replace(/^(?:feat|fix|perf|refactor|style|docs|test|build|ci|chore|revert)(?:\([^)]*\))?!?:\s+/iu, ''));
+  return [...new Set(changes)].slice(0, 20).map(subject => `- ${subject}`).join('\n');
+}
+
 export function prepareAutomaticRelease() {
   if (process.env.GITHUB_ACTIONS !== 'true' || process.env.GITHUB_REPOSITORY !== repository || !process.env.GITHUB_OUTPUT) throw new Error('自动发布仅在 AstraGit 的 GitHub Actions 中执行。');
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
@@ -57,12 +66,18 @@ export function prepareAutomaticRelease() {
   const tag = `v${version}`;
   const note = resolve(root, `releases/${tag}.md`); mkdirSync(resolve(root, 'releases'), { recursive: true });
   if (!existsSync(note)) {
+    const previousTag = releases.filter(release => !release.draft && !release.prerelease && /^v\d+\.\d+\.\d+$/u.test(release.tag_name) && tagHeads.has(release.tag_name))
+      .map(release => release.tag_name)
+      .sort((a, b) => compare(a.slice(1), b.slice(1))).at(-1);
+    const range = previousTag ? `${tagHeads.get(previousTag)}..${source}` : source;
+    const summary = formatReleaseChanges(git('log', '--no-merges', '--max-count=100', '--format=%s', range, '--'));
+    const details = previousTag ? `compare/${previousTag}...${source}` : `commit/${source}`;
     const downloads = `https://github.com/${repository}/releases/download/${tag}`;
     writeFileSync(note, `# AstraGit ${version}
 
 ## 更新内容
 
-本版本包含 main 分支中通过检查的改动。[查看源码提交](https://github.com/${repository}/commit/${source})。
+${summary ? `${summary}\n\n` : ''}[查看完整变更](https://github.com/${repository}/${details})。
 
 ## 下载安装
 

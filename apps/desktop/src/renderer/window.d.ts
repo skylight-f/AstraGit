@@ -1,5 +1,5 @@
 import type { RendererBootstrap } from './bootstrapTypes.js';
-import type { HomebrewUpdateIndicatorState } from '@astragit/shared';
+import type { ApplicationReleaseNotes, HomebrewUpdateIndicatorState } from '@astragit/shared';
 
 declare global {
   interface Window {
@@ -16,6 +16,7 @@ declare global {
       performUpdateAction?: (action: 'check' | 'prepare' | 'restart', language: 'zh-CN' | 'en-US') => Promise<HomebrewUpdateIndicatorState | null>;
       getUpdateIndicator?: () => Promise<HomebrewUpdateIndicatorState | null>;
       manualUpdateVersion?: () => Promise<string | null>;
+      loadReleaseNotes?: (version: string) => Promise<ApplicationReleaseNotes>;
       onUpdateIndicator?: (listener: (state: HomebrewUpdateIndicatorState) => void) => () => void;
     };
   }

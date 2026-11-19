@@ -606,6 +606,24 @@ body {
 .gitapp-update-trigger:disabled { opacity: .55; cursor: default; }
 .gitapp-update-settings > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .gitapp-update-settings > header span { color: #68738a; font-size: 13px; }
+.gitapp-release-notes {
+  display: grid;
+  gap: 8px;
+  padding: 14px 18px;
+  border: 1px solid var(--ag-line);
+  border-radius: var(--ag-card-radius);
+}
+.gitapp-release-notes > header { display: flex; align-items: center; gap: 7px 10px; flex-wrap: wrap; }
+.gitapp-release-notes h4 { margin: 0; font-size: 14px; }
+.gitapp-release-notes-version { color: var(--ag-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.gitapp-release-notes a { color: var(--ag-brand-ink); text-underline-offset: 2px; }
+.gitapp-release-notes > header a { display: inline-flex; align-items: center; gap: 4px; margin-inline-start: auto; font-size: 12px; }
+.gitapp-release-notes-body { display: grid; gap: 7px; min-inline-size: 0; overflow-wrap: anywhere; line-height: 1.55; user-select: text; }
+.gitapp-release-notes :is(p, h5, ul, ol) { margin: 0; }
+.gitapp-release-notes-body p { white-space: pre-line; }
+.gitapp-release-notes :is(ul, ol) { padding-inline-start: 20px; color: var(--ag-muted); }
+.gitapp-release-notes li + li { margin-block-start: 3px; }
+.gitapp-release-notes-empty { font-size: 13px; }
 .gitapp-update-status { display: grid; gap: 10px; padding: 18px; border: 1px solid var(--ag-line); background: var(--ag-control); border-radius: var(--ag-card-radius); }
 .gitapp-update-status p { margin: 0; }
 .gitapp-update-status progress { width: 100%; accent-color: var(--ag-accent); }
@@ -1448,6 +1466,105 @@ body {
 .repository-setup-tabs { display:flex; gap:8px; margin:0 0 14px; flex-wrap:wrap; }
 .repository-setup-tabs button { padding:8px 14px; border:1px solid var(--ag-line); border-radius:8px; background:var(--ag-panel); color:var(--ag-ink); font:inherit; cursor:pointer; }
 .repository-setup-tabs button[aria-pressed=true] { background:var(--ag-accent-soft); color:var(--ag-accent); border-color:var(--ag-accent); }
+
+.gitapp-project-add-methods {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+}
+
+.gitapp-project-add-methods .repository-setup-tabs { margin-bottom: 0; }
+
+.gitapp-folder-import {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-inline-start: auto;
+}
+
+.gitapp-folder-import-notice {
+  color: var(--ag-muted);
+  font-size: 12px;
+}
+
+.zeus-modal-portal-root.macos-ai-app.zeus-shell:has(> .zeus-modal-backdrop > .gitapp-folder-scan) {
+  background: transparent !important;
+  backdrop-filter: none !important;
+}
+
+.macos-ai-app .zeus-form-dialog.gitapp-folder-scan { inline-size: min(660px, 100%); }
+
+.gitapp-folder-scan-location {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--zeus-product-line);
+  border-radius: var(--agentdesk-radius-control, 6px);
+  background: var(--zeus-product-panel-muted);
+  color: var(--zeus-product-muted);
+}
+
+.gitapp-folder-scan-location > span {
+  flex: 1;
+  min-inline-size: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  user-select: text;
+}
+
+.gitapp-folder-scan-location > button { flex-shrink: 0; }
+.gitapp-folder-scan p { margin: 0; }
+.gitapp-folder-scan-note { color: var(--zeus-product-muted); }
+
+.gitapp-folder-scan-selection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--zeus-product-muted);
+}
+
+.gitapp-folder-scan .gitapp-folder-scan-selection label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gitapp-folder-scan-results {
+  max-block-size: min(330px, 38vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--zeus-product-line);
+  border-radius: 8px;
+}
+
+.gitapp-folder-scan-results li + li { border-block-start: 1px solid var(--zeus-product-line); }
+
+.gitapp-folder-scan .gitapp-folder-scan-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+}
+
+.gitapp-folder-scan-item:not(:has(input:disabled)) { cursor: pointer; }
+.gitapp-folder-scan-item:not(:has(input:disabled)):is(:hover, :focus-within) { background: var(--zeus-product-accent-soft); }
+.gitapp-folder-scan input[type='checkbox'] { margin: 0; accent-color: var(--zeus-product-accent); }
+.gitapp-folder-scan-name { display: grid; min-inline-size: 0; gap: 2px; }
+.gitapp-folder-scan-name > :is(strong, small) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gitapp-folder-scan-existing { color: var(--zeus-product-muted); font-size: 12px; }
+
 .repository-setup { border:1px solid var(--ag-line); border-radius:12px; padding:20px; background:var(--ag-panel); margin-bottom:24px; }
 .repository-setup fieldset { display:grid; gap:14px; border:0; padding:0; margin:0; min-width:0; }
 .repository-setup legend { font-size:16px; font-weight:650; margin-bottom:14px; }

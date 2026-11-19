@@ -59,6 +59,11 @@ async function repositoryReader(cwd: string, runtime: Runtime) {
   return reader;
 }
 
+export async function readRepositoryRoot(cwd: string, runtime: Runtime): Promise<string | null> {
+  const reader = await repositoryReader(cwd, runtime);
+  return reader ? realpath(reader.cwd) : null;
+}
+
 async function identity(reader: GitHistoryReader) {
   const [symbolic, head] = await Promise.all([
     text(reader, ['symbolic-ref', '--quiet', 'HEAD'], true),

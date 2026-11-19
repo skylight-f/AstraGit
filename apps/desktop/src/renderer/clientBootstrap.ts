@@ -15,6 +15,8 @@ export function createDashboardClientLike(options: { baseUrl: string; apiToken: 
     cancelRepositorySetup: id => transport.request(`/api/repository-setup/${encodeURIComponent(id)}/cancel`, jsonRequest('POST', {})),
     loadProjects: () => transport.request<GitAppProject[]>('/api/projects'),
     createProject: (input) => transport.request<GitAppProject>('/api/projects', jsonRequest('POST', input)),
+    scanProjectDirectory: (root, signal) => transport.request('/api/projects/scan', { ...jsonRequest('POST', { root }), signal }, { readOnly: true }),
+    importProjects: (root, paths) => transport.request('/api/projects/import', jsonRequest('POST', { root, paths })),
     removeProject: (projectId) => transport.request(`/api/projects/${encodeURIComponent(projectId)}`, { method: 'DELETE' }),
     touchProject: (projectId) => transport.request<GitAppProject>(`/api/projects/${encodeURIComponent(projectId)}/touch`, jsonRequest('POST', {})),
     loadGitCommitModels: git.loadGitCommitModels,

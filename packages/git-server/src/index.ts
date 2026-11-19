@@ -27,6 +27,7 @@ import { sendNativeQueryRouteError } from './nativeQueryRouteError.js';
 import { OperationHistoryStore } from './operationHistoryStore.js';
 import { registerCommitSelectionRoutes } from './gitCommitSelectionRoutes.js';
 import { RepositorySetupService } from './repositorySetupService.js';
+import { registerProjectImportRoutes } from './projectImportRoutes.js';
 
 
 export interface StartGitServerOptions {
@@ -169,6 +170,7 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     try { return repositorySetup.cancel(request.params.id); } catch (error) { return sendError(reply, error); }
   });
   server.get('/api/projects', async (): Promise<GitAppProject[]> => projects.list());
+  registerProjectImportRoutes(server, projects, sendError);
 
   server.post('/api/projects', async (request: FastifyRequest<{ Body: { name?: unknown; localPath?: unknown } }>, reply) => {
     try {

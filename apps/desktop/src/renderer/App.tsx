@@ -20,6 +20,7 @@ import { ApplicationErrorDialogHost, reportApplicationError, useApplicationError
 import { readProjectGitTab, resolveProjectWorkspaceTabs, writeProjectGitTab, writeProjectWorkspaceTabs, type ProjectGitTab } from './projectWorkspacePersistence.js';
 import { useRepositorySetup } from './useRepositorySetup.js';
 import { RepositorySetupForm } from './RepositorySetupForm.js';
+import { ProjectFolderImport } from './ProjectFolderImport.js';
 import { WorkspaceSearch } from './WorkspaceSearch.js';
 import type { GitSearchNavigation, WorkspaceSearchDestination } from './workspaceSearchState.js';
 
@@ -540,7 +541,10 @@ export function App(props: AppProps) {
             ) : null}
           </header>
 
-          <nav className="repository-setup-tabs" aria-label={zh ? '添加仓库方式' : 'Add repository method'}>{(['open', 'clone', 'init'] as const).map(mode => <button type="button" key={mode} aria-pressed={projectAddMode === mode} onClick={() => setProjectAddMode(mode)}>{mode === 'open' ? (zh ? '打开已有项目' : 'Open existing project') : mode === 'clone' ? (zh ? '克隆仓库' : 'Clone repository') : zh ? '初始化仓库' : 'Initialize repository'}</button>)}</nav>
+          <div className="gitapp-project-add-methods">
+            <nav className="repository-setup-tabs" aria-label={zh ? '添加仓库方式' : 'Add repository method'}>{(['open', 'clone', 'init'] as const).map(mode => <button type="button" key={mode} aria-pressed={projectAddMode === mode} onClick={() => setProjectAddMode(mode)}>{mode === 'open' ? (zh ? '打开已有项目' : 'Open existing project') : mode === 'clone' ? (zh ? '克隆仓库' : 'Clone repository') : zh ? '初始化仓库' : 'Initialize repository'}</button>)}</nav>
+            {projectAddMode === 'open' ? <ProjectFolderImport client={props.client} zh={zh} disabled={busy || pickBusy} onImported={refresh} /> : null}
+          </div>
           {projectAddMode !== 'open' ? <RepositorySetupForm key={projectAddMode} kind={projectAddMode} zh={zh} setup={repositorySetup} /> : <section className="gitapp-add" aria-label={zh ? '添加项目' : 'Add project'}>
             <label>
               <span>{zh ? '项目名称（可选）' : 'Name (optional)'}</span>

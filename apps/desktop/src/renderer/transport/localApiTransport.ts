@@ -64,7 +64,7 @@ export function isLikelyLocalServerConnectionError(error: unknown): boolean {
 export function createLocalApiTransport(options: { getConnection(): LocalApiConnection; refreshConnection?: () => Promise<LocalApiConnection>; onPerformanceSpan?: (span: AstraGitClientPerformanceSpan) => void }): LocalApiTransport {
   const request = async <T>(path: string, init?: RequestInit, requestOptions?: { readOnly?: boolean }): Promise<T> => {
     const method = (init?.method ?? 'GET').toUpperCase();
-    if (requestOptions?.readOnly && (method !== 'POST' || !/^\/api\/projects\/[^/]+\/git\/code-review\/scope$/u.test(path) && !/^\/api\/projects\/[^/]+\/git\/workbench\/repositories\/[^/]+\/(?:stop-tracking-preview|interactive-rebase-preview|patch-preview|patch-export|archive-preview|replay-preview|replay-series-preview|mailbox-preview|submodule-preview|external-tool-preview|lfs-preview|flow-preview|stage-preview|line-diff)$/u.test(path))) throw new Error('Invalid read-only API route.');
+    if (requestOptions?.readOnly && (method !== 'POST' || path !== '/api/projects/scan' && !/^\/api\/projects\/[^/]+\/git\/code-review\/scope$/u.test(path) && !/^\/api\/projects\/[^/]+\/git\/workbench\/repositories\/[^/]+\/(?:stop-tracking-preview|interactive-rebase-preview|patch-preview|patch-export|archive-preview|replay-preview|replay-series-preview|mailbox-preview|submodule-preview|external-tool-preview|lfs-preview|flow-preview|stage-preview|line-diff)$/u.test(path))) throw new Error('Invalid read-only API route.');
     const reading = requestOptions?.readOnly === true || method === 'GET' || method === 'HEAD';
     const traceId = createClientTraceId(path);
     try {

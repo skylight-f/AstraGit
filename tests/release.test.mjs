@@ -6,9 +6,48 @@ import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { parseReleaseManifest } from '../packages/shared/dist/index.js';
 import { downloadVerifiedArtifact } from '../apps/desktop/src/main/releaseUpdateService.ts';
-import { selectAutomaticVersion } from '../scripts/prepare-automatic-release.mjs';
+import { readApplicationReleaseNotes } from '../apps/desktop/src/main/applicationReleaseNotes.ts';
+import { formatReleaseChanges, selectAutomaticVersion } from '../scripts/prepare-automatic-release.mjs';
 import { renderHomebrewCask } from '../scripts/homebrew-cask.mjs';
 import { loadHomebrewRelease, verifyHomebrewRelease } from '../scripts/sync-homebrew-tap.mjs';
+
+test('application release notes read the requested stable tag and isolate the changes section', async () => {
+  const release = { tag_name: 'v0.2.0', draft: false, prerelease: false, body: "# AstraGit 0.2.0\r\n\r\n## What's Changed\r\n\r\n- Add folder scanning\r\n\r\n### Fixes\r\n\r\n- Preserve project settings\r\n\r\n## Installation\r\n\r\nDownload the installer." };
+  const request = async (url, options) => {
+    assert.equal(url, 'https://api.github.com/repos/skylight-f/AstraGit/releases/tags/v0.2.0');
+    assert.equal(new Headers(options.headers).has('authorization'), false);
+    return Response.json(release);
+  };
+  assert.deepEqual(await readApplicationReleaseNotes('0.2.0', request), {
+    version: '0.2.0', markdown: '- Add folder scanning\n\n### Fixes\n\n- Preserve project settings',
+  });
+  release.tag_name = 'v0.2.1';
+  await assert.rejects(readApplicationReleaseNotes('0.2.0', request), /目标正式版本/u);
+  release.prerelease = true;
+  await assert.rejects(readApplicationReleaseNotes('latest', () => Response.json(release)), /目标正式版本/u);
+  await assert.rejects(readApplicationReleaseNotes('../latest', () => assert.fail('Invalid versions must not request a URL.')), /版本号无效/u);
+});
+
+test('automatically generated release notes list actual changes without repeated release commits', () => {
+  assert.equal(formatReleaseChanges('feat(projects): 扫描目录\nchore(release): v0.1.27\nfix(ui): 窗口样式\nfeat: 扫描目录'), '- 扫描目录\n- 窗口样式');
+});
+
+test('older boilerplate notes can display their published source commit subject', async () => {
+  const sha = 'a'.repeat(40);
+  const source = `https://github.com/skylight-f/AstraGit/commit/${sha}`;
+  const original = `本版本包含 main 分支中通过检查的改动。[查看源码提交](${source})。`;
+  let commitFound = true;
+  const request = async url => {
+    if (url.endsWith('/releases/latest')) return Response.json({ tag_name: 'v0.1.27', draft: false, prerelease: false, body: `## 更新内容\n\n${original}` });
+    assert.ok(url.endsWith(`/git/commits/${sha}`));
+    return Response.json({ sha: commitFound ? sha : 'b'.repeat(40), message: 'feat(release): Add Windows installer\n\nOther details' });
+  };
+  assert.deepEqual(await readApplicationReleaseNotes('latest', request), {
+    version: '0.1.27', markdown: `- Add Windows installer\n\n[查看源码提交](${source})`,
+  });
+  commitFound = false;
+  assert.equal((await readApplicationReleaseNotes('latest', request)).markdown, original);
+});
 
 test('release versions reserve existing tags and update manifests reject foreign apps, origins and invalid hashes', () => {
   assert.equal(selectAutomaticVersion('0.1.0', []), '0.1.0'); assert.equal(selectAutomaticVersion('0.1.0', ['v0.1.0', 'v0.1.2']), '0.1.3'); assert.equal(selectAutomaticVersion('0.2.0', ['v0.1.2']), '0.2.0');

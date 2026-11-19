@@ -1,5 +1,5 @@
 import { existsSync, realpathSync, statSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { localDataError, readLocalJson, writeLocalJson } from './localJsonFile.js';
 
@@ -52,9 +52,26 @@ export class ProjectStore {
       return refreshed;
     }
     const now = new Date().toISOString();
-    const project: GitAppProject = { id: `astragit_${randomUUID()}`, name, localPath, createdAt: now, lastOpenedAt: now };
+    const project = createProjectRecord(localPath, name, now);
     this.write([...this.read(), project]);
     return project;
+  }
+
+  importDirectories(directories: string[]): number {
+    const projects = this.read();
+    const registered = new Set(projects.map(project => canonicalProjectPath(project.localPath)));
+    const added: GitAppProject[] = [];
+    const now = new Date().toISOString();
+    for (const localPath of directories) {
+      if (registered.has(localPath)) continue;
+      if (!existsSync(localPath) || !statSync(localPath).isDirectory() || canonicalProjectPath(localPath) !== localPath) {
+        throw projectError('ASTRAGIT_PROJECT_PATH_INVALID', `项目目录已移动或不存在：${localPath}`);
+      }
+      registered.add(localPath);
+      added.push(createProjectRecord(localPath, basename(localPath), now));
+    }
+    if (added.length > 0) this.write([...projects, ...added]);
+    return added.length;
   }
 
   touch(id: string): GitAppProject | undefined {
@@ -99,7 +116,11 @@ function isProjectRecord(value: unknown): value is GitAppProject {
   return typeof item.id === 'string' && Boolean(item.id) && typeof item.name === 'string' && typeof item.localPath === 'string' && isAbsolute(item.localPath) && !item.localPath.includes('\0') && typeof item.createdAt === 'string' && typeof item.lastOpenedAt === 'string';
 }
 
-function canonicalProjectPath(value: string): string {
+function createProjectRecord(localPath: string, name: string, now: string): GitAppProject {
+  return { id: `astragit_${randomUUID()}`, name, localPath, createdAt: now, lastOpenedAt: now };
+}
+
+export function canonicalProjectPath(value: string): string {
   const path = resolve(value);
   try { return realpathSync.native(path); } catch { return path; }
 }

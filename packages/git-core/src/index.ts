@@ -1,6 +1,6 @@
 export type { GitCodeReviewInput, GitCodeReviewScope, GitCodeReviewReport, GitCodeReviewFinding, GitCodeReviewEvent } from './gitCodeReviewTypes.js';
 import { parseGitUnifiedDiff } from './gitUnifiedDiff.js';
-import { readRepositoryContext, readRepositoryStatus, readRepositoryClean } from './gitRepositoryState.js';
+import { readRepositoryContext, readRepositoryStatus, readRepositoryClean, readRepositoryRoot } from './gitRepositoryState.js';
 import { gitDiffReader, gitDisplayDiffOptions, gitDisplayDiffMetadataOptions, readGitDiffMetadata, readGitDisplayDiff, readWorkspaceGitDiffs, type GitDiffUnavailableReason } from './gitDiffReader.js';
 import { readGitArchivePreview, writeGitArchive } from './gitArchive.js';
 export { parseGitArchiveInput } from './gitArchive.js';
@@ -665,12 +665,9 @@ export async function discoverGitRepositories(containerPath: string, maxDepth = 
   return projectGitExecution.run({ ...execution, signal: combined, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' } }, () => discoverGitRepositoriesInternal(containerPath, maxDepth, combined));
 }
 
-async function discoverGitRepositoriesInternal(containerPath: string, maxDepth: number, signal?: AbortSignal): Promise<DiscoveredGitRepository[]> {
-  /** 拒绝把文件系统根目录作为项目递归发现范围。 */
-  const containerRoot = canonicalFilesystemPath(containerPath);
+async function findRepositoryCandidates(containerRoot: string, maxDepth: number, signal?: AbortSignal, options?: { skipHidden: boolean; onUnreadable(): void }): Promise<string[]> {
   if (dirname(containerRoot) === containerRoot) throw new Error('请选择实际项目目录，不能在文件系统根目录发现仓库。');
-  const candidates: string[] = [];
-  const seen = new Set<string>();
+  const candidates = new Set<string>();
   const skippedDirectories = new Set(['.git', '.tmp', '.astragit-worktrees', 'node_modules', 'dist', 'build', 'target', '.next', '.turbo', '.cache']);
 
   let currentLevel = [containerRoot];
@@ -686,15 +683,17 @@ async function discoverGitRepositoriesInternal(containerPath: string, maxDepth: 
           readdir(directoryPath, { withFileTypes: true }),
         ]);
         if (gitMarker?.isDirectory() || gitMarker?.isFile()) {
-          const repositoryRoot = canonicalFilesystemPath(directoryPath);
-          if (!seen.has(repositoryRoot)) {
-            seen.add(repositoryRoot);
-            candidates.push(repositoryRoot);
-          }
+          candidates.add(canonicalFilesystemPath(directoryPath));
         }
         if (depth === maxDepth) return [];
-        return entries.filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !skippedDirectories.has(entry.name)).map((entry) => join(directoryPath, entry.name));
+        return entries
+          .filter(entry => entry.isDirectory() && !entry.isSymbolicLink() && !skippedDirectories.has(entry.name) && !(options?.skipHidden && entry.name.startsWith('.')))
+          .map(entry => join(directoryPath, entry.name));
       } catch (error) {
+        if (options && directoryPath !== containerRoot) {
+          options.onUnreadable();
+          return [];
+        }
         /** 权限错误码放在消息开头，跨进程丢失错误属性后仍能显示明确原因。 */
         const permissionCode = error instanceof Error && 'code' in error && (error.code === 'EACCES' || error.code === 'EPERM') ? `${error.code}: ` : '';
         throw new Error(`${permissionCode}无法完整读取项目目录 ${directoryPath}：${error instanceof Error ? error.message : String(error)}`, { cause: error });
@@ -702,6 +701,37 @@ async function discoverGitRepositoriesInternal(containerPath: string, maxDepth: 
     });
     currentLevel = nested.flat();
   }
+  return [...candidates];
+}
+
+export async function scanGitProjectDirectories(directory: string, signal?: AbortSignal) {
+  const root = await realpath(directory);
+  let skipped = 0;
+  const candidates = await findRepositoryCandidates(root, 6, signal, { skipHidden: true, onUnreadable: () => { skipped += 1; } });
+  const directories = await mapWithConcurrency(candidates, 4, async (candidate) => {
+    try {
+      if (isPathInside(root, candidate) && await readRepositoryRoot(candidate, { signal }) === candidate) return candidate;
+    } catch (error) {
+      signal?.throwIfAborted();
+      if ((error as { code?: string }).code === 'ASTRAGIT_GIT_EXECUTABLE_MISSING') throw error;
+    }
+    skipped += 1;
+    return null;
+  });
+  return { directories: directories.filter(path => path !== null).sort((left, right) => left.localeCompare(right)), skipped };
+}
+
+export async function verifyGitProjectDirectories(root: string, directories: string[], signal?: AbortSignal): Promise<void> {
+  await mapWithConcurrency(directories, 4, async (directory) => {
+    if (!isPathInside(root, directory) || await realpath(directory).catch(() => null) !== directory || await readRepositoryRoot(directory, { signal }) !== directory) {
+      throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', `目录已移动或不再是有效的 Git 仓库：${directory}`);
+    }
+  });
+}
+
+async function discoverGitRepositoriesInternal(containerPath: string, maxDepth: number, signal?: AbortSignal): Promise<DiscoveredGitRepository[]> {
+  const containerRoot = canonicalFilesystemPath(containerPath);
+  const candidates = await findRepositoryCandidates(containerRoot, maxDepth, signal);
   const discovered = await mapWithConcurrency(candidates, 4, async (localPath) => {
     signal?.throwIfAborted();
     const [context, clean] = await Promise.all([getGitRepositoryContext(localPath), getGitWorktreeClean(localPath)]);

@@ -8,4 +8,5 @@ export * from './codexContext.js';
 export * from './releaseUpdate.js';
 export * from './gitConflictMarkers.js';
 export * from './repositorySetup.js';
+export * from './projectImport.js';
 export * from './gitRemoteBranch.js';

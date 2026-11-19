@@ -66,6 +66,7 @@ export interface CodexLogin {
 
 import type { GitApiClient, GitCommitModelOption } from './features/git/gitApiClient.js';
 import type { ConfiguredModelDefinition } from '@astragit/ai-runtime';
+import type { ProjectDirectoryScan } from '@astragit/shared';
 
 /** 工作台所需 DashboardClient 能力子集；独立应用不组合全站 client。 */
 export interface DashboardClient extends GitApiClient {
@@ -75,6 +76,8 @@ export interface DashboardClient extends GitApiClient {
   cancelRepositorySetup(id: string): Promise<import('@astragit/shared').RepositorySetupJob>;
   loadProjects(): Promise<GitAppProject[]>;
   createProject(input: { name?: string; localPath: string }): Promise<GitAppProject>;
+  scanProjectDirectory(root: string, signal: AbortSignal): Promise<ProjectDirectoryScan>;
+  importProjects(root: string, paths: string[]): Promise<{ added: number }>;
   removeProject(projectId: string): Promise<{ ok: boolean }>;
   touchProject(projectId: string): Promise<GitAppProject>;
   loadModelConnectionTemplates(): Promise<Record<Exclude<ModelTemplateId, 'custom'>, { name: string; baseUrl: string; modelsPath: string }>>;
