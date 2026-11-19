@@ -1,6 +1,6 @@
 {
   "name": "@astragit/git-server",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "type": "module",
   "files": [
     "dist"
