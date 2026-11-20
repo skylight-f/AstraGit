@@ -8,8 +8,16 @@ import { Sparkle } from '@phosphor-icons/react/dist/csr/Sparkle';
 import { Stop } from '@phosphor-icons/react/dist/csr/Stop';
 import { MenuSurface } from '../ui/MenuSurface.js';
 import type { GitCommitModelOption } from '../features/git/gitApiClient.js';
+import codexLogo from './assets/codex.png';
+import mimoLogo from './assets/xiaomi-mimo.png';
 import type { GitCommitModelState } from './useGitCommitModels.js';
 import './gitCommitAiControls.css';
+
+function modelLogo(item: GitCommitModelOption) {
+  if (item.sourceId === 'codex') return codexLogo;
+  const modelId = item.id.slice(item.id.indexOf(':') + 1);
+  if (/(?:^|%2f)mimo(?:[-_.]|$)/iu.test(modelId)) return mimoLogo;
+}
 
 function groupModels(items: readonly GitCommitModelOption[]) {
   const groups = new Map<string, { name: string; items: GitCommitModelOption[] }>();
@@ -78,13 +86,16 @@ export function GitCommitAiControls({ zh, models, modelDisabled, generating, dis
               const initial = Array.from(group.name.trim())[0]?.toUpperCase();
               return <div key={id} className="git-commit-model-group" role="group" aria-label={group.name || modelLabel}>
                 {group.name ? <div className="git-commit-model-group-title" aria-hidden="true" title={group.name}>{group.name}</div> : null}
-                {group.items.map(item => (
-                  <button key={item.id} className="git-commit-model-option" type="button" role="menuitemradio" aria-checked={item.id === models.modelRef} title={item.label} onClick={() => choose(() => models.selectModel(item.id))}>
-                    <span className="git-commit-model-symbol" aria-hidden="true">{initial || <Sparkle />}</span>
-                    <span className="git-commit-model-option-name">{item.displayName ?? item.label}</span>
-                    {item.id === models.modelRef ? <Check weight="bold" aria-hidden="true" /> : null}
-                  </button>
-                ))}
+                {group.items.map(item => {
+                  const logo = modelLogo(item);
+                  return (
+                    <button key={item.id} className="git-commit-model-option" type="button" role="menuitemradio" aria-checked={item.id === models.modelRef} title={item.label} onClick={() => choose(() => models.selectModel(item.id))}>
+                      {logo ? <img className="git-commit-model-logo" src={logo} alt="" /> : <span className="git-commit-model-symbol" aria-hidden="true">{initial || <Sparkle />}</span>}
+                      <span className="git-commit-model-option-name">{item.displayName ?? item.label}</span>
+                      {item.id === models.modelRef ? <Check weight="bold" aria-hidden="true" /> : null}
+                    </button>
+                  );
+                })}
               </div>;
             })}
           </div> : null}

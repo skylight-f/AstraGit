@@ -111,6 +111,13 @@
   color: var(--ag-brand-ink);
   font-weight: 600;
 }
+.git-commit-model-logo {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  object-fit: contain;
+}
 .git-commit-model-symbol {
   display: grid;
   place-items: center;

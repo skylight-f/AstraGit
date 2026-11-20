@@ -49,3 +49,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Model picker brand marks
+
+The Codex icon comes from the OpenAI ChatGPT desktop application and has been
+resized for the model picker. Source: https://openai.com/index/introducing-the-codex-app/
+
+The Xiaomi MiMo icon comes from the official MiMo desktop site.
+Source: https://mimo.xiaomimimo.com/desktop/invite/icon-192.png
+
+These marks identify model providers and belong to their respective owners.
