@@ -9,21 +9,26 @@ import { execFile, readSigningTeam, verifyReleaseApp } from './releaseVerificati
 import { downloadVerifiedArtifact, verifyDownloadedArtifact } from './releaseArtifact.js';
 import type { HomebrewUpdateProgress } from './homebrewUpdateService.js';
 import { createRelaunchEnvironment } from './systemProxyEnvironment.js';
+import { launchWindowsUpdate, readWindowsInstallScope, readWindowsRelease } from './windowsReleaseUpdate.js';
 
 export interface ReleaseUpdateOptions {
   appPath: string; executablePath: string; dataDirectory: string; version: string; packaged: boolean;
   fetch?: typeof globalThis.fetch;
   onProgress: (progress: ReleaseUpdateProgress) => void;
   confirmRestart: () => Promise<boolean>; quit: () => void;
+  onWindowsInstallReady?: (activate: () => Promise<void>) => Promise<boolean>;
   openDownloadedArtifact?: (path: string) => Promise<void>;
 }
 export interface ReleaseUpdateDependencies {
   systemVersion?: () => Promise<string>;
+  platform?: NodeJS.Platform;
+  arch?: string;
+  readWindowsInstallScope?: typeof readWindowsInstallScope;
 }
 /** 原生更新控制器使用的直接下载通道；Homebrew 由 Astra 同源服务负责。 */
 export interface DirectReleaseUpdateService {
   manualInstallReason(update: ReleaseUpdateStatus): Promise<string | null>;
-  download(onProgress: (progress: HomebrewUpdateProgress) => void): Promise<{ accepted: true; update: ReleaseUpdateStatus } | { accepted: false; reason: string }>;
+  download(onProgress: (progress: HomebrewUpdateProgress) => void, signal?: AbortSignal): Promise<{ accepted: true; update: ReleaseUpdateStatus } | { accepted: false; reason: string }>;
   openDownloaded(): Promise<{ accepted: boolean }>;
   install(): Promise<{ accepted: boolean; restartAccepted?: boolean }>;
 }
@@ -34,24 +39,39 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
   let prepared: { status: ReleaseUpdateStatus; path: string } | null = null;
   let installing = false;
   const fetchRelease = options.fetch ?? globalThis.fetch;
+  const platform = dependencies.platform ?? process.platform;
+  const arch = dependencies.arch ?? process.arch;
   const systemVersion = dependencies.systemVersion ?? (async () => (await execFile('/usr/bin/sw_vers', ['-productVersion'])).stdout.trim());
   const current: ReleaseUpdateStatus = { status: 'unavailable', currentVersion: options.version, latestVersion: '', releasePageUrl, artifact: null, automaticInstallEnabled: false, reason: '', installMethod: 'direct' };
   async function check(): Promise<ReleaseUpdateStatus> {
     if (pending) return pending;
     pending = (async () => {
       try {
+        if (platform === 'win32') {
+          const { version, artifact } = await readWindowsRelease(fetchRelease, arch);
+          const newer = compareReleaseVersions(version, options.version) > 0;
+          const installable = newer && artifact && options.packaged && options.onWindowsInstallReady
+            && await (dependencies.readWindowsInstallScope ?? readWindowsInstallScope)(options.executablePath);
+          checked = {
+            ...current, status: newer ? (artifact ? 'available' : 'unavailable') : 'up_to_date',
+            latestVersion: version, artifact, checkedAt: new Date().toISOString(),
+            releasePageUrl: `${releasePageUrl}/tag/v${version}`, automaticInstallEnabled: Boolean(installable),
+            reason: !newer ? '已是最新版本。' : !artifact ? '本次发布没有适用且可校验的 Windows 安装包。' : installable ? '' : '请使用 AstraGit 的 Windows 安装包手动更新。',
+          };
+          return checked;
+        }
         const response = await fetchRelease(`${releasePageUrl}/latest/download/astragit-release-manifest.json`, { signal: AbortSignal.timeout(20_000), headers: { 'user-agent': `AstraGit/${options.version}`, 'cache-control': 'no-cache' } });
         if (!response.ok) throw new Error(response.status === 404 ? '尚无公开发布的更新清单。' : `检查更新失败：HTTP ${response.status}`);
         const raw = await response.text(); if (raw.length > 128_000) throw new Error('更新清单过大。');
         const manifest = parseReleaseManifest(JSON.parse(raw));
-        const artifact = manifest.artifacts.find(artifact => artifact.arch === process.arch) ?? null;
+        const artifact = manifest.artifacts.find(artifact => artifact.arch === arch) ?? null;
         const newer = compareReleaseVersions(manifest.version, options.version) > 0;
         const system = (await systemVersion()).split('.').map(Number);
         const required = manifest.minimumSystemVersion.split('.').map(Number);
         const systemSupported = system[0]! > required[0]! || (system[0] === required[0] && (system[1] ?? 0) >= (required[1] ?? 0));
         let installReason = '当前应用未使用 Developer ID 签名，需先手动安装签名版本。';
         let installable = false;
-        if (options.packaged && process.platform === 'darwin' && basename(options.appPath) === 'AstraGit.app' && !options.appPath.startsWith('/Volumes/') && !options.appPath.includes('/AppTranslocation/')) {
+        if (options.packaged && platform === 'darwin' && basename(options.appPath) === 'AstraGit.app' && !options.appPath.startsWith('/Volumes/') && !options.appPath.includes('/AppTranslocation/')) {
           const appStat = await lstat(options.appPath);
           if (appStat.isDirectory() && !appStat.isSymbolicLink() && await readSigningTeam(options.appPath)) {
             try { await access(dirname(options.appPath), constants.W_OK); installable = manifest.signed && manifest.notarized; installReason = installable ? '' : '本次发布未同时通过 Developer ID 签名与公证，请手动安装。'; }
@@ -64,15 +84,16 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
     })().finally(() => { pending = null; });
     return pending;
   }
-  async function prepare(onProgress = options.onProgress): Promise<ReleaseUpdateStatus> {
+  async function prepare(onProgress = options.onProgress, signal?: AbortSignal): Promise<ReleaseUpdateStatus> {
     if (download) return download;
     download = (async () => {
       const update = await check();
+      signal?.throwIfAborted();
       if (!options.packaged || update.status !== 'available' || !update.artifact) throw new Error('当前没有可下载的匹配更新。');
       const directory = join(options.dataDirectory, 'updates/downloads', update.latestVersion);
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const path = join(directory, update.artifact.fileName);
-      await downloadVerifiedArtifact(update.artifact, path, onProgress, fetchRelease);
+      await downloadVerifiedArtifact(update.artifact, path, onProgress, fetchRelease, signal);
       prepared = { status: update, path }; return update;
     })().finally(() => { download = null; });
     return download;
@@ -89,6 +110,14 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
     try {
       const item = await verifiedPrepared();
       if (!item.status.automaticInstallEnabled) throw new Error(item.status.reason || '当前环境不支持自动安装。');
+      if (item.status.artifact?.kind === 'exe' && options.onWindowsInstallReady) {
+        const { sha256 } = item.status.artifact;
+        const restartAccepted = await options.onWindowsInstallReady(() => launchWindowsUpdate({
+          executable: options.executablePath, installer: item.path, sha256, version: item.status.latestVersion,
+          dataDirectory: options.dataDirectory, mainPid: process.pid,
+        }));
+        return { accepted: true, restartAccepted };
+      }
       const team = await readSigningTeam(options.appPath); if (!team) throw new Error('当前应用没有可信签发团队。');
       const transaction = randomUUID();
       const job = join(options.dataDirectory, 'updates', transaction); await mkdir(job, { recursive: true, mode: 0o700 });
@@ -119,10 +148,10 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
   return {
     check, prepare, install, status: () => checked, downloaded: async () => (await verifiedPrepared()).path,
     manualInstallReason: async (update: ReleaseUpdateStatus) => update.automaticInstallEnabled ? null : update.reason,
-    download: async (onProgress: (progress: HomebrewUpdateProgress) => void) => ({ accepted: true as const, update: await prepare(progress => {
+    download: async (onProgress: (progress: HomebrewUpdateProgress) => void, signal?: AbortSignal) => ({ accepted: true as const, update: await prepare(progress => {
       if (progress.phase === 'ready') return;
       onProgress({ phase: progress.phase, downloadedBytes: progress.receivedBytes, totalBytes: progress.totalBytes, bytesPerSecond: progress.bytesPerSecond });
-    }) }),
+    }, signal) }),
     openDownloaded: async () => {
       if (!options.openDownloadedArtifact) throw new Error('安装包打开入口尚未就绪。');
       await options.openDownloadedArtifact((await verifiedPrepared()).path);

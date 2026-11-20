@@ -139,6 +139,7 @@ try {
   const archiveFiles = new Set(asar.listPackage(archive).map(file => file.slice(1)));
   const requiredFiles = ['dist/main/main.js', 'dist/main/releaseInstaller.js', 'dist/main/releaseUpdateService.js', 'dist/main/releaseArtifact.js', 'dist/main/homebrewUpdateService.js', 'dist/main/homebrewUpdateController.js', 'dist/main/nativeUpdateProgress.js', 'dist/main/automaticUpdateScheduler.js', 'dist/preload/index.cjs', 'dist/renderer/index.html', 'LICENSE', 'THIRD_PARTY_NOTICES.md'];
   if (isMac) requiredFiles.push('dist/native/AstraGitUpdateProgress');
+  requiredFiles.push('dist/main/windowsReleaseUpdate.js');
   for (const name of ['git-server', 'git-core', 'ai-runtime', 'shared', 'storage']) {
     requiredFiles.push(`node_modules/@astragit/${name}/dist/index.js`);
   }

@@ -61,6 +61,8 @@ const { development, name, dataDirectory } = applicationIdentity({
 });
 app.setName(name);
 const isWindows = process.platform === 'win32';
+const windowsUpdateError = isWindows ? process.env.ASTRAGIT_WINDOWS_UPDATE_ERROR : undefined;
+delete process.env.ASTRAGIT_WINDOWS_UPDATE_ERROR;
 if (isWindows) app.setAppUserModelId('com.astragit.desktop');
 mkdirSync(dataDirectory, { recursive: true });
 app.setPath('userData', dataDirectory);
@@ -87,8 +89,9 @@ const releaseUpdate = createReleaseUpdateService({
   onProgress: () => {},
   confirmRestart: confirmUpdateRestart,
   quit: () => app.quit(),
+  onWindowsInstallReady: isWindows ? queueUpdateRestart : undefined,
   openDownloadedArtifact: async (path) => {
-    await execFile(nativeUpdateProgressHelperPath(), ['--quarantine-download', path], { timeout: 10_000 });
+    if (!isWindows) await execFile(nativeUpdateProgressHelperPath(), ['--quarantine-download', path], { timeout: 10_000 });
     const error = await shell.openPath(path);
     if (error) throw new Error(error);
   },
@@ -113,28 +116,18 @@ async function confirmUpdateRestart(): Promise<boolean> {
 }
 
 async function initializeUpdates(): Promise<void> {
-  if (isWindows) return;
   updateLanguage = app.getLocale().startsWith('zh') ? 'zh-CN' : 'en-US';
   homebrewUpdates = createHomebrewUpdateController({
-    helperPath: nativeUpdateProgressHelperPath(), language: () => updateLanguage,
+    helperPath: isWindows ? undefined : nativeUpdateProgressHelperPath(), language: () => updateLanguage,
     currentVersion: app.getVersion(), loadUpdateStatus: releaseUpdate.check, direct: releaseUpdate,
-    homebrew: createHomebrewUpdateService({ currentAppPath: resolve(process.execPath, '../../..'), currentAppVersion: app.getVersion(), bundleId: 'com.astragit.desktop', testMode: development }),
+    homebrew: isWindows ? undefined : createHomebrewUpdateService({ currentAppPath: resolve(process.execPath, '../../..'), currentAppVersion: app.getVersion(), bundleId: 'com.astragit.desktop', testMode: development }),
     openDownloadPage: async (value) => {
       const url = new URL(value);
       if (url.origin !== 'https://github.com' || !url.pathname.startsWith('/skylight-f/AstraGit/releases')) throw new Error('更新页面来源无效。');
       await shell.openExternal(url.toString());
     },
     canInstall: () => { if (development) throw new Error('开发应用不安装正式更新。'); if (gitServer?.hasActiveRepositorySetup()) throw new Error('仓库正在创建，请等待完成或停止任务后再更新。'); },
-    onInstallReady: (activate) => {
-      if (shuttingDown) return Promise.resolve(false);
-      if (pendingUpgrade) return pendingUpgrade.result;
-      let accept: (value: boolean) => void = () => {};
-      let fail: (error: unknown) => void = () => {};
-      const result = new Promise<boolean>((resolveDecision, rejectDecision) => { accept = resolveDecision; fail = rejectDecision; });
-      pendingUpgrade = { activate, resolve: accept, reject: fail, result };
-      setImmediate(() => app.quit());
-      return result;
-    },
+    onInstallReady: queueUpdateRestart,
   });
   if (!development) {
     automaticUpdates = createAutomaticUpdateScheduler({
@@ -149,6 +142,25 @@ async function initializeUpdates(): Promise<void> {
     homebrewUpdates.onIndicatorState((state) => mainWindow?.webContents.send('astragit:update-indicator', state));
   }
   mainWindow?.webContents.send('astragit:update-indicator', homebrewUpdates.getIndicatorState());
+  if (windowsUpdateError && mainWindow) {
+    const zh = updateLanguage === 'zh-CN';
+    void dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      message: zh ? 'Windows 更新未完成' : 'Windows update did not complete',
+      detail: windowsUpdateError.slice(0, 500),
+    }).catch(error => console.error('[AstraGit] 无法显示更新失败信息', error));
+  }
+}
+
+function queueUpdateRestart(activate: () => void | Promise<void>): Promise<boolean> {
+  if (shuttingDown) return Promise.resolve(false);
+  if (pendingUpgrade) return pendingUpgrade.result;
+  let accept: (value: boolean) => void = () => {};
+  let fail: (error: unknown) => void = () => {};
+  const result = new Promise<boolean>((resolveDecision, rejectDecision) => { accept = resolveDecision; fail = rejectDecision; });
+  pendingUpgrade = { activate, resolve: accept, reject: fail, result };
+  setImmediate(() => app.quit());
+  return result;
 }
 
 async function openRepositoryTextFile(path: string): Promise<void> {
@@ -275,6 +287,7 @@ async function loadMainWindow(): Promise<void> {
     apiToken: config.apiToken,
     language: app.getLocale().startsWith('zh') ? 'zh-CN' : 'en-US',
     customTitlebar: process.platform === 'darwin',
+    development,
   }));
 
   ipcMain.handle('astragit:choose-directory', async () => {
@@ -320,7 +333,6 @@ async function loadMainWindow(): Promise<void> {
     ipcMain.removeHandler(name);
     ipcMain.handle(name, event => { if (event.sender !== mainWindow?.webContents) throw new Error('更新请求来源无效。'); return action(); });
   };
-  handle('astragit:manual-update-version', () => isWindows ? app.getVersion() : null);
   ipcMain.removeHandler('astragit:release-notes');
   ipcMain.handle('astragit:release-notes', (event, version: unknown) => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('更新内容请求来源无效。');
@@ -329,7 +341,7 @@ async function loadMainWindow(): Promise<void> {
   handle('astragit:update-indicator-get', async () => { await updateInitialization; return homebrewUpdates?.getIndicatorState() ?? null; });
   ipcMain.removeHandler('astragit:update-action');
   ipcMain.handle('astragit:update-action', async (event, action: unknown, language: unknown) => {
-    if (event.sender !== mainWindow?.webContents) throw new Error('更新请求来源无效。');
+    if (event.sender !== mainWindow?.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('更新请求来源无效。');
     if (action !== 'check' && action !== 'prepare' && action !== 'restart') throw new Error('更新动作无效。');
     if (language === 'zh-CN' || language === 'en-US') updateLanguage = language;
     await updateInitialization;
@@ -337,8 +349,8 @@ async function loadMainWindow(): Promise<void> {
   });
   ipcMain.removeHandler('astragit:update-open');
   ipcMain.handle('astragit:update-open', async (event, language: unknown) => {
-    if (event.sender !== mainWindow?.webContents) throw new Error('更新请求来源无效。');
-    if (isWindows) return shell.openExternal(`${releasePageUrl}/latest`);
+    if (event.sender !== mainWindow?.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('更新请求来源无效。');
+    if (isWindows) return shell.openExternal(releaseUpdate.status()?.releasePageUrl ?? `${releasePageUrl}/latest`);
     if (language === 'zh-CN' || language === 'en-US') updateLanguage = language;
     await updateInitialization;
     if (!homebrewUpdates) throw new Error('更新服务尚未就绪。');
@@ -426,8 +438,8 @@ app.on('before-quit', (event) => {
     const handoff = pendingUpgrade;
     void (async () => {
       try {
-        if (!(await confirmUpdateRestart())) { handoff.resolve(false); return; }
-        // Astra 的退出接力顺序：确认 → brew 安装/复验 → 武装原生重启 → 退出旧 Main。
+        if (!(await confirmUpdateRestart()) || gitServer?.hasActiveRepositorySetup()) { handoff.resolve(false); return; }
+        // 先确认并准备平台接力，再让旧 Main 关闭 Git 服务和存储。
         await handoff.activate();
         upgradeHandoff = true;
         handoff.resolve(true);

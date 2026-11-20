@@ -1,4 +1,8 @@
 import { ShieldCheck } from '@phosphor-icons/react/dist/csr/ShieldCheck';
+import { ArrowClockwise } from '@phosphor-icons/react/dist/csr/ArrowClockwise';
+import { ArrowLeft } from '@phosphor-icons/react/dist/csr/ArrowLeft';
+import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
+import { CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { CodeReviewPanel } from './CodeReviewPanel.js';
 import { GitPaneSeparator } from './git/GitPaneSeparator.js';
 import { FolderOpen } from '@phosphor-icons/react/dist/csr/FolderOpen';
@@ -16,6 +20,7 @@ import { useApplicationUpdates } from './useApplicationUpdates.js';
 import { readLanguagePreference, resolveApplicationLanguage, saveLanguagePreference, type LanguagePreference } from './applicationPreferences.js';
 import { ReleaseUpdateButton } from './ReleaseUpdateButton.js';
 import { Button } from './ui/Button.js';
+import { MenuSurface } from './ui/MenuSurface.js';
 import { ApplicationErrorDialogHost, reportApplicationError, useApplicationErrorDialog } from './ui/ApplicationErrorDialog.js';
 import { readProjectGitTab, resolveProjectWorkspaceTabs, writeProjectGitTab, writeProjectWorkspaceTabs, type ProjectGitTab } from './projectWorkspacePersistence.js';
 import { useRepositorySetup } from './useRepositorySetup.js';
@@ -29,12 +34,11 @@ import './ui/primitives.css';
 import './agentdesk-theme.css';
 import './app.css';
 
-const applicationIconUrl = new URL('../../build/icon.svg', import.meta.url).href;
-
 export interface AppProps {
   client: DashboardClient;
   language: 'zh-CN' | 'en-US';
   customTitlebar?: boolean;
+  development?: boolean;
 }
 
 interface ProjectSlot {
@@ -73,12 +77,11 @@ export function App(props: AppProps) {
   const [projectGitTabs, setProjectGitTabs] = useState<Partial<Record<string, ProjectGitTab>>>({});
   const [slots, setSlots] = useState<ProjectSlot[]>([]);
   const [showList, setShowList] = useState(false);
-  const [projectAddMode, setProjectAddMode] = useState<'open' | 'clone' | 'init'>('open');
+  const [projectAddMode, setProjectAddMode] = useState<'clone' | 'init' | null>(null);
+  const [projectAddMenuOpen, setProjectAddMenuOpen] = useState(false);
+  const projectAddButton = useRef<HTMLButtonElement>(null);
   const [error, setError] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
-  const [draftPath, setDraftPath] = useState('');
-  const [draftName, setDraftName] = useState('');
-  const [pickBusy, setPickBusy] = useState(false);
+  const [openingLocalProject, setOpeningLocalProject] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchNavigation, setSearchNavigation] = useState<GitSearchNavigation | null>(null);
   const searchRequestId = useRef(0);
@@ -228,6 +231,7 @@ export function App(props: AppProps) {
     const project = list.find(project => project.id === id);
     if (project) await openProject(project);
   });
+  const repositorySetupKind = repositorySetup.job?.kind ?? repositorySetup.draft?.kind ?? 'clone';
   const applicationUpdates = useApplicationUpdates(language, sourceBatchBusy || repositorySetup.busy);
 
   const endTabDrag = () => {
@@ -279,32 +283,19 @@ export function App(props: AppProps) {
     });
   };
 
-  const pickDirectory = async () => {
-    setPickBusy(true);
+  const openLocalProject = async () => {
+    setOpeningLocalProject(true);
     try {
-      const path = await window.astraGit?.chooseDirectory?.();
-      if (path) setDraftPath(path);
-    } finally {
-      setPickBusy(false);
-    }
-  };
-
-  const addProject = async () => {
-    if (!draftPath.trim()) {
-      setError(new Error(zh ? '请先选择或填写本地目录。' : 'Choose or enter a local directory first.'));
-      return;
-    }
-    setBusy(true);
-    try {
-      const created = await props.client.createProject({ name: draftName.trim() || undefined, localPath: draftPath.trim() });
-      setDraftPath('');
-      setDraftName('');
-      const list = await refresh();
-      await openProject(list.find((item) => item.id === created.id) ?? created);
+      const localPath = await window.astraGit?.chooseDirectory?.();
+      if (!localPath) return;
+      const project = await props.client.createProject({ localPath });
+      await refresh();
+      await openProject(project);
     } catch (reason) {
       reportApplicationError(reason, { language: zh ? 'zh-CN' : 'en' });
     } finally {
-      setBusy(false);
+      setOpeningLocalProject(false);
+      requestAnimationFrame(() => projectAddButton.current?.focus());
     }
   };
 
@@ -369,7 +360,10 @@ export function App(props: AppProps) {
       <div className={`gitapp-frame${props.customTitlebar ? ' has-native-traffic-lights' : ''}`}>
         <header className="gitapp-titlebar" aria-label={zh ? '标题栏' : 'Title bar'}>
           <div className="gitapp-titlebar-leading">
-            <strong className="gitapp-titlebar-brand">AstraGit</strong>
+            <strong className="gitapp-titlebar-brand">
+              AstraGit
+              {props.development ? <span className="gitapp-titlebar-development">Development</span> : null}
+            </strong>
             <ReleaseUpdateButton zh={zh} update={applicationUpdates} disabled={sourceBatchBusy || repositorySetup.busy} onInspect={() => openSettings('updates')} />
           </div>
           <WorkspaceSearch client={props.client} projects={sortedProjects} project={activeProject} zh={zh} mac={props.customTitlebar === true} disabled={sourceBatchBusy || repositorySetup.busy} onNavigate={navigateSearch} />
@@ -489,10 +483,10 @@ export function App(props: AppProps) {
               })}
             </nav>
             <span className="gitapp-tab-announcement" role="status" aria-live="polite">{tabAnnouncement}</span>
-            <button type="button" className="gitapp-tab-add" disabled={sourceBatchBusy} aria-label={zh ? '打开或添加项目' : 'Open or add project'} title={zh ? '打开或添加项目' : 'Open or add project'} onClick={() => setShowList(true)}>
+            <button type="button" className="gitapp-tab-add" disabled={sourceBatchBusy} aria-label={zh ? '打开或添加项目' : 'Open or add project'} title={zh ? '打开或添加项目' : 'Open or add project'} onClick={() => { setProjectAddMode(null); setProjectAddMenuOpen(false); setShowList(true); }}>
               <Plus size={17} weight="regular" aria-hidden="true" />
             </button>
-            {repositorySetup.busy ? <Button variant="secondary" size="compact" onClick={() => { setProjectAddMode(repositorySetup.job?.kind ?? 'clone'); setShowList(true); }}>{zh ? '仓库创建中…' : 'Repository setup…'}</Button> : null}
+            {repositorySetup.busy ? <Button variant="secondary" size="compact" onClick={() => { setProjectAddMode(repositorySetupKind); setProjectAddMenuOpen(false); setShowList(true); }}>{zh ? '仓库创建中…' : 'Repository setup…'}</Button> : null}
           </header>
 
           <div className="gitapp-workbench-host" key={activeProject.id}>
@@ -526,78 +520,79 @@ export function App(props: AppProps) {
         </div>
       ) : (
         <div className="gitapp-shell gitapp-list-page macos-ai-app theme-light">
-          <header className="gitapp-hero">
-            <div className="gitapp-logo" aria-hidden="true">
-              <img src={applicationIconUrl} alt="" width="48" height="48" />
-            </div>
-            <div>
-              <h1>AstraGit</h1>
-              <p>{zh ? '独立 Git 工作台 · AI 提交说明 · 无会话' : 'Standalone Git workbench · AI commits · no conversations'}</p>
-            </div>
-            {activeProject ? (
-              <Button type="button" variant="secondary" className="gitapp-hero-back" onClick={() => setShowList(false)}>
-                {zh ? '返回工作台' : 'Back to workbench'}
-              </Button>
-            ) : null}
-          </header>
-
-          <div className="gitapp-project-add-methods">
-            <nav className="repository-setup-tabs" aria-label={zh ? '添加仓库方式' : 'Add repository method'}>{(['open', 'clone', 'init'] as const).map(mode => <button type="button" key={mode} aria-pressed={projectAddMode === mode} onClick={() => setProjectAddMode(mode)}>{mode === 'open' ? (zh ? '打开已有项目' : 'Open existing project') : mode === 'clone' ? (zh ? '克隆仓库' : 'Clone repository') : zh ? '初始化仓库' : 'Initialize repository'}</button>)}</nav>
-            {projectAddMode === 'open' ? <ProjectFolderImport client={props.client} zh={zh} disabled={busy || pickBusy} onImported={refresh} /> : null}
-          </div>
-          {projectAddMode !== 'open' ? <RepositorySetupForm key={projectAddMode} kind={projectAddMode} zh={zh} setup={repositorySetup} /> : <section className="gitapp-add" aria-label={zh ? '添加项目' : 'Add project'}>
-            <label>
-              <span>{zh ? '项目名称（可选）' : 'Name (optional)'}</span>
-              <input value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder={zh ? '默认取目录名' : 'Defaults to folder name'} />
-            </label>
-            <label>
-              <span>{zh ? '本地目录' : 'Local directory'}</span>
-              <div className="gitapp-path-row">
-                <input value={draftPath} onChange={(event) => setDraftPath(event.target.value)} placeholder="/Users/you/code/repo" spellCheck={false} />
-                <Button type="button" variant="secondary" disabled={pickBusy} onClick={() => void pickDirectory()}>
-                  <FolderOpen size={16} aria-hidden="true" />
-                  {zh ? '浏览…' : 'Browse…'}
+          <div className="gitapp-project-page-content">
+            <header className="gitapp-project-toolbar">
+              <h1>{zh ? '项目' : 'Projects'}</h1>
+              <div className="gitapp-project-actions">
+                {activeProject ? (
+                  <Button size="compact" onClick={() => { setProjectAddMenuOpen(false); setShowList(false); }}>
+                    <ArrowLeft size={15} aria-hidden="true" />
+                    {zh ? '返回工作台' : 'Back to workbench'}
+                  </Button>
+                ) : null}
+                {projectAddMode !== repositorySetupKind && (repositorySetup.busy || repositorySetup.job || repositorySetup.error) ? (
+                  <Button size="compact" onClick={() => setProjectAddMode(repositorySetupKind)}>
+                    {repositorySetup.busy ? (zh ? '查看创建进度' : 'View setup progress') : zh ? '查看创建结果' : 'View setup result'}
+                  </Button>
+                ) : null}
+                <Button size="compact" aria-label={zh ? '刷新项目' : 'Refresh projects'} title={zh ? '刷新项目' : 'Refresh projects'} onClick={() => void refresh()}>
+                  <ArrowClockwise size={15} aria-hidden="true" />
                 </Button>
-              </div>
-            </label>
-            <Button type="button" variant="primary" busy={busy} onClick={() => void addProject()}>
-              <Plus size={16} aria-hidden="true" />
-              {busy ? (zh ? '打开中…' : 'Opening…') : zh ? '添加并打开' : 'Add & open'}
-            </Button>
-          </section>}
-
-          <section className="gitapp-projects" aria-label={zh ? '项目列表' : 'Projects'}>
-            <div className="gitapp-section-title">
-              <h2>{zh ? '项目' : 'Projects'}</h2>
-              <button type="button" className="gitapp-linkish" onClick={() => void refresh()}>
-                {zh ? '刷新' : 'Refresh'}
-              </button>
-            </div>
-            {projects === null ? (
-              <p className="gitapp-muted">{zh ? '正在加载项目…' : 'Loading projects…'}</p>
-            ) : sortedProjects.length === 0 ? (
-              <div className="gitapp-empty">
-                <p>{zh ? '还没有项目' : 'No projects yet'}</p>
-                <p className="gitapp-muted">{zh ? '选择一个本地 Git 目录，即可打开完整工作台。' : 'Pick a local Git directory to open the full workbench.'}</p>
-              </div>
-            ) : (
-              <ul>
-                {sortedProjects.map((project) => (
-                  <li key={project.id}>
-                    <button type="button" className="gitapp-project-card" onClick={() => void openProject(project)}>
-                      <strong>{project.name}</strong>
-                      <span>{project.localPath}</span>
-                      <small>{zh ? '打开工作台 →' : 'Open workbench →'}</small>
+                <ProjectFolderImport client={props.client} zh={zh} disabled={openingLocalProject} onImported={refresh} />
+                <Button ref={projectAddButton} size="compact" variant="primary" busy={openingLocalProject} aria-haspopup="menu" aria-expanded={projectAddMenuOpen} onClick={() => setProjectAddMenuOpen(value => !value)}>
+                  <Plus size={15} aria-hidden="true" />
+                  {zh ? '添加项目' : 'Add project'}
+                  <CaretDown size={12} aria-hidden="true" />
+                </Button>
+                {projectAddMenuOpen ? (
+                  <MenuSurface className="gitapp-project-add-menu" aria-label={zh ? '添加项目' : 'Add project'} anchor={projectAddButton.current ?? undefined} onClose={() => setProjectAddMenuOpen(false)}>
+                    <button type="button" role="menuitem" disabled={!window.astraGit?.chooseDirectory} onClick={() => { setProjectAddMenuOpen(false); void openLocalProject(); }}>
+                      {zh ? '打开本地项目' : 'Open local project'}
                     </button>
-                    <button type="button" className="gitapp-remove" onClick={() => void removeProject(project)} aria-label={zh ? `从列表移除 ${project.name}` : `Remove ${project.name} from list`} title={zh ? '从列表移除' : 'Remove from list'}>
-                      <X size={16} aria-hidden="true" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
+                    {([
+                      ['clone', zh ? '克隆仓库' : 'Clone repository'],
+                      ['init', zh ? '初始化仓库' : 'Initialize repository'],
+                    ] as const).map(([mode, label]) => (
+                      <button type="button" role="menuitem" key={mode} onClick={() => { setProjectAddMode(mode); setProjectAddMenuOpen(false); }}>{label}</button>
+                    ))}
+                  </MenuSurface>
+                ) : null}
+              </div>
+            </header>
+            {projectAddMode ? (
+              <div className="gitapp-project-editor">
+                <button type="button" className="gitapp-project-icon-button gitapp-project-editor-close" aria-label={zh ? '收起表单' : 'Hide form'} title={zh ? '收起表单' : 'Hide form'} onClick={() => { setProjectAddMode(null); projectAddButton.current?.focus(); }}>
+                  <X size={16} aria-hidden="true" />
+                </button>
+                <RepositorySetupForm key={projectAddMode} kind={projectAddMode} zh={zh} setup={repositorySetup} />
+              </div>
+            ) : null}
+            <section className="gitapp-projects" aria-label={zh ? '项目列表' : 'Project list'}>
+              {sortedProjects.length === 0 ? (
+                <p className="gitapp-project-list-status" role="status">
+                  {projects === null ? (zh ? '正在加载项目…' : 'Loading projects…') : zh ? '还没有项目' : 'No projects yet'}
+                </p>
+              ) : (
+                <ul>
+                  {sortedProjects.map(project => (
+                    <li key={project.id}>
+                      <button type="button" className="gitapp-project-row" onClick={() => void openProject(project)}>
+                        <span className="gitapp-project-row-icon" aria-hidden="true"><FolderOpen size={16} /></span>
+                        <span className="gitapp-project-row-details">
+                          <strong title={project.name}>{project.name}</strong>
+                          <span title={project.localPath}>{project.localPath}</span>
+                        </span>
+                        <CaretRight size={14} aria-hidden="true" />
+                      </button>
+                      <button type="button" className="gitapp-project-icon-button gitapp-remove" onClick={() => void removeProject(project)} aria-label={zh ? `从列表移除 ${project.name}` : `Remove ${project.name} from list`} title={zh ? '从列表移除' : 'Remove from list'}>
+                        <X size={15} aria-hidden="true" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
         </div>
       )}
       </div>

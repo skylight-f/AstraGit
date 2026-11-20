@@ -43,6 +43,7 @@ export function GitContextMenu(props: { x: number; y: number; title: string; ite
 export interface GitMenuConfirmation {
   title: string;
   description: string;
+  paths?: readonly string[];
   field?: string;
   initialValue?: string;
   messageField?: string;
@@ -55,26 +56,30 @@ export function GitMenuActionDialog(props: { value: GitMenuConfirmation; zh: boo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const submitting = useRef(false);
+  const paths = props.value.paths;
   return (
     <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" onDismiss={props.onClose} dismissDisabled={busy} role="alertdialog" aria-label={props.value.title}>
-      <section className="project-git-menu-action-dialog" data-modal-surface="alertdialog">
+      <section className="project-git-menu-action-dialog project-git-menu-confirmation" data-modal-surface="alertdialog">
         <header>
           <strong>{props.value.title}</strong>
-          <p>{props.value.description}</p>
         </header>
-        {props.value.field ? (
-          <label>
-            {props.value.field}
-            <input autoFocus value={text} disabled={busy} onChange={(event) => setText(event.currentTarget.value)} />
-          </label>
-        ) : null}
-        {props.value.messageField ? (
-          <label>
-            {props.value.messageField}
-            <textarea value={message} disabled={busy} onChange={(event) => setMessage(event.currentTarget.value)} />
-          </label>
-        ) : null}
-        {error ? <p role="alert">{error}</p> : null}
+        <div className="project-git-menu-confirmation-body" role="region" aria-label={props.zh ? '操作详情' : 'Action details'} tabIndex={paths?.length ? 0 : undefined}>
+          <p>{props.value.description}</p>
+          {paths?.length ? <ul>{paths.map(path => <li key={path}>{path}</li>)}</ul> : null}
+          {props.value.field ? (
+            <label>
+              {props.value.field}
+              <input autoFocus value={text} disabled={busy} onChange={(event) => setText(event.currentTarget.value)} />
+            </label>
+          ) : null}
+          {props.value.messageField ? (
+            <label>
+              {props.value.messageField}
+              <textarea value={message} disabled={busy} onChange={(event) => setMessage(event.currentTarget.value)} />
+            </label>
+          ) : null}
+          {error ? <p role="alert">{error}</p> : null}
+        </div>
         <footer>
           <Button variant="secondary" disabled={busy} onClick={props.onClose}>
             {props.zh ? '取消' : 'Cancel'}

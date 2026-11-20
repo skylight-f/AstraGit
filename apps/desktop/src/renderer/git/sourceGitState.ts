@@ -16,7 +16,7 @@ export interface SourceGitState {
 }
 const sourceStates = new Map<string, SourceGitState>();
 export function readSourceGitState(projectId: string): SourceGitState {
-  const empty: SourceGitState = { selected: {}, sharedMessage: '', drafts: {}, messageMode: 'shared', selectionMode: 'worktree', updateParents: false, fileView: 'tree', focus: null, collapsed: [], search: '', fingerprints: {}, lastResults: [] };
+  const empty: SourceGitState = { selected: {}, sharedMessage: '', drafts: {}, messageMode: 'shared', selectionMode: 'worktree', updateParents: false, fileView: 'flat', focus: null, collapsed: [], search: '', fingerprints: {}, lastResults: [] };
   if (sourceStates.has(projectId)) return sourceStates.get(projectId)!;
   try {
     const value: unknown = JSON.parse(localStorage.getItem(`astragit.source-git.v1:${projectId}`) ?? 'null');
@@ -29,7 +29,7 @@ export function readSourceGitState(projectId: string): SourceGitState {
       sharedMessage: typeof data.sharedMessage === 'string' ? data.sharedMessage.slice(0, 30_000) : '',
       drafts: strings(data.drafts), fingerprints: strings(data.fingerprints),
       messageMode: data.messageMode === 'individual' ? 'individual' : 'shared', selectionMode: data.selectionMode === 'staged' ? 'staged' : 'worktree',
-      updateParents: data.updateParents === true, fileView: data.fileView === 'flat' ? 'flat' : 'tree',
+      updateParents: data.updateParents === true, fileView: data.fileView === 'tree' ? 'tree' : empty.fileView,
       focus: data.focus && typeof data.focus.repositoryId === 'string' && typeof data.focus.path === 'string' ? data.focus : null,
       collapsed: Array.isArray(data.collapsed) ? data.collapsed.filter(value => typeof value === 'string').slice(0, 2000) : [],
       search: typeof data.search === 'string' ? data.search.slice(0, 200) : '',

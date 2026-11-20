@@ -705,7 +705,11 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         run: () => {
           if (value.type === 'cherry_pick' || value.type === 'revert') { setReplayRequest({ repository, kind: value.type, revision: value.revision }); return; }
           // A conflict is a confirmed pause, so reveal the conflict editor instead of offering to run the action again.
-          if (confirmation) setMenuConfirmation({ title, description: `${repository.name} · ${target.ref}\n${confirmation}`, danger, run: async () => (await execute(repository, value, title)) !== null });
+          if (confirmation) {
+            const paths = value.type === 'discard' ? value.paths : undefined;
+            const scope = paths ? repository.name : `${repository.name} · ${target.ref}`;
+            setMenuConfirmation({ title, description: `${scope}\n${confirmation}`, paths, danger, run: async () => (await execute(repository, value, title)) !== null });
+          }
           else return execute(repository, value, title).then(() => {});
         },
       });
@@ -765,7 +769,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         action(
           multiple ? label(`丢弃所选未暂存修改 (${tracked.length})…`, `Discard selected unstaged changes (${tracked.length})…`) : label('丢弃未暂存修改…', 'Discard unstaged changes…'),
           { type: 'discard', paths: tracked },
-          label(`将 ${tracked.length} 个已跟踪文件恢复为暂存区内容。未跟踪文件不会被删除。此操作无法撤销。\n${tracked.join('\n')}`, `Restore ${tracked.length} tracked files from the index. Untracked files are kept. This cannot be undone.`),
+          label(`将 ${tracked.length} 个已跟踪文件恢复为暂存区内容。未跟踪文件不会被删除。此操作无法撤销。`, `Restore ${tracked.length} tracked files from the index. Untracked files are kept. This cannot be undone.`),
           true,
           !tracked.length || repository.snapshot.conflictFiles.length > 0,
         );
@@ -1240,7 +1244,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       <div className="project-git-browser-layout" data-view={tab} hidden={sourceVisible}>
         <aside className="project-git-navigator" aria-label={zh ? 'Git 导航' : 'Git navigation'}>
           <section className="git-history-repositories" aria-label={zh ? '仓库导航' : 'Repository navigation'}>
-          {tab === 'log' ? <header className="git-history-pane-heading">{zh ? '仓库' : 'Repositories'}</header> : null}
+          <header className="git-history-pane-heading">{zh ? '仓库' : 'Repositories'}</header>
           <div className="git-toolbar-identity">
             {selectedRepository ? (
               <BranchSwitcher
@@ -1309,8 +1313,9 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
               </details>
             ))}
           </section>
+          <GitPaneSeparator name="navigation-repositories" label={zh ? '调整仓库与分支面板高度' : 'Resize repository and branch panels'} axis="y" initial={44} min={20} max={80} />
           <section className="git-history-branches" aria-label={zh ? '分支与引用' : 'Branches and refs'}>
-          {tab === 'log' ? <header className="git-history-pane-heading">{zh ? '分支与引用' : 'Branches and refs'}</header> : null}
+          <header className="git-history-pane-heading">{zh ? '分支与引用' : 'Branches and refs'}</header>
           {selectedRepository ? (
             <>
               {(
@@ -2330,9 +2335,9 @@ function LocalChangesSurface(props: {
   const committingRef = useRef(false);
   const [fileView, setFileView] = useState<'tree' | 'flat'>(() => {
     try {
-      return localStorage.getItem('astragit.git.file-view.v1') === 'flat' ? 'flat' : 'tree';
+      return localStorage.getItem('astragit.git.file-view.v1') === 'tree' ? 'tree' : 'flat';
     } catch {
-      return 'tree';
+      return 'flat';
     }
   });
   const [editingRepository, setEditingRepository] = useState<string | null>(null);

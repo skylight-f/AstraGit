@@ -77,7 +77,7 @@ macOS 应用启动后定期检查更新，也可在 **设置 → 应用更新** 
 
 ### Windows 安装与升级
 
-安装 [Git for Windows](https://gitforwindows.org/)，安装时选择允许第三方程序从 PATH 调用 Git。运行 Release 中的 `AstraGit-版本-win-x64-setup.exe`。升级时可从 **设置 → 应用更新 → 打开下载页面** 下载并运行新版安装包。
+安装 [Git for Windows](https://gitforwindows.org/)，安装时选择允许第三方程序从 PATH 调用 Git。运行 Release 中的 `AstraGit-版本-win-x64-setup.exe`。支持自动更新的版本会在后台检查、下载并校验更新。可在 **设置 → 应用更新** 查看进度，就绪后点击 **重启并更新**。较早的 Windows 版本可以从 GitHub Release 手动安装新版 EXE。
 
 ### Homebrew 安装与升级
 

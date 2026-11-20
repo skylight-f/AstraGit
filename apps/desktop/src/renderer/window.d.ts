@@ -15,7 +15,6 @@ declare global {
       openUpdates?: (language: 'zh-CN' | 'en-US') => Promise<void>;
       performUpdateAction?: (action: 'check' | 'prepare' | 'restart', language: 'zh-CN' | 'en-US') => Promise<HomebrewUpdateIndicatorState | null>;
       getUpdateIndicator?: () => Promise<HomebrewUpdateIndicatorState | null>;
-      manualUpdateVersion?: () => Promise<string | null>;
       loadReleaseNotes?: (version: string) => Promise<ApplicationReleaseNotes>;
       onUpdateIndicator?: (listener: (state: HomebrewUpdateIndicatorState) => void) => () => void;
     };

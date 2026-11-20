@@ -15,6 +15,7 @@ import type { BusyState, OperationTone, BranchKind, ExecutionOutcome, ProjectGit
 import { ArrowRightIcon as ArrowRight } from '@phosphor-icons/react/dist/csr/ArrowRight';
 import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { CaretRightIcon as CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
+import { CheckIcon as Check } from '@phosphor-icons/react/dist/csr/Check';
 import { GitBranchIcon as GitBranch } from '@phosphor-icons/react/dist/csr/GitBranch';
 import { MagnifyingGlassIcon as MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
 
@@ -473,29 +474,35 @@ function ReferenceTree(props: {
           <ReferenceTree {...props} items={items} prefix={prefix + folder} />
         </details>
       ))}
-      {leaves.map((item, index) => (
-        <button
-          key={`${item.kind}:${item.ref}`}
-          type="button"
-          className={props.activeAnchorId === `${treeId}-${index}` ? 'is-active' : item.kind === 'local' && item.ref === props.repository.snapshot.branch ? 'is-current' : ''}
-          id={`${treeId}-${index}`}
-          title={item.ref}
-          aria-haspopup="menu"
-          aria-expanded={props.activeAnchorId === `${treeId}-${index}`}
-          aria-controls={props.activeAnchorId === `${treeId}-${index}` ? props.submenuId : undefined}
-          onKeyDown={(event) => {
-            if (event.key !== 'ArrowRight') return;
-            event.preventDefault();
-            event.currentTarget.click();
-          }}
-          onClick={(event) => props.onOpenReferenceMenu(event, props.repository, item.ref, item.kind)}
-        >
-          <GitBranch />
-          <span>{item.ref.slice(prefix.length)}</span>
-          {item.kind === 'local' && item.ref === props.repository.snapshot.branch ? <small>{props.zh ? '当前' : 'Current'}</small> : null}
-          <CaretRight />
-        </button>
-      ))}
+      {leaves.map((item, index) => {
+        const id = `${treeId}-${index}`;
+        const expanded = props.activeAnchorId === id;
+        const current = item.kind === 'local' && !props.repository.snapshot.detached && item.ref === props.repository.snapshot.branch;
+        return (
+          <button
+            key={`${item.kind}:${item.ref}`}
+            type="button"
+            className={expanded ? 'is-active' : current ? 'is-current' : ''}
+            id={id}
+            title={item.ref}
+            aria-current={current || undefined}
+            aria-haspopup="menu"
+            aria-expanded={expanded}
+            aria-controls={expanded ? props.submenuId : undefined}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowRight') return;
+              event.preventDefault();
+              event.currentTarget.click();
+            }}
+            onClick={(event) => props.onOpenReferenceMenu(event, props.repository, item.ref, item.kind)}
+          >
+            <GitBranch aria-hidden="true" />
+            <span>{item.ref.slice(prefix.length)}</span>
+            {current ? <Check className="git-reference-current-check" weight="bold" aria-hidden="true" /> : null}
+            <CaretRight aria-hidden="true" />
+          </button>
+        );
+      })}
     </div>
   );
 }

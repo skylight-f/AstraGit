@@ -56,7 +56,7 @@ export function createHomebrewUpdateService(options: CreateHomebrewUpdateService
     if (compareReleaseVersions(current.version, options.currentAppVersion) > 0) return { update, brewPath, installed: current };
     onProgress({ phase: 'installing' });
     // 与终端手动升级使用相同参数，交由 Homebrew 自行刷新元数据和处理安装包。
-    const stopMonitoring = update.artifact ? monitorBrewDownload(update.artifact, onProgress) : undefined;
+    const stopMonitoring = update.artifact?.kind === 'dmg' ? monitorBrewDownload(update.artifact, onProgress) : undefined;
     try {
       await runBrew(brewPath, ['upgrade', '--cask', caskToken], true, 30 * 60_000);
     } finally {

@@ -25,11 +25,11 @@ export interface HomebrewUpdateController {
 }
 
 interface CreateHomebrewUpdateControllerOptions {
-  helperPath: string;
+  helperPath?: string;
   language: () => 'zh-CN' | 'en-US';
   loadUpdateStatus: () => Promise<DesktopReleaseUpdateStatus>;
-  homebrew: HomebrewUpdateService;
-  /** DMG 安装复用已有直接更新与安装交接。 */
+  homebrew?: HomebrewUpdateService;
+  /** 直接更新使用当前平台的安装包与退出交接。 */
   direct: ReleaseUpdateService;
   /** 仅在用户点击后打开经过 Main 校验的官方发布页。 */
   openDownloadPage: (url: string) => Promise<void>;
@@ -75,11 +75,12 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
   const retryDelaysMs = options.retryDelaysMs ?? defaultRetryDelaysMs;
 
   function ensureHost(): Promise<NativeUpdateProgressHost | null> {
-    if (closed) return Promise.resolve(null);
+    const executablePath = options.helperPath;
+    if (closed || !executablePath) return Promise.resolve(null);
     if (host) return Promise.resolve(host);
     hostCreation ??= (async () => {
       const created = await (options.createHost ?? createNativeUpdateProgressHost)({
-        executablePath: options.helperPath,
+        executablePath,
         language: options.language,
       });
       if (closed) { created.close(); return null; }
@@ -176,7 +177,7 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
         return update;
       }
       if (!hasNewerVersion(update)) throw new Error(update.reason || '暂时无法取得可用更新。', { cause: update.error });
-      updateMethod = (await options.homebrew.isManaged()) ? 'homebrew' : 'direct';
+      updateMethod = (await options.homebrew?.isManaged()) ? 'homebrew' : 'direct';
       if (closed) return null;
       if (updateMethod === 'direct' && (update.status !== 'available' || !update.artifact)) {
         await publishManualUpdate(update);
@@ -239,9 +240,10 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
         };
         if (updateMethod === 'homebrew') {
           options.canInstall();
+          if (!options.homebrew) throw new Error('Homebrew 更新服务尚未就绪。');
           prepared = { ...(await options.homebrew.prepare(update, onProgress)), method: 'homebrew' };
         } else {
-          const result = await options.direct.download(onProgress);
+          const result = await options.direct.download(onProgress, shutdownSignal.signal);
           if (closed) return;
           if (!result.accepted) throw new Error(result.reason);
           prepared = { method: 'direct', update: result.update };
@@ -295,7 +297,7 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
       phase = 'installing';
       await publish(copyFor(options.language(), 'installing', options.currentVersion, readyUpdate(prepared), prepared.method));
       if (closed) return;
-      if (prepared.method === 'direct' && await options.homebrew.isManaged()) throw new Error('AstraGit 的安装管理方式已变化，请重新检查更新。');
+      if (prepared.method === 'direct' && await options.homebrew?.isManaged()) throw new Error('AstraGit 的安装管理方式已变化，请重新检查更新。');
       if (closed) return;
       /** 用户取消退出时保留下载结果；直接安装由原安装器完成退出后的替换。 */
       let accepted: boolean;
@@ -311,10 +313,12 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
       } else {
         /** brew 已在后台完成安装；退出前仅复验将要重启的真实 App。 */
         const preparedHomebrew = prepared;
+        const homebrew = options.homebrew;
+        if (!homebrew) throw new Error('Homebrew 更新服务尚未就绪。');
         accepted = await options.onInstallReady(async () => {
           const currentHost = await ensureHost();
           if (closed || !currentHost) return;
-          installed = await options.homebrew.install(preparedHomebrew, (progress) => {
+          installed = await homebrew.install(preparedHomebrew, (progress) => {
             void publish(progressCopy(options.language(), progress, preparedHomebrew.update));
           });
           if (closed) return;
@@ -329,6 +333,7 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
         await publish(copyFor(options.language(), 'ready', options.currentVersion, ready, prepared.method));
       }
     } catch (error) {
+      if (prepared?.method === 'direct') prepared = null;
       await publishFailure(error, 'install');
     }
   }
@@ -443,11 +448,15 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
       if (canPrepare) await runExclusive(() => prepareUpdate(true));
       else if (operation) await operation;
     } else if (action === 'restart' && phase === 'ready') {
-      if (prepared) await runExclusive(installPreparedUpdate);
-      else {
+      const requestedVersion = indicatorState.latestVersion;
+      await runExclusive(async () => {
         // 持久化 ready 不能代替本进程的安装复验；先由服务重新读取安装事实。
-        await runExclusive(() => prepareUpdate(true));
-      }
+        if (!prepared) {
+          await prepareUpdate(true);
+          if (options.helperPath) return;
+        }
+        if (phase === 'ready' && prepared && readyUpdate(prepared).latestVersion === requestedVersion) await installPreparedUpdate();
+      });
     }
     return { ...indicatorState };
   }
@@ -598,8 +607,8 @@ function manualCopy(language: 'zh-CN' | 'en-US', update: DesktopReleaseUpdateSta
         ? `AstraGit ${update.latestVersion} 可用。可在此下载并校验安装包，下载后需要手动替换应用。`
         : `AstraGit ${update.latestVersion} is available. Download and verify it here, then replace the app manually.`
       : zh
-        ? `AstraGit ${update.latestVersion} 可用，但暂无匹配此 Mac 的安装包。请前往下载页面查看。`
-        : `AstraGit ${update.latestVersion} is available, but no installer matches this Mac. Visit the download page for details.`,
+        ? `AstraGit ${update.latestVersion} 可用，但暂无适用于此设备的安装包。请前往下载页面查看。`
+        : `AstraGit ${update.latestVersion} is available, but there is no suitable installer for this device. Visit the download page for details.`,
   };
 }
 

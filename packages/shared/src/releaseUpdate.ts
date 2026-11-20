@@ -4,6 +4,8 @@ export const homebrewTap = 'skylight-f/tap';
 export const homebrewRepository = 'skylight-f/homebrew-tap';
 export const homebrewCask = `${homebrewTap}/astragit`;
 export interface ReleaseArtifact { arch: 'arm64' | 'x64'; kind: 'dmg'; fileName: string; sha256: string; sizeBytes: number; downloadUrl: string }
+export interface WindowsReleaseArtifact extends Omit<ReleaseArtifact, 'arch' | 'kind'> { arch: 'x64'; kind: 'exe' }
+export type DesktopReleaseArtifact = ReleaseArtifact | WindowsReleaseArtifact;
 export interface ReleaseManifest {
   schemaVersion: 1; appId: 'com.astragit.desktop'; repository: typeof releaseRepository;
   version: string; sourceCommit: string; signed: boolean; notarized: boolean; minimumSystemVersion: string;
@@ -11,7 +13,7 @@ export interface ReleaseManifest {
 }
 export interface ReleaseUpdateStatus {
   status: 'up_to_date' | 'available' | 'unavailable'; currentVersion: string; latestVersion: string;
-  releasePageUrl: string; artifact: ReleaseArtifact | null; automaticInstallEnabled: boolean; reason: string;
+  releasePageUrl: string; artifact: DesktopReleaseArtifact | null; automaticInstallEnabled: boolean; reason: string;
   installMethod: 'homebrew' | 'direct';
   checkedAt?: string;
   error?: unknown;

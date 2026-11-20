@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { parseReleaseManifest } from '../packages/shared/dist/index.js';
-import { downloadVerifiedArtifact } from '../apps/desktop/src/main/releaseUpdateService.ts';
+import { createReleaseUpdateService, downloadVerifiedArtifact } from '../apps/desktop/src/main/releaseUpdateService.ts';
 import { readApplicationReleaseNotes } from '../apps/desktop/src/main/applicationReleaseNotes.ts';
 import { formatReleaseChanges, selectAutomaticVersion } from '../scripts/prepare-automatic-release.mjs';
 import { renderHomebrewCask } from '../scripts/homebrew-cask.mjs';
@@ -57,6 +57,41 @@ test('release versions reserve existing tags and update manifests reject foreign
   assert.throws(() => parseReleaseManifest({ ...manifest, appId: 'dev.hypha.zeus' }));
   assert.throws(() => parseReleaseManifest({ ...manifest, artifacts: [{ ...artifact, downloadUrl: 'https://example.com/app.dmg' }] }));
   assert.throws(() => parseReleaseManifest({ ...manifest, artifacts: [{ ...artifact, sha256: 'bad' }] }));
+});
+
+test('Windows updates select the exact stable x64 EXE with its published digest', async () => {
+  const sha256 = 'c'.repeat(64);
+  const asset = {
+    name: 'AstraGit-0.2.0-win-x64-setup.exe', state: 'uploaded', size: 120_000, digest: 'sha256:' + sha256,
+    browser_download_url: 'https://github.com/skylight-f/AstraGit/releases/download/v0.2.0/AstraGit-0.2.0-win-x64-setup.exe',
+  };
+  const release = { tag_name: 'v0.2.0', draft: false, prerelease: false, assets: [{ ...asset, name: 'AstraGit-0.2.0-x64.dmg' }, asset] };
+  let registered = true;
+  const service = createReleaseUpdateService({
+    appPath: '', executablePath: 'C:\\AstraGit\\AstraGit.exe', dataDirectory: '', version: '0.1.0', packaged: true,
+    onProgress: () => {}, confirmRestart: () => assert.fail('A check cannot request restart'), quit: () => assert.fail('A check cannot quit'),
+    onWindowsInstallReady: () => assert.fail('A check cannot run the installer'),
+    fetch: (url, options) => {
+      assert.equal(url, 'https://api.github.com/repos/skylight-f/AstraGit/releases/latest');
+      assert.equal(options.redirect, 'error');
+      return Response.json(release);
+    },
+  }, { platform: 'win32', arch: 'x64', readWindowsInstallScope: async () => registered ? 'currentuser' : null });
+
+  const update = await service.check();
+  assert.equal(update.status, 'available');
+  assert.equal(update.artifact.kind, 'exe');
+  assert.equal(update.artifact.sha256, sha256);
+  assert.equal(update.automaticInstallEnabled, true);
+  registered = false;
+  assert.equal((await service.check()).automaticInstallEnabled, false);
+
+  for (const invalid of [{ digest: null }, { browser_download_url: 'https://example.invalid/setup.exe' }, { state: 'new' }]) {
+    release.assets = [{ ...asset, ...invalid }];
+    assert.equal((await service.check()).artifact, null);
+  }
+  release.prerelease = true;
+  assert.equal((await service.check()).status, 'unavailable');
 });
 
 test('Homebrew publication binds both architecture hashes to the public release and rejects forged cask content', () => {

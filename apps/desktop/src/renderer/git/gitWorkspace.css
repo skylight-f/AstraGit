@@ -255,8 +255,10 @@
   white-space: nowrap;
   min-width: 0;
 }
-.git-branch-repositories > button > small,
-.git-reference-tree button > small {
+.git-reference-tree button > span {
+  flex: 1;
+}
+.git-branch-repositories > button > small {
   color: var(--zeus-product-muted);
   font-size: 11px;
   margin-left: auto;
@@ -285,11 +287,10 @@
   flex-shrink: 0;
   color: var(--zeus-product-muted);
 }
-.git-reference-tree button > svg:last-child {
-  margin-left: auto;
-}
-.git-reference-tree button > small + svg {
-  margin-left: 0;
+.git-reference-tree button > .git-reference-current-check {
+  width: 12px;
+  height: 12px;
+  color: var(--zeus-product-accent, var(--zeus-brand-primary));
 }
 .git-branch-repositories button:hover,
 .git-reference-tree button:hover,
@@ -376,11 +377,39 @@
 
 /* Mac 客户端的紧凑导航与单行历史，颜色沿用上游主题。 */
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-navigator {
-  background: var(--zeus-product-panel);
-  border: 1px solid var(--zeus-product-line);
-  border-radius: var(--ag-card-radius);
-  padding: 6px 8px;
+  display: grid;
+  grid-template-rows: minmax(0, var(--git-navigation-repositories, 44%)) 6px minmax(0, 1fr);
+  overflow: hidden;
+  border: 0;
+  padding: 0;
 }
+.macos-ai-app.zeus-shell .project-git-navigator > :is(.git-history-repositories, .git-history-branches) {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 7px 6px;
+  border: 1px solid var(--zeus-workspace-divider);
+  border-radius: var(--ag-card-radius);
+  background: var(--zeus-card-background);
+}
+.macos-ai-app.zeus-shell .project-git-workbench .git-history-pane-heading {
+  padding: 5px 9px;
+  border-bottom: 1px solid var(--zeus-workspace-divider);
+  background: var(--zeus-page-background);
+  color: var(--zeus-product-text);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+  flex-shrink: 0;
+}
+.macos-ai-app.zeus-shell .project-git-navigator .git-history-pane-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 -7px 4px;
+}
+.macos-ai-app.zeus-shell .project-git-navigator .git-toolbar-identity { min-height: 28px; margin-bottom: 3px; }
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-browser-content {
   background: var(--zeus-product-panel);
   border: 1px solid var(--zeus-product-line);
@@ -401,20 +430,19 @@
 }
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-browser-layout[data-view='log'] {
   grid-template-areas:
-    'repositories navigation preview preview preview'
-    '. navigation horizontal horizontal horizontal'
-    'branches navigation filters inspector details'
-    'branches navigation graph inspector details';
+    'sidebar navigation preview preview preview'
+    'sidebar navigation horizontal horizontal horizontal'
+    'sidebar navigation filters inspector details'
+    'sidebar navigation graph inspector details';
   grid-template-columns: clamp(min(140px, 25%), var(--git-navigation, 20%), 40%) 6px minmax(0, 1fr) 6px calc(100% - var(--git-history-inspector, 74%));
   grid-template-rows: minmax(100px, var(--git-history-preview, 44%)) 6px auto minmax(0, 1fr);
 
-  & > .project-git-navigator,
   & > .project-git-browser-content,
   & .project-git-browser-content > .project-git-log-layout {
     display: contents;
   }
 
-  & :is(.git-history-repositories, .git-history-branches, .git-history-preview-pane, .git-history-detail-pane, .is-history-toolbar, .project-git-commit-list) {
+  & :is(.git-history-preview-pane, .git-history-detail-pane, .is-history-toolbar, .project-git-commit-list) {
     min-width: 0;
     min-height: 0;
     border: 1px solid var(--zeus-workspace-divider);
@@ -422,36 +450,11 @@
     background: var(--zeus-card-background);
   }
 
-  & .git-history-repositories { grid-area: repositories; }
-  & .git-history-branches { grid-area: branches; }
+  & > .project-git-navigator { grid-area: sidebar; }
   & > .git-separator-navigation { grid-area: navigation; }
   & .git-separator-history-preview { grid-area: horizontal; }
   & .git-separator-history-inspector { grid-area: inspector; }
 
-  & :is(.git-history-repositories, .git-history-branches) {
-    overflow: auto;
-    padding: 0 7px 6px;
-  }
-
-  & .git-history-pane-heading {
-    padding: 5px 9px;
-    border-bottom: 1px solid var(--zeus-workspace-divider);
-    background: var(--zeus-page-background);
-    color: var(--zeus-product-text);
-    font-size: 12px;
-    font-weight: 650;
-    line-height: 1.3;
-    flex-shrink: 0;
-  }
-
-  & :is(.git-history-repositories, .git-history-branches) > .git-history-pane-heading {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    margin: 0 -7px 4px;
-  }
-
-  & .git-toolbar-identity { min-height: 28px; margin-bottom: 3px; }
   & .project-git-navigator details + details { margin-block-start: 3px; }
 
   & .git-history-preview-pane {
@@ -533,9 +536,6 @@
       display: none;
     }
   }
-}
-.project-git-browser-layout:not([data-view='log']) .git-history-branches {
-  margin-block-start: 8px;
 }
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-navigator details + details {
   margin-block-start: 8px;
@@ -711,6 +711,33 @@
 }
 .git-reference-tree button.is-active {
   background: var(--zeus-source-list-selected);
+}
+.project-git-menu-confirmation {
+  box-sizing: border-box;
+  max-block-size: calc(100dvh - 40px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+.project-git-menu-confirmation-body {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.project-git-menu-confirmation-body:focus-visible {
+  outline: 2px solid var(--zeus-control-focus);
+  outline-offset: -2px;
+}
+.project-git-menu-confirmation-body > :is(p, ul) { margin: 0; }
+.project-git-menu-confirmation-body > ul {
+  padding-inline-start: 18px;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .project-git-menu-action-dialog > .git-checkout-stash { display:flex; align-items:center; gap:8px; }
 .git-checkout-stash input { flex:0 0 auto; accent-color:var(--zeus-control-accent); }

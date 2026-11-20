@@ -153,6 +153,40 @@ test('restored ready indicator is revalidated and prepared before a later explic
   await f.controller.performAction('restart'); assert.deepEqual(f.events, ['brew-upgrade', 'confirm', 'verify-installed', 'relaunch', 'quit']);
 });
 
+test('Windows background updates report progress and install only after an explicit restart', async t => {
+  const update = { status: 'available', currentVersion: '0.1.0', latestVersion: '0.2.0', artifact: { kind: 'exe', sha256: 'a'.repeat(64) } };
+  const calls = [];
+  const progress = [];
+  const createController = () => createHomebrewUpdateController({
+    language: () => 'zh-CN', currentVersion: update.currentVersion, loadUpdateStatus: async () => update,
+    canInstall: () => {}, onInstallReady: () => assert.fail('Windows uses the direct installer'),
+    createHost: () => assert.fail('Windows must not open the macOS helper'),
+    direct: {
+      manualInstallReason: async () => null,
+      download: async report => {
+        calls.push('download');
+        report({ phase: 'downloading', downloadedBytes: 60_000, totalBytes: 120_000, bytesPerSecond: 2048 });
+        return { accepted: true, update };
+      },
+      install: async () => { calls.push('restart'); return { accepted: true, restartAccepted: false }; },
+    },
+  });
+  const controller = createController();
+  t.after(() => controller.close());
+  controller.onIndicatorState(state => progress.push(state));
+  await controller.checkAutomatically();
+  assert.deepEqual(calls, ['download']);
+  assert.equal(progress.find(state => state.progress === 0.5)?.progressText, '50% · 2.0 KiB/s');
+  const ready = controller.getIndicatorState();
+  assert.equal(ready.phase, 'ready');
+  const restored = createController();
+  t.after(() => restored.close());
+  restored.restoreIndicatorState(ready);
+  await restored.performAction('restart');
+  assert.deepEqual(calls, ['download', 'download', 'restart']);
+  assert.equal(restored.getIndicatorState().phase, 'ready');
+});
+
 test('failed check with no known update stays failed without announcing a version or opening a window', async t => {
   const f = actionFixture(t, { checkError: new Error('network check failed') });
   const failed = await f.controller.performAction('check');

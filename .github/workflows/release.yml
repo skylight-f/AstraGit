@@ -127,19 +127,23 @@ jobs:
         run: |
           git --version
           node --import tsx --test tests/app.test.mjs tests/source-batch.test.mjs
-      - name: 安装并启动 Windows 正式应用
+      - name: 验证 Windows 安装、更新接力和重新启动
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $installer = Join-Path $PWD "release\AstraGit-$version-win-x64-setup.exe"
-          $installPath = Join-Path $env:RUNNER_TEMP 'AstraGit'
+          $installPath = Join-Path $env:RUNNER_TEMP 'AstraGit Windows x64'
+          $executable = Join-Path $installPath 'AstraGit.exe'
           $setup = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$installPath" -PassThru -Wait
           if ($setup.ExitCode -ne 0) { throw "AstraGit installer exited with $($setup.ExitCode)." }
+          $oldWriteTime = [DateTime]::SpecifyKind([DateTime]'2000-01-01', [DateTimeKind]::Utc)
+          (Get-Item -LiteralPath $executable).LastWriteTimeUtc = $oldWriteTime
           $env:ASTRAGIT_USER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'AstraGit-user-data'
           $env:ASTRAGIT_CODEX_ENABLED = '0'
           $readyFile = Join-Path $env:ASTRAGIT_USER_DATA_DIR 'updates\app-ready.json'
-          $application = Start-Process -FilePath (Join-Path $installPath 'AstraGit.exe') -PassThru
+          $application = Start-Process -FilePath $executable -PassThru
+          $restarted = $null
           try {
             $deadline = (Get-Date).AddSeconds(60)
             while (!(Test-Path $readyFile) -and (Get-Date) -lt $deadline) {
@@ -152,10 +156,36 @@ jobs:
               throw 'The running application does not match the installed release.'
             }
             Write-Host "AstraGit $version installed and the renderer is ready."
+            $digest = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+            $handoff = @'
+          import { launchWindowsUpdate } from './apps/desktop/dist/main/windowsReleaseUpdate.js';
+          const [executable, installer, sha256, version, dataDirectory, pid] = process.argv.slice(1);
+          await launchWindowsUpdate({ executable, installer, sha256, version, dataDirectory, mainPid: Number(pid) });
+          '@
+            node --input-type=module -e $handoff -- $executable $installer $digest $version $env:ASTRAGIT_USER_DATA_DIR $application.Id
+            if ($LASTEXITCODE -ne 0) { throw 'Could not start the Windows update handoff.' }
+            if (!$application.CloseMainWindow() -or !$application.WaitForExit(30000)) { throw 'The old application did not exit normally.' }
+            $deadline = (Get-Date).AddMinutes(3)
+            while ((Get-Date) -lt $deadline) {
+              $newReady = Get-Content $readyFile -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json -ErrorAction SilentlyContinue
+              if ($newReady -and $newReady.pid -ne $application.Id) {
+                $restarted = Get-Process -Id $newReady.pid -ErrorAction SilentlyContinue
+                if ($restarted) { break }
+              }
+              Start-Sleep -Milliseconds 500
+            }
+            if (!$restarted -or $newReady.version -ne $version -or $restarted.Path -ne $executable) {
+              throw 'The Windows updater did not reopen the installed application with the same user data.'
+            }
+            if ((Get-Item -LiteralPath $executable).LastWriteTimeUtc -eq $oldWriteTime) {
+              throw 'The Windows updater reopened the original executable without replacing it.'
+            }
           } finally {
-            if (!$application.HasExited) {
-              if (!$application.CloseMainWindow() -or !$application.WaitForExit(10000)) {
-                $application | Stop-Process -Force
+            foreach ($process in @($application, $restarted)) {
+              if ($process -and !$process.HasExited) {
+                if (!$process.CloseMainWindow() -or !$process.WaitForExit(10000)) {
+                  $process | Stop-Process -Force
+                }
               }
             }
           }

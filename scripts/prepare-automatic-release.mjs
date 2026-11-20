@@ -81,7 +81,7 @@ ${summary ? `${summary}\n\n` : ''}[查看完整变更](https://github.com/${repo
 
 ## 下载安装
 
-- [Windows x64 安装包（EXE）](${downloads}/AstraGit-${version}-win-x64-setup.exe)。请先安装 Git for Windows，并将 Git 加入 PATH。更新时下载并运行新版安装包。
+- [Windows x64 安装包（EXE）](${downloads}/AstraGit-${version}-win-x64-setup.exe)。请先安装 Git for Windows，并将 Git 加入 PATH。支持自动更新的版本会在后台下载并校验新版，就绪后可在「应用更新」选择「重启并更新」。仅支持手动更新的旧版可下载并运行此安装包。
 - [macOS Apple Silicon（DMG）](${downloads}/AstraGit-${version}-arm64.dmg)
 - [macOS Intel（DMG）](${downloads}/AstraGit-${version}-x64.dmg)
 

@@ -41,7 +41,7 @@ export class ProjectStore {
   create(input: CreateProjectInput): GitAppProject {
     if (!input.localPath || input.localPath.includes('\0') || !isAbsolute(input.localPath)) throw projectError('ASTRAGIT_PROJECT_PATH_INVALID', '请选择有效的绝对目录路径。');
     const localPath = canonicalProjectPath(input.localPath);
-    const name = input.name.trim() || localPath.split('/').filter(Boolean).at(-1) || '项目';
+    const name = input.name.trim() || basename(localPath) || '项目';
     if (!name || name.length > 120) throw projectError('ASTRAGIT_PROJECT_NAME_INVALID', '项目名称无效。');
     if (!existsSync(localPath)) throw projectError('ASTRAGIT_PROJECT_PATH_MISSING', '项目目录不存在。');
     if (!statSync(localPath).isDirectory()) throw projectError('ASTRAGIT_PROJECT_PATH_INVALID', '项目路径必须是目录。');

@@ -3,4 +3,5 @@ export interface RendererBootstrap {
   apiToken: string;
   language: 'zh-CN' | 'en-US';
   customTitlebar?: boolean;
+  development?: boolean;
 }

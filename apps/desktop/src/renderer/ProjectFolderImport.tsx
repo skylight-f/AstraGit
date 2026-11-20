@@ -85,7 +85,7 @@ export function ProjectFolderImport({ client, zh, disabled, onImported }: {
     {added !== null ? <span className="gitapp-folder-import-notice" role="status">
       {added === 0 ? text('所选项目已在列表中', 'Selected projects are already in the list') : text(`已添加 ${added} 个项目`, `Added ${added} ${added === 1 ? 'project' : 'projects'}`)}
     </span> : null}
-    <Button disabled={disabled || !window.astraGit?.chooseDirectory} busy={picking} onClick={() => void pickFolder()}>
+    <Button size="compact" disabled={disabled || !window.astraGit?.chooseDirectory} busy={picking} onClick={() => void pickFolder()}>
       <FolderOpen size={16} aria-hidden="true" />
       {text('扫描文件夹…', 'Scan folder…')}
     </Button>

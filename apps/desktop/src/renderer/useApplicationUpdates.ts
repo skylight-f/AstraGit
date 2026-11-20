@@ -4,7 +4,6 @@ import { compareReleaseVersions, type HomebrewUpdateIndicatorState } from '@astr
 export type ApplicationUpdateAction = 'check' | 'prepare' | 'restart';
 export interface ApplicationUpdates {
   supported: boolean;
-  manualVersion: string | null;
   state: HomebrewUpdateIndicatorState | null;
   busy: ApplicationUpdateAction | 'details' | null;
   error: unknown;
@@ -16,7 +15,6 @@ export interface ApplicationUpdates {
 /** 更新调度、下载与安装由 Main 唯一控制；Renderer 只订阅状态及转发用户动作。 */
 export function useApplicationUpdates(language: 'zh-CN' | 'en-US', blocked: boolean): ApplicationUpdates {
   const [state, setState] = useState<HomebrewUpdateIndicatorState | null>(null);
-  const [manualVersion, setManualVersion] = useState<string | null>(null);
   const [busy, setBusy] = useState<ApplicationUpdates['busy']>(null);
   const [error, setError] = useState<unknown>(null);
   const [checked, setChecked] = useState(false);
@@ -24,9 +22,6 @@ export function useApplicationUpdates(language: 'zh-CN' | 'en-US', blocked: bool
   const revision = useRef(0);
   useEffect(() => {
     let live = true;
-    void window.astraGit?.manualUpdateVersion?.().then(version => {
-      if (live) setManualVersion(version);
-    }).catch(reason => { if (live) setError(reason); });
     const unsubscribe = window.astraGit?.onUpdateIndicator?.(value => { revision.current += 1; if (live) setState(value); });
     const requestedAt = revision.current;
     void window.astraGit?.getUpdateIndicator?.().then(value => {
@@ -58,7 +53,7 @@ export function useApplicationUpdates(language: 'zh-CN' | 'en-US', blocked: bool
     finally { inFlight.current = false; setBusy(null); }
   }, [blocked, language]);
 
-  return { supported: Boolean(window.astraGit?.performUpdateAction), manualVersion, state, busy, error, checked, perform, openDetails };
+  return { supported: Boolean(window.astraGit?.performUpdateAction), state, busy, error, checked, perform, openDetails };
 }
 
 export function hasApplicationUpdate(state: HomebrewUpdateIndicatorState | null): boolean {
