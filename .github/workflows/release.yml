@@ -180,6 +180,15 @@ jobs:
             if ((Get-Item -LiteralPath $executable).LastWriteTimeUtc -eq $oldWriteTime) {
               throw 'The Windows updater reopened the original executable without replacing it.'
             }
+            Write-Host "AstraGit $version was replaced and reopened with PID $($restarted.Id)."
+          } catch {
+            $updateLog = Join-Path $env:ASTRAGIT_USER_DATA_DIR 'updates\windows-install.log'
+            if (Test-Path $updateLog) {
+              Get-Content -LiteralPath $updateLog | ForEach-Object { Write-Host $_ }
+            } else {
+              Write-Host 'The Windows update helper did not write its startup log.'
+            }
+            throw
           } finally {
             foreach ($process in @($application, $restarted)) {
               if ($process -and !$process.HasExited) {
