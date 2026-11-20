@@ -76,6 +76,7 @@ export function App(props: AppProps) {
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null);
   const [projectGitTabs, setProjectGitTabs] = useState<Partial<Record<string, ProjectGitTab>>>({});
   const [slots, setSlots] = useState<ProjectSlot[]>([]);
+  const [gitCommandHost, setGitCommandHost] = useState<HTMLDivElement | null>(null);
   const [showList, setShowList] = useState(false);
   const [projectAddMode, setProjectAddMode] = useState<'clone' | 'init' | null>(null);
   const [projectAddMenuOpen, setProjectAddMenuOpen] = useState(false);
@@ -385,109 +386,112 @@ export function App(props: AppProps) {
       <div className="gitapp-workspace-pane" hidden={settingsOpen}>
       {inWorkbench && activeProject ? (
         <div className="gitapp-shell gitapp-shell--workbench macos-ai-app zeus-shell theme-light">
-          <header className="gitapp-tabbar" aria-label={zh ? '项目页签' : 'Project tabs'}>
-            <nav className="gitapp-tabbar-slots" aria-label={zh ? '已打开的项目' : 'Open projects'}>
-              {slotProjects.map(({ slot, project }, position) => {
-                const active = project.id === activeProject.id;
-                const dragging = draggingSlotId === slot.id;
-                return (
-                  <span key={slot.id} className={`gitapp-tab${active ? ' is-active' : ''}${dragging ? ' is-dragging' : ''}`} data-project-slot-id={slot.id} style={{ order: dragging ? tabDropOrder ?? position * 2 : position * 2 }}>
-                    <button
-                      type="button"
-                      className="gitapp-tab-body"
-                      aria-pressed={active}
-                      aria-description={zh ? '拖拽排序，或按 Alt + Shift + 左右方向键调整顺序' : 'Drag to reorder, or press Alt + Shift + Left or Right'}
-                      disabled={sourceBatchBusy && !active}
-                      data-reorderable={!sourceBatchBusy && slots.length > 1}
-                      draggable={false}
-                      title={project.localPath}
-                      onPointerDown={event => {
-                        if (event.button !== 0 || sourceBatchBusy || slots.length <= 1) return;
-                        tabDrag.current = { id: slot.id, pointerId: event.pointerId, button: event.currentTarget, x: event.clientX, y: event.clientY };
-                        event.currentTarget.setPointerCapture(event.pointerId);
-                      }}
-                      onPointerMove={event => {
-                        const drag = tabDrag.current;
-                        if (!drag || drag.pointerId !== event.pointerId || sourceBatchBusy) return;
-                        if (!drag.layout && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
-                        event.preventDefault();
-                        const nav = event.currentTarget.closest('nav')!;
-                        const bounds = nav.getBoundingClientRect();
-                        if (!drag.layout) {
-                          // Capture the original positions so moving the placeholder does not move the drop thresholds.
-                          const tabs = Array.from(nav.querySelectorAll<HTMLElement>('[data-project-slot-id]'));
-                          drag.layout = {
-                            sourceIndex: tabs.findIndex(tab => tab.dataset.projectSlotId === drag.id),
-                            targets: tabs.filter(tab => tab.dataset.projectSlotId !== drag.id).map(tab => {
-                              const rect = tab.getBoundingClientRect();
-                              return { id: tab.dataset.projectSlotId!, midpoint: rect.left + rect.width / 2 - bounds.left + nav.scrollLeft };
-                            }),
-                          };
-                          setDraggingSlotId(drag.id);
-                        }
-                        if (event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom) {
-                          if (event.clientX < bounds.left + 28) nav.scrollBy({ left: -18 });
-                          else if (event.clientX > bounds.right - 28) nav.scrollBy({ left: 18 });
-                        }
-                        const target = projectTabDropTarget(nav, drag.layout, event.clientX, event.clientY);
-                        setTabDropTarget(current => current?.id === target?.id && current?.side === target?.side ? current : target);
-                      }}
-                      onPointerUp={event => {
-                        const drag = tabDrag.current;
-                        if (!drag || drag.pointerId !== event.pointerId) return;
-                        const target = drag.layout && projectTabDropTarget(event.currentTarget.closest('nav')!, drag.layout, event.clientX, event.clientY);
-                        if (target && !sourceBatchBusy) {
-                          moveSlot(drag.id, target.id, target.side);
-                          setTabAnnouncement(zh ? '已调整项目标签顺序' : 'Project tab order changed');
-                        }
-                        endTabDrag();
-                      }}
-                      onPointerCancel={endTabDrag}
-                      onLostPointerCapture={endTabDrag}
-                      onKeyDown={event => {
-                        if (event.key === 'Escape' && tabDrag.current) { event.preventDefault(); endTabDrag(); return; }
-                        if (sourceBatchBusy || !event.altKey || !event.shiftKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
-                        event.preventDefault();
-                        const index = slots.findIndex(item => item.id === slot.id);
-                        const target = slots[index + (event.key === 'ArrowLeft' ? -1 : 1)];
-                        if (!target) return;
-                        moveSlot(slot.id, target.id, event.key === 'ArrowLeft' ? 'before' : 'after');
-                        const button = event.currentTarget;
-                        requestAnimationFrame(() => { button.focus(); button.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
-                        setTabAnnouncement(zh ? `${project.name} 已向${event.key === 'ArrowLeft' ? '左' : '右'}移动` : `${project.name} moved ${event.key === 'ArrowLeft' ? 'left' : 'right'}`);
-                      }}
-                      onClick={() => {
-                        if (tabDrag.current?.layout || performance.now() - dragEndedAt.current < 200) return;
-                        if (!active) void openProject(project);
-                      }}
-                    >
-                      <FolderOpen className="gitapp-tab-icon" size={15} weight="regular" aria-hidden="true" />
-                      <span className="gitapp-tab-label">{project.name}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="gitapp-tab-close"
-                      disabled={slots.length <= 1 || sourceBatchBusy}
-                      aria-label={zh ? `关闭项目 ${project.name}` : `Close project ${project.name}`}
-                      title={slots.length <= 1 ? (zh ? '至少保留一个项目' : 'Keep at least one project open') : zh ? `关闭 ${project.name}` : `Close ${project.name}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        closeSlot(slot.id);
-                      }}
-                    >
-                      <X size={13} weight="regular" aria-hidden="true" />
-                    </button>
-                    {dragging ? <span className="gitapp-tab-placeholder" aria-hidden="true">{project.name}</span> : null}
-                  </span>
-                );
-              })}
-            </nav>
-            <span className="gitapp-tab-announcement" role="status" aria-live="polite">{tabAnnouncement}</span>
-            <button type="button" className="gitapp-tab-add" disabled={sourceBatchBusy} aria-label={zh ? '打开或添加项目' : 'Open or add project'} title={zh ? '打开或添加项目' : 'Open or add project'} onClick={() => { setProjectAddMode(null); setProjectAddMenuOpen(false); setShowList(true); }}>
-              <Plus size={17} weight="regular" aria-hidden="true" />
-            </button>
-            {repositorySetup.busy ? <Button variant="secondary" size="compact" onClick={() => { setProjectAddMode(repositorySetupKind); setProjectAddMenuOpen(false); setShowList(true); }}>{zh ? '仓库创建中…' : 'Repository setup…'}</Button> : null}
-          </header>
+          <div className="gitapp-workbench-header">
+            <header className="gitapp-tabbar" aria-label={zh ? '项目页签' : 'Project tabs'}>
+              <nav className="gitapp-tabbar-slots" aria-label={zh ? '已打开的项目' : 'Open projects'}>
+                {slotProjects.map(({ slot, project }, position) => {
+                  const active = project.id === activeProject.id;
+                  const dragging = draggingSlotId === slot.id;
+                  return (
+                    <span key={slot.id} className={`gitapp-tab${active ? ' is-active' : ''}${dragging ? ' is-dragging' : ''}`} data-project-slot-id={slot.id} style={{ order: dragging ? tabDropOrder ?? position * 2 : position * 2 }}>
+                      <button
+                        type="button"
+                        className="gitapp-tab-body"
+                        aria-pressed={active}
+                        aria-description={zh ? '拖拽排序，或按 Alt + Shift + 左右方向键调整顺序' : 'Drag to reorder, or press Alt + Shift + Left or Right'}
+                        disabled={sourceBatchBusy && !active}
+                        data-reorderable={!sourceBatchBusy && slots.length > 1}
+                        draggable={false}
+                        title={project.localPath}
+                        onPointerDown={event => {
+                          if (event.button !== 0 || sourceBatchBusy || slots.length <= 1) return;
+                          tabDrag.current = { id: slot.id, pointerId: event.pointerId, button: event.currentTarget, x: event.clientX, y: event.clientY };
+                          event.currentTarget.setPointerCapture(event.pointerId);
+                        }}
+                        onPointerMove={event => {
+                          const drag = tabDrag.current;
+                          if (!drag || drag.pointerId !== event.pointerId || sourceBatchBusy) return;
+                          if (!drag.layout && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) return;
+                          event.preventDefault();
+                          const nav = event.currentTarget.closest('nav')!;
+                          const bounds = nav.getBoundingClientRect();
+                          if (!drag.layout) {
+                            // Capture the original positions so moving the placeholder does not move the drop thresholds.
+                            const tabs = Array.from(nav.querySelectorAll<HTMLElement>('[data-project-slot-id]'));
+                            drag.layout = {
+                              sourceIndex: tabs.findIndex(tab => tab.dataset.projectSlotId === drag.id),
+                              targets: tabs.filter(tab => tab.dataset.projectSlotId !== drag.id).map(tab => {
+                                const rect = tab.getBoundingClientRect();
+                                return { id: tab.dataset.projectSlotId!, midpoint: rect.left + rect.width / 2 - bounds.left + nav.scrollLeft };
+                              }),
+                            };
+                            setDraggingSlotId(drag.id);
+                          }
+                          if (event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom) {
+                            if (event.clientX < bounds.left + 28) nav.scrollBy({ left: -18 });
+                            else if (event.clientX > bounds.right - 28) nav.scrollBy({ left: 18 });
+                          }
+                          const target = projectTabDropTarget(nav, drag.layout, event.clientX, event.clientY);
+                          setTabDropTarget(current => current?.id === target?.id && current?.side === target?.side ? current : target);
+                        }}
+                        onPointerUp={event => {
+                          const drag = tabDrag.current;
+                          if (!drag || drag.pointerId !== event.pointerId) return;
+                          const target = drag.layout && projectTabDropTarget(event.currentTarget.closest('nav')!, drag.layout, event.clientX, event.clientY);
+                          if (target && !sourceBatchBusy) {
+                            moveSlot(drag.id, target.id, target.side);
+                            setTabAnnouncement(zh ? '已调整项目标签顺序' : 'Project tab order changed');
+                          }
+                          endTabDrag();
+                        }}
+                        onPointerCancel={endTabDrag}
+                        onLostPointerCapture={endTabDrag}
+                        onKeyDown={event => {
+                          if (event.key === 'Escape' && tabDrag.current) { event.preventDefault(); endTabDrag(); return; }
+                          if (sourceBatchBusy || !event.altKey || !event.shiftKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+                          event.preventDefault();
+                          const index = slots.findIndex(item => item.id === slot.id);
+                          const target = slots[index + (event.key === 'ArrowLeft' ? -1 : 1)];
+                          if (!target) return;
+                          moveSlot(slot.id, target.id, event.key === 'ArrowLeft' ? 'before' : 'after');
+                          const button = event.currentTarget;
+                          requestAnimationFrame(() => { button.focus(); button.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
+                          setTabAnnouncement(zh ? `${project.name} 已向${event.key === 'ArrowLeft' ? '左' : '右'}移动` : `${project.name} moved ${event.key === 'ArrowLeft' ? 'left' : 'right'}`);
+                        }}
+                        onClick={() => {
+                          if (tabDrag.current?.layout || performance.now() - dragEndedAt.current < 200) return;
+                          if (!active) void openProject(project);
+                        }}
+                      >
+                        <FolderOpen className="gitapp-tab-icon" size={15} weight="regular" aria-hidden="true" />
+                        <span className="gitapp-tab-label">{project.name}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="gitapp-tab-close"
+                        disabled={slots.length <= 1 || sourceBatchBusy}
+                        aria-label={zh ? `关闭项目 ${project.name}` : `Close project ${project.name}`}
+                        title={slots.length <= 1 ? (zh ? '至少保留一个项目' : 'Keep at least one project open') : zh ? `关闭 ${project.name}` : `Close ${project.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          closeSlot(slot.id);
+                        }}
+                      >
+                        <X size={13} weight="regular" aria-hidden="true" />
+                      </button>
+                      {dragging ? <span className="gitapp-tab-placeholder" aria-hidden="true">{project.name}</span> : null}
+                    </span>
+                  );
+                })}
+              </nav>
+              <span className="gitapp-tab-announcement" role="status" aria-live="polite">{tabAnnouncement}</span>
+              <button type="button" className="gitapp-tab-add" disabled={sourceBatchBusy} aria-label={zh ? '打开或添加项目' : 'Open or add project'} title={zh ? '打开或添加项目' : 'Open or add project'} onClick={() => { setProjectAddMode(null); setProjectAddMenuOpen(false); setShowList(true); }}>
+                <Plus size={17} weight="regular" aria-hidden="true" />
+              </button>
+              {repositorySetup.busy ? <Button variant="secondary" size="compact" onClick={() => { setProjectAddMode(repositorySetupKind); setProjectAddMenuOpen(false); setShowList(true); }}>{zh ? '仓库创建中…' : 'Repository setup…'}</Button> : null}
+            </header>
+            <div className="gitapp-workbench-commands" ref={setGitCommandHost} />
+          </div>
 
           <div className="gitapp-workbench-host" key={activeProject.id}>
             <ProjectGitWorkbench
@@ -503,6 +507,7 @@ export function App(props: AppProps) {
               onOpenModelSettings={() => openSettings('models')}
               navigationRequest={searchNavigation}
               onNavigationHandled={finishSearchNavigation}
+              commandHost={gitCommandHost}
               commitViewNavigation={commitView ? (
                 <nav className="gitapp-commit-viewbar" aria-label={zh ? '提交视图' : 'Commit views'}>
                   <button type="button" aria-pressed={commitView === 'source'} disabled={viewSwitchDisabled} onClick={() => showProjectView('source')}>{zh ? '项目提交' : 'Project commits'}</button>

@@ -255,8 +255,6 @@
 }
 .source-git-commit-layout > .git-separator-source-files {
   background: transparent;
-  border-top: 1px solid var(--zeus-product-line);
-  box-sizing: border-box;
 }
 .source-git-commit-layout .source-git-message {
   flex: 1;
@@ -348,7 +346,7 @@
   gap: 6px;
   flex-shrink: 0;
   padding: 4px 7px 4px 9px;
-  border-bottom: 1px solid var(--zeus-product-line);
+  border-bottom: 1px solid var(--zeus-workspace-divider, var(--zeus-product-line));
 }
 .source-git-heading > strong { white-space: nowrap; }
 .source-git-heading > strong > small { font-size:11px; color:var(--zeus-product-muted); margin-left:5px; font-weight:400; }
@@ -434,7 +432,7 @@
   background: var(--ag-bg);
 }
 .gitapp-shell--workbench .source-git-shell > :is(.source-git-sidebar, .source-git-detail) {
-  border: 1px solid var(--ag-line);
+  border: 1px solid var(--zeus-workspace-divider);
   border-radius: var(--ag-card-radius);
   background: var(--ag-panel);
   overflow: hidden;

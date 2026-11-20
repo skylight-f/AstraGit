@@ -110,6 +110,7 @@ export interface ProjectGitWorkbenchProps {
   onOpenModelSettings: () => void;
   navigationRequest?: GitSearchNavigation | null;
   onNavigationHandled?: (requestId: number) => void;
+  commandHost: HTMLElement | null;
   commitViewNavigation?: ReactNode;
   sourceView?: { visible: boolean; active: boolean; onBusyChange: (busy: boolean) => void; onToolbarBusyChange: (busy: boolean) => void };
 }
@@ -1218,11 +1219,12 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         </section>
       ) : null}
 
-      {props.commitViewNavigation || sourceVisible || !workbenchState ? (
+      {props.commandHost && (props.commitViewNavigation || sourceVisible || !workbenchState) ? createPortal(
         <div className="git-command-strip">
           {props.commitViewNavigation}
           {toolbar}
-        </div>
+        </div>,
+        props.commandHost,
       ) : null}
       {sourceView ? (
         <div className="project-git-source-view" hidden={!sourceVisible}>
@@ -1244,181 +1246,185 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       <div className="project-git-browser-layout" data-view={tab} hidden={sourceVisible}>
         <aside className="project-git-navigator" aria-label={zh ? 'Git 导航' : 'Git navigation'}>
           <section className="git-history-repositories" aria-label={zh ? '仓库导航' : 'Repository navigation'}>
-          <header className="git-history-pane-heading">{zh ? '仓库' : 'Repositories'}</header>
-          <div className="git-toolbar-identity">
-            {selectedRepository ? (
-              <BranchSwitcher
-                cascadeRepositories
-                zh={zh}
-                repositories={repositories}
-                selectedRepository={selectedRepository}
-                busy={busy}
-                onSelectRepository={setSelectedRepositoryId}
-                onExecute={execute}
-                onManageBranch={setBranchManagement}
-                onOpenDiff={openDiffWindow}
-                onOpenUpdate={() => setUpdateOpen(true)}
-                onOpenCommit={openCommit}
-                onOpenPush={openPush}
-                onOpenNewBranch={(baseRef) => {
-                  setNewBranchBase(baseRef ?? '');
-                  setNewBranchOpen(true);
-                }}
-                onOpenRevision={() => setRevisionOpen(true)}
-              />
-            ) : null}
-          </div>
-          {selectedRepository?.snapshot.submodules?.length ? (
-            <details>
-              <summary className="project-git-reference-section-heading">
-                <span>{zh ? '子模块管理' : 'Submodule management'}</span>
-              </summary>
-              <button type="button" disabled={busy !== null} onClick={() => setSubmoduleRequest({ repository: selectedRepository })}>{zh ? '添加或管理子模块…' : 'Add or manage submodules…'}</button>
-              {selectedRepository.snapshot.submodules.map((module) => (
-                <button
-                  type="button"
-                  key={module.path}
-                  disabled={busy !== null}
-                  title={zh ? '检出父仓库记录的子模块提交，保留未提交修改；有冲突时 Git 会拒绝更新。' : 'Check out the recorded submodule commit without forcing local changes.'}
-                  onClick={() => void execute(selectedRepository, { type: 'submodule_update', path: module.path }, zh ? '初始化/更新子模块' : 'Initialize/update submodule')}
-                >
-                  <span>{module.path}</span>
-                  <small>{module.initialized ? (zh ? '更新' : 'Update') : zh ? '初始化' : 'Initialize'}</small>
-                </button>
-              ))}
-            </details>
-          ) : null}
-          {[
-            { title: zh ? '仓库' : 'Repositories', items: repositories.filter((repository) => !repository.isSubmodule) },
-            { title: zh ? '子模块' : 'Submodules', items: repositories.filter((repository) => repository.isSubmodule) },
-          ]
-            .filter((group) => group.items.length > 0)
-            .map((group) => (
-              <details key={group.title} open>
-                <summary className="project-git-reference-section-heading">
-                  <span>{group.title}</span>
-                  <small>{group.items.length}</small>
-                </summary>
-                <RepositoryNavigationTree
-                  repositories={group.items}
-                  zh={zh}
-                  selectedId={selectedRepository?.id}
-                  onSelect={(id) => {
-                    setSubtree(null);
-                    setSelectedRepositoryId(id);
-                    setSelectedFilePath('');
-                    setSelectedCommit(null);
-                  }}
-                />
-              </details>
-            ))}
+            <header className="git-history-pane-heading">{zh ? '仓库' : 'Repositories'}</header>
+            <div className="git-history-navigation-scroll">
+              <div className="git-toolbar-identity">
+                {selectedRepository ? (
+                  <BranchSwitcher
+                    cascadeRepositories
+                    zh={zh}
+                    repositories={repositories}
+                    selectedRepository={selectedRepository}
+                    busy={busy}
+                    onSelectRepository={setSelectedRepositoryId}
+                    onExecute={execute}
+                    onManageBranch={setBranchManagement}
+                    onOpenDiff={openDiffWindow}
+                    onOpenUpdate={() => setUpdateOpen(true)}
+                    onOpenCommit={openCommit}
+                    onOpenPush={openPush}
+                    onOpenNewBranch={(baseRef) => {
+                      setNewBranchBase(baseRef ?? '');
+                      setNewBranchOpen(true);
+                    }}
+                    onOpenRevision={() => setRevisionOpen(true)}
+                  />
+                ) : null}
+              </div>
+              {selectedRepository?.snapshot.submodules?.length ? (
+                <details>
+                  <summary className="project-git-reference-section-heading">
+                    <span>{zh ? '子模块管理' : 'Submodule management'}</span>
+                  </summary>
+                  <button type="button" disabled={busy !== null} onClick={() => setSubmoduleRequest({ repository: selectedRepository })}>{zh ? '添加或管理子模块…' : 'Add or manage submodules…'}</button>
+                  {selectedRepository.snapshot.submodules.map((module) => (
+                    <button
+                      type="button"
+                      key={module.path}
+                      disabled={busy !== null}
+                      title={zh ? '检出父仓库记录的子模块提交，保留未提交修改；有冲突时 Git 会拒绝更新。' : 'Check out the recorded submodule commit without forcing local changes.'}
+                      onClick={() => void execute(selectedRepository, { type: 'submodule_update', path: module.path }, zh ? '初始化/更新子模块' : 'Initialize/update submodule')}
+                    >
+                      <span>{module.path}</span>
+                      <small>{module.initialized ? (zh ? '更新' : 'Update') : zh ? '初始化' : 'Initialize'}</small>
+                    </button>
+                  ))}
+                </details>
+              ) : null}
+              {[
+                { title: zh ? '仓库' : 'Repositories', items: repositories.filter((repository) => !repository.isSubmodule) },
+                { title: zh ? '子模块' : 'Submodules', items: repositories.filter((repository) => repository.isSubmodule) },
+              ]
+                .filter((group) => group.items.length > 0)
+                .map((group) => (
+                  <details key={group.title} open>
+                    <summary className="project-git-reference-section-heading">
+                      <span>{group.title}</span>
+                      <small>{group.items.length}</small>
+                    </summary>
+                    <RepositoryNavigationTree
+                      repositories={group.items}
+                      zh={zh}
+                      selectedId={selectedRepository?.id}
+                      onSelect={(id) => {
+                        setSubtree(null);
+                        setSelectedRepositoryId(id);
+                        setSelectedFilePath('');
+                        setSelectedCommit(null);
+                      }}
+                    />
+                  </details>
+                ))}
+            </div>
           </section>
           <GitPaneSeparator name="navigation-repositories" label={zh ? '调整仓库与分支面板高度' : 'Resize repository and branch panels'} axis="y" initial={44} min={20} max={80} />
           <section className="git-history-branches" aria-label={zh ? '分支与引用' : 'Branches and refs'}>
-          <header className="git-history-pane-heading">{zh ? '分支与引用' : 'Branches and refs'}</header>
-          {selectedRepository ? (
-            <>
-              {(
-                [
-                  [zh ? '分支' : 'Branches', selectedRepository.snapshot.localBranches, 'local', 'heads'],
-                  [zh ? '远程' : 'Remotes', selectedRepository.snapshot.remoteBranches, 'remote', 'remotes'],
-                  [zh ? '标签' : 'Tags', selectedRepository.snapshot.tags, 'local', 'tags'],
-                ] as const
-              ).map(([title, branches, kind, namespace]) => (
-                <details key={title} open={branches === selectedRepository.snapshot.localBranches ? true : undefined}>
-                  <summary className="project-git-reference-section-heading">
-                    {branches === selectedRepository.snapshot.localBranches ? <GitBranch className="project-git-branch-section-icon" aria-hidden="true" /> : null}
-                    <span>{title}</span>
-                    <small>{branches.length}</small>
-                  </summary>
-                  <BranchDirectoryTree
-                    hideBranchIcons={branches === selectedRepository.snapshot.localBranches}
-                    branches={[...branches]}
-                    current={branches === selectedRepository.snapshot.localBranches && !selectedRepository.snapshot.detached ? selectedRepository.snapshot.branch : ''}
-                    selected={tab === 'log' ? (historyRef === 'HEAD' && namespace === 'heads' ? selectedRepository.snapshot.branch : historyRef.startsWith(`refs/${namespace}/`) ? historyRef.slice(`refs/${namespace}/`.length) : '') : ''}
-                    branchDivergences={
-                      branches === selectedRepository.snapshot.localBranches
-                        ? {
-                            ...selectedRepository.snapshot.branchDivergences,
-                            [selectedRepository.snapshot.branch]: {
-                              ahead: selectedRepository.snapshot.ahead,
-                              behind: selectedRepository.snapshot.behind,
-                            },
-                          }
-                        : undefined
-                    }
-                    kind={kind}
-                    zh={zh}
-                    onSelect={(ref) => {
-                      setTab('log');
-                      setHistoryRef(`refs/${namespace}/${ref}`);
-                      selectCommit(selectedRepository, `refs/${namespace}/${ref}`);
-                    }}
-                    onCheckout={
-                      branches === selectedRepository.snapshot.tags
-                        ? undefined
-                        : (ref) => {
-                            if (kind === 'remote') {
-                              setRemoteCheckoutTarget({ repositoryId: selectedRepository.id, remoteRef: ref });
-                              return;
-                            }
-                            if (!selectedRepository.snapshot.detached && selectedRepository.snapshot.branch === ref) return;
-                            void execute(selectedRepository, { type: 'checkout', branchName: ref }, zh ? `切换到分支“${ref}”` : `Checkout '${ref}'`).then((outcome) => {
-                              if (outcome !== 'completed') return;
-                              setTab('log');
-                              setHistoryRef('');
-                              setSelectedCommit(null);
-                            });
-                          }
-                    }
-                    onContextMenu={(event, ref) => showGitContextMenu(event, { kind: branches === selectedRepository.snapshot.tags ? 'tag' : kind, repositoryId: selectedRepository.id, ref })}
-                  />
-                </details>
-              ))}
-              <details>
-                <summary className="project-git-reference-section-heading">
-                  <span>{zh ? '贮藏区' : 'Stashes'}</span>
-                  <small>{selectedRepository.snapshot.stashes.length}</small>
-                </summary>
-                {selectedRepository.snapshot.stashes.map((stash) => (
-                  <button
-                    key={stash.ref}
-                    className="project-git-navigation-stash"
-                    data-git-context={JSON.stringify({ kind: 'stash', repositoryId: selectedRepository.id, ref: stash.ref })}
-                    type="button"
-                    aria-current={tab === 'stash' && activeStashRef === stash.ref ? 'true' : undefined}
-                    onClick={() => {
-                      setSelectedStashRef(stash.ref);
-                      setTab('stash');
-                    }}
-                    title={stash.subject}
-                  >
-                    <Archive aria-hidden="true" />
-                    <span>{stash.subject}</span>
-                  </button>
-                ))}
-              </details>
-              <details>
-                <summary className="project-git-reference-section-heading">
-                  <span>{zh ? '子树' : 'Subtrees'}</span>
-                </summary>
-                {(selectedRepository.subtreePaths ?? []).map((path) => (
-                  <button
-                    key={path}
-                    type="button"
-                    onClick={() => {
-                      setSubtree({ repositoryId: selectedRepository.id, path });
-                      setSelectedFilePath('');
-                      setTab('changes');
-                    }}
-                  >
-                    <Folder aria-hidden="true" />
-                    <span>{path}</span>
-                  </button>
-                ))}
-              </details>
-            </>
-          ) : null}
+            <header className="git-history-pane-heading">{zh ? '分支与引用' : 'Branches and refs'}</header>
+            <div className="git-history-navigation-scroll">
+              {selectedRepository ? (
+                <>
+                  {(
+                    [
+                      [zh ? '分支' : 'Branches', selectedRepository.snapshot.localBranches, 'local', 'heads'],
+                      [zh ? '远程' : 'Remotes', selectedRepository.snapshot.remoteBranches, 'remote', 'remotes'],
+                      [zh ? '标签' : 'Tags', selectedRepository.snapshot.tags, 'local', 'tags'],
+                    ] as const
+                  ).map(([title, branches, kind, namespace]) => (
+                    <details key={title} open={branches === selectedRepository.snapshot.localBranches ? true : undefined}>
+                      <summary className="project-git-reference-section-heading">
+                        {branches === selectedRepository.snapshot.localBranches ? <GitBranch className="project-git-branch-section-icon" aria-hidden="true" /> : null}
+                        <span>{title}</span>
+                        <small>{branches.length}</small>
+                      </summary>
+                      <BranchDirectoryTree
+                        hideBranchIcons={branches === selectedRepository.snapshot.localBranches}
+                        branches={[...branches]}
+                        current={branches === selectedRepository.snapshot.localBranches && !selectedRepository.snapshot.detached ? selectedRepository.snapshot.branch : ''}
+                        selected={tab === 'log' ? (historyRef === 'HEAD' && namespace === 'heads' ? selectedRepository.snapshot.branch : historyRef.startsWith(`refs/${namespace}/`) ? historyRef.slice(`refs/${namespace}/`.length) : '') : ''}
+                        branchDivergences={
+                          branches === selectedRepository.snapshot.localBranches
+                            ? {
+                                ...selectedRepository.snapshot.branchDivergences,
+                                [selectedRepository.snapshot.branch]: {
+                                  ahead: selectedRepository.snapshot.ahead,
+                                  behind: selectedRepository.snapshot.behind,
+                                },
+                              }
+                            : undefined
+                        }
+                        kind={kind}
+                        zh={zh}
+                        onSelect={(ref) => {
+                          setTab('log');
+                          setHistoryRef(`refs/${namespace}/${ref}`);
+                          selectCommit(selectedRepository, `refs/${namespace}/${ref}`);
+                        }}
+                        onCheckout={
+                          branches === selectedRepository.snapshot.tags
+                            ? undefined
+                            : (ref) => {
+                                if (kind === 'remote') {
+                                  setRemoteCheckoutTarget({ repositoryId: selectedRepository.id, remoteRef: ref });
+                                  return;
+                                }
+                                if (!selectedRepository.snapshot.detached && selectedRepository.snapshot.branch === ref) return;
+                                void execute(selectedRepository, { type: 'checkout', branchName: ref }, zh ? `切换到分支“${ref}”` : `Checkout '${ref}'`).then((outcome) => {
+                                  if (outcome !== 'completed') return;
+                                  setTab('log');
+                                  setHistoryRef('');
+                                  setSelectedCommit(null);
+                                });
+                              }
+                        }
+                        onContextMenu={(event, ref) => showGitContextMenu(event, { kind: branches === selectedRepository.snapshot.tags ? 'tag' : kind, repositoryId: selectedRepository.id, ref })}
+                      />
+                    </details>
+                  ))}
+                  <details>
+                    <summary className="project-git-reference-section-heading">
+                      <span>{zh ? '贮藏区' : 'Stashes'}</span>
+                      <small>{selectedRepository.snapshot.stashes.length}</small>
+                    </summary>
+                    {selectedRepository.snapshot.stashes.map((stash) => (
+                      <button
+                        key={stash.ref}
+                        className="project-git-navigation-stash"
+                        data-git-context={JSON.stringify({ kind: 'stash', repositoryId: selectedRepository.id, ref: stash.ref })}
+                        type="button"
+                        aria-current={tab === 'stash' && activeStashRef === stash.ref ? 'true' : undefined}
+                        onClick={() => {
+                          setSelectedStashRef(stash.ref);
+                          setTab('stash');
+                        }}
+                        title={stash.subject}
+                      >
+                        <Archive aria-hidden="true" />
+                        <span>{stash.subject}</span>
+                      </button>
+                    ))}
+                  </details>
+                  <details>
+                    <summary className="project-git-reference-section-heading">
+                      <span>{zh ? '子树' : 'Subtrees'}</span>
+                    </summary>
+                    {(selectedRepository.subtreePaths ?? []).map((path) => (
+                      <button
+                        key={path}
+                        type="button"
+                        onClick={() => {
+                          setSubtree({ repositoryId: selectedRepository.id, path });
+                          setSelectedFilePath('');
+                          setTab('changes');
+                        }}
+                      >
+                        <Folder aria-hidden="true" />
+                        <span>{path}</span>
+                      </button>
+                    ))}
+                  </details>
+                </>
+              ) : null}
+            </div>
           </section>
         </aside>
         <GitPaneSeparator name="navigation" label={zh ? '调整 Git 导航宽度' : 'Resize Git navigation'} initial={20} min={12} max={40} />

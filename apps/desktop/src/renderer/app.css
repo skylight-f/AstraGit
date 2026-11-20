@@ -8,7 +8,7 @@ body,
 
 :root {
   color-scheme: light dark;
-  --ag-bg: #e9ebef;
+  --ag-bg: #f7f8fa;
   --ag-panel: #ffffff;
   --ag-ink: #20232a;
   --ag-muted: #5a616e;
@@ -17,7 +17,6 @@ body,
   --ag-accent: var(--zeus-brand-primary);
   --ag-accent-soft: #e4edff;
   --ag-danger: #c23b3b;
-  --ag-chrome: #e6e8ed;
   --ag-control: #f5f6f8;
   --ag-brand-ink: color-mix(in srgb, var(--ag-accent) 78%, var(--ag-ink));
   --ag-brand-selected: var(--ag-accent-soft);
@@ -49,6 +48,7 @@ body {
   grid-template-rows: 42px minmax(0, 1fr);
   height: 100%;
   min-height: 0;
+  background: var(--ag-bg);
 }
 
 .gitapp-titlebar {
@@ -58,8 +58,7 @@ body {
   grid-template-columns: minmax(var(--gitapp-titlebar-leading-min, 190px), 1fr) minmax(220px, 460px) minmax(32px, 1fr);
   align-items: center;
   padding: 0 12px;
-  border-bottom: 1px solid var(--ag-line);
-  background: linear-gradient(105deg, #dce7f4, var(--ag-chrome) 36%);
+  background: var(--ag-bg);
   -webkit-app-region: drag;
   user-select: none;
 }
@@ -162,8 +161,7 @@ body {
   align-items: center;
   gap: 5px;
   padding: 6px 4px;
-  border-right: 1px solid var(--ag-line);
-  background: var(--ag-chrome);
+  background: var(--ag-bg);
   box-sizing: border-box;
 }
 
@@ -537,11 +535,11 @@ body {
 }
 
 .gitapp-shell--workbench.macos-ai-app.zeus-shell {
-  --zeus-page-background: var(--ag-control);
+  --zeus-page-background: var(--ag-bg);
   --zeus-card-background: var(--ag-panel);
   --zeus-card-border: var(--ag-line);
   --zeus-card-border-strong: var(--ag-control-line);
-  --zeus-workspace-divider: var(--ag-line);
+  --zeus-workspace-divider: color-mix(in srgb, var(--ag-line) 56%, var(--ag-panel));
   --agentdesk-control: var(--ag-panel);
   --agentdesk-text: var(--ag-ink);
   --agentdesk-text-secondary: var(--ag-muted);
@@ -618,23 +616,33 @@ body {
 .gitapp-update-dialog button { border: 1px solid #dce0e9; border-radius: 7px; padding: 7px 12px; font: inherit; cursor: pointer; background: #fff; color: inherit; }
 .gitapp-update-dialog button:disabled { opacity: .5; cursor: default; }
 
-/* —— 顶部项目页签：完全独立实现，不挂 Zeus slot 类 —— */
+.gitapp-workbench-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 0 0 auto;
+  gap: 4px;
+  min-width: 0;
+  margin: 4px 6px 0;
+  padding: 3px 6px;
+  border: 1px solid var(--zeus-workspace-divider);
+  border-radius: var(--ag-card-radius);
+  background: var(--zeus-card-background);
+}
+
+.gitapp-workbench-commands {
+  display: contents;
+}
+
+.gitapp-workbench-commands > .git-command-strip {
+  padding-block-start: 3px;
+  border-block-start: 1px solid var(--zeus-workspace-divider);
+}
+
 .gitapp-tabbar {
-  display: flex !important;
-  align-items: center !important;
-  flex-direction: row !important;
-  flex: 0 0 auto !important;
-  width: 100% !important;
-  min-height: 38px !important;
-  height: 38px !important;
-  box-sizing: border-box !important;
-  padding: 4px 10px 4px 7px !important;
-  gap: 5px !important;
-  background: var(--ag-chrome) !important;
-  border-bottom: 1px solid var(--ag-line) !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  z-index: 30 !important;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
 }
 
 .gitapp-tabbar-slots {
@@ -644,7 +652,6 @@ body {
   flex: 0 1 auto !important;
   gap: 6px !important;
   min-width: 0 !important;
-  max-width: calc(100% - 48px) !important;
   overflow-x: auto !important;
   overflow-y: visible !important;
   padding: 0 !important;
