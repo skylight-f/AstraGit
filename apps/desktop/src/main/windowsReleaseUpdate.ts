@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
+import { open, readFile } from 'node:fs/promises';
 import { win32 } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { releasePageUrl, releaseRepository, type WindowsReleaseArtifact } from '@astragit/shared';
 import { execFile } from './releaseVerification.js';
 import { createRelaunchEnvironment } from './systemProxyEnvironment.js';
@@ -62,14 +64,14 @@ export async function readWindowsInstallScope(executable: string): Promise<Insta
 
 // Windows keeps a running executable locked. A system process waits for Main to
 // close Git and SQLite, then verifies the cached bytes again and runs NSIS.
+const startedMessage = 'Waiting for the previous AstraGit process.';
 const installScript = [
   "$ErrorActionPreference = 'Stop'",
   readScopeScript,
   "$executable = $env:ASTRAGIT_UPGRADE_EXE",
   "$directory = [IO.Path]::GetDirectoryName($executable)",
-  "$logPath = Join-Path $env:ASTRAGIT_USER_DATA_DIR 'updates/windows-install.log'",
-  "function Write-UpdateLog($message) { Add-Content -LiteralPath $logPath -Value $message -ErrorAction SilentlyContinue }",
-  "Set-Content -LiteralPath $logPath -Value 'Waiting for the previous AstraGit process.' -ErrorAction SilentlyContinue",
+  `[Console]::WriteLine('${startedMessage}')`,
+  "[Console]::Out.Flush()",
   "try {",
   "  $old = Get-Process -Id ([int]$env:ASTRAGIT_UPGRADE_PID) -ErrorAction SilentlyContinue",
   "  if ($old -and !$old.WaitForExit(120000)) { throw 'AstraGit did not exit in time.' }",
@@ -79,17 +81,17 @@ const installScript = [
   "  if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ne $env:ASTRAGIT_UPGRADE_SHA) { throw 'The update installer failed SHA-256 verification.' }",
   "  $setupOptions = @{ FilePath = $installer; WorkingDirectory = [IO.Path]::GetDirectoryName($installer); ArgumentList = @('/S', '--updated', ('/' + $env:ASTRAGIT_UPGRADE_SCOPE)); PassThru = $true }",
   "  if ($env:ASTRAGIT_UPGRADE_SCOPE -eq 'allusers') { $setupOptions.Verb = 'RunAs' }",
-  "  Write-UpdateLog ('Starting the verified installer in scope ' + $env:ASTRAGIT_UPGRADE_SCOPE + '.')",
+  "  Write-Output ('Starting the verified installer in scope ' + $env:ASTRAGIT_UPGRADE_SCOPE + '.')",
   "  $setup = Start-Process @setupOptions",
-  "  Write-UpdateLog ('Installer process started with PID ' + $setup.Id + '.')",
+  "  Write-Output ('Installer process started with PID ' + $setup.Id + '.')",
   "  $setup.WaitForExit()",
-  "  Write-UpdateLog ('Installer exit code: ' + $setup.ExitCode)",
+  "  Write-Output ('Installer exit code: ' + $setup.ExitCode)",
   "  if ($setup.ExitCode -ne 0) { throw ('Windows installer exit code: ' + $setup.ExitCode) }",
   "  $installed = [Diagnostics.FileVersionInfo]::GetVersionInfo($executable)",
   "  $version = '{0}.{1}.{2}' -f $installed.FileMajorPart, $installed.FileMinorPart, $installed.FileBuildPart",
   "  if ($version -ne $env:ASTRAGIT_UPGRADE_VERSION) { throw 'The requested version was not installed.' }",
   "} catch {",
-  "  Write-UpdateLog ('Update failed: ' + $_.Exception.Message)",
+  "  Write-Output ('Update failed: ' + $_.Exception.Message)",
   "  if ($old -and !$old.HasExited) { exit 1 }",
   "  $env:ASTRAGIT_WINDOWS_UPDATE_ERROR = $_.Exception.Message",
   "}",
@@ -102,9 +104,9 @@ const installScript = [
   "    if ($key -like 'ASTRAGIT_UPGRADE_*') { $launch.EnvironmentVariables.Remove($key) }",
   "  }",
   "  $application = [Diagnostics.Process]::Start($launch)",
-  "  Write-UpdateLog ('AstraGit restarted with PID ' + $application.Id + '.')",
+  "  Write-Output ('AstraGit restarted with PID ' + $application.Id + '.')",
   "} catch {",
-  "  Write-UpdateLog ('AstraGit restart failed: ' + $_.Exception.Message)",
+  "  Write-Output ('AstraGit restart failed: ' + $_.Exception.Message)",
   "  exit 1",
   "}",
 ].join('\n');
@@ -112,19 +114,39 @@ const installScript = [
 export async function launchWindowsUpdate(input: { executable: string; installer: string; sha256: string; version: string; dataDirectory: string; mainPid: number }) {
   const scope = await readWindowsInstallScope(input.executable);
   if (!scope) throw new Error('Windows 安装位置已变化，请重新检查更新。');
-  const child = spawn(powerShell(), scriptArguments(installScript), {
-    detached: true, windowsHide: true, stdio: 'ignore', cwd: windowsSystemDirectory(),
-    env: {
-      ...createRelaunchEnvironment(),
-      ASTRAGIT_USER_DATA_DIR: input.dataDirectory,
-      ASTRAGIT_UPGRADE_EXE: input.executable,
-      ASTRAGIT_UPGRADE_INSTALLER: input.installer,
-      ASTRAGIT_UPGRADE_SHA: input.sha256,
-      ASTRAGIT_UPGRADE_VERSION: input.version,
-      ASTRAGIT_UPGRADE_SCOPE: scope,
-      ASTRAGIT_UPGRADE_PID: String(input.mainPid),
-    },
-  });
-  await new Promise<void>((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
-  child.unref();
+  const logPath = win32.join(input.dataDirectory, 'updates', 'windows-install.log');
+  const log = await open(logPath, 'w', 0o600);
+  try {
+    const child = spawn(powerShell(), scriptArguments(installScript), {
+      detached: true, windowsHide: true, stdio: ['ignore', log.fd, log.fd], cwd: windowsSystemDirectory(),
+      env: {
+        ...createRelaunchEnvironment(),
+        ASTRAGIT_USER_DATA_DIR: input.dataDirectory,
+        ASTRAGIT_UPGRADE_EXE: input.executable,
+        ASTRAGIT_UPGRADE_INSTALLER: input.installer,
+        ASTRAGIT_UPGRADE_SHA: input.sha256,
+        ASTRAGIT_UPGRADE_VERSION: input.version,
+        ASTRAGIT_UPGRADE_SCOPE: scope,
+        ASTRAGIT_UPGRADE_PID: String(input.mainPid),
+      },
+    });
+    await new Promise<void>((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
+    // The spawn event only confirms CreateProcess. Keep Main open until the
+    // helper actually runs the script and is ready to wait for Main's exit.
+    let output = '';
+    const deadline = Date.now() + 8_000;
+    while (Date.now() < deadline) {
+      output = await readFile(logPath, 'utf8');
+      if (child.exitCode !== null || child.signalCode !== null) break;
+      if (output.includes(startedMessage)) {
+        child.unref();
+        return;
+      }
+      await delay(80);
+    }
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    throw new Error(`Windows 更新助手未就绪（${child.exitCode ?? 'timeout'}）${output.trim() ? `：${output.trim().slice(-1200)}` : ''}`);
+  } finally {
+    await log.close();
+  }
 }
