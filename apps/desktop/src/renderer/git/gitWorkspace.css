@@ -729,7 +729,8 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.project-git-menu-action-dialog > .git-checkout-stash { display:flex; align-items:center; gap:8px; }
+.project-git-menu-action-dialog > .git-checkout-stash,
+.project-git-menu-confirmation-body > .git-checkout-stash { display:flex; align-items:center; gap:8px; }
 .git-checkout-stash input { flex:0 0 auto; accent-color:var(--zeus-control-accent); }
 .git-checkout-dialog p { margin:0; }
 .git-amend-dialog label { display: grid; gap: 8px; }

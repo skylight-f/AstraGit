@@ -3,10 +3,28 @@ import test from 'node:test';
 import { gitConflictMessage, gitFailureCode, gitFailureContext, gitFailureText, gitPostActionRefreshError } from '../apps/desktop/src/renderer/git/gitOperationFeedback.ts';
 import { describeUserFacingError } from '../packages/shared/src/userFacingError.ts';
 import { AstraGitApiError, createLocalApiTransport } from '../apps/desktop/src/renderer/transport/localApiTransport.ts';
+import { createApplyStashConfirmation } from '../apps/desktop/src/renderer/git/applyStashConfirmation.ts';
 
 const connection = { baseUrl: 'http://127.0.0.1:43123', apiToken: 'feedback-fixture-token' };
 const conflictSnapshot = (extra = {}) => ({ branch: 'feature/local', detached: false, conflictFiles: ['src/first.ts', 'src/second.ts'], integrationState: 'merge', ...extra });
 const conflictResult = (extra = {}) => ({ outcome: 'conflict', conflictFiles: ['src/first.ts'], ...extra });
+
+test('stash confirmation binds the selected entry and pops only on explicit selection', async () => {
+  const repository = { id: 'repo', name: 'Project' };
+  const stash = { ref: 'stash@{2}', subject: 'WIP on feature', hash: 'a'.repeat(40) };
+  for (const [checked, outcome] of [[false, 'completed'], [true, 'completed'], [true, 'conflict'], [true, null]]) {
+    const actions = [];
+    const dialog = createApplyStashConfirmation(repository, stash, true, async (target, action) => {
+      assert.equal(target, repository);
+      actions.push(action);
+      return outcome;
+    });
+    assert.deepEqual(actions, []);
+    assert.ok(dialog.description.includes(stash.subject));
+    assert.equal(await dialog.run({ text: '', message: '', checked }), outcome !== null);
+    assert.deepEqual(actions, [{ type: 'apply_stash', stashRef: stash.ref, expectedStashHash: stash.hash, pop: checked }]);
+  }
+});
 
 test('checkout recovery context shows verified files and never claims protection for an uncertain outer outcome', () => {
   const error = { code: 'ASTRAGIT_GIT_CHECKOUT_BLOCKED', message: 'blocked', operationStatus: 'failed_before_write', affectedFiles: ['src/中文 文件.ts'], affectedFileCount: 1 };

@@ -4673,6 +4673,18 @@ a {
   display: flex;
   flex-direction: column;
 }
+.project-git-reference-row {
+  display: flex;
+  min-width: 0;
+}
+.project-git-reference-row > button:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.project-git-reference-row > .project-git-reference-actions {
+  flex: 0 0 28px;
+  justify-content: center;
+}
 .project-git-branch-folder {
   margin: 0;
 }

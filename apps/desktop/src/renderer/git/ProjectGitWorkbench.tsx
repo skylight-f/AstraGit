@@ -41,6 +41,7 @@ import { GitCommitAiControls } from './GitCommitAiControls.js';
 import type { GitCommitModelState } from './useGitCommitModels.js';
 import { useGitOperationHistory } from './useGitOperationHistory.js';
 import { GitContextMenu, GitMenuActionDialog, type GitMenuItem, type GitMenuConfirmation } from './GitContextMenu.js';
+import { createApplyStashConfirmation } from './applyStashConfirmation.js';
 import { GitPaneSeparator } from './GitPaneSeparator.js';
 import { ProjectSourceChanges, type SourceCommitCommands } from './ProjectSourceChanges.js';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
@@ -145,8 +146,6 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const [commitLoading, setCommitLoading] = useState(false);
   const [selectedFilePath, setSelectedFilePath] = useState('');
   const [selectedFileStage, setSelectedFileStage] = useState<ChangeStage>('unstaged');
-  const currentFileSelection = useRef({ repositoryId: selectedRepositoryId, path: selectedFilePath, tab });
-  currentFileSelection.current = { repositoryId: selectedRepositoryId, path: selectedFilePath, tab };
   const [searchQuery, setSearchQuery] = useState(() => projectGitViewPreferences.get(props.project.id)?.searchQuery ?? '');
   useEffect(() => {
     projectGitViewPreferences.set(props.project.id, { repositoryId: selectedRepositoryId, searchQuery });
@@ -194,7 +193,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const [mergeOptions, setMergeOptions] = useState<{ repository: ProjectGitRepositoryWorkbenchItem; source: string } | null>(null);
   const [fileQuery, setFileQuery] = useState('');
   const [ignoredQuery, setIgnoredQuery] = useState('');
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; title: string; items: GitMenuItem[]; target: GitContextTarget } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; anchor?: HTMLElement; title: string; items: GitMenuItem[]; target: GitContextTarget } | null>(null);
   const [menuConfirmation, setMenuConfirmation] = useState<GitMenuConfirmation | null>(null);
   const [commitDrafts, setCommitDrafts] = useGitCommitDrafts(props.project.id);
   const { modelRef: commitModelRef, loading: commitModelsLoading } = props.commitModels;
@@ -228,6 +227,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
 
   const [subtreeDialogOpen, setSubtreeDialogOpen] = useState(false);
   const [historyRef, setHistoryRef] = useState('');
+  const [sidebarReference, setSidebarReference] = useState<{ repositoryId: string; ref: string } | null>(null);
   const [historyPage, setHistoryPage] = useState<{ key: string; commits: GitHistorySearchCommit[]; hasMore: boolean; nextCursor: string | null } | null>(null);
   const [historySearch, setHistorySearch] = useState(searchQuery.trim());
   const [historyField, setHistoryField] = useState<GitHistorySearchField>('all');
@@ -244,9 +244,15 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     return items.map((repository) => ({ ...repository, snapshot: { ...repository.snapshot, fileStatuses: visibleRepositoryFiles(repository, items) } }));
   }, [snapshot]);
   const workbenchRepository = repositories.find(repository => repository.id === selectedRepositoryId) ?? repositories[0] ?? null;
+  const visibleWorkbenchSelection = { repositoryId: workbenchRepository?.id, path: selectedFilePath, tab: sourceVisible ? null : tab };
+  const currentWorkbenchSelection = useRef(visibleWorkbenchSelection);
+  currentWorkbenchSelection.current = visibleWorkbenchSelection;
   const selectedRepository = sourceVisible
     ? repositories.find(repository => repository.id === sourceTarget.repositoryId) ?? null
     : workbenchRepository;
+  const activeSidebarReference = tab === 'log'
+    ? historyRef
+    : sidebarReference && sidebarReference.repositoryId === selectedRepository?.id ? sidebarReference.ref : '';
   const sourceLocked = sourceVisible && sourceTarget.locked;
   const activeOperationRepository = busy ? repositories.find((repository) => repository.id === busy.repositoryId) : selectedRepository;
   const stashRepository = repositories.find((repository) => repository.id === stashRepositoryId) ?? null;
@@ -463,7 +469,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     const entry = projectGitWorkbenchCacheEntry(props.client, projectId);
     entry.request = null;
     const selectAfterSave = (saved: ProjectGitRepositorySnapshot) => {
-      const current = currentFileSelection.current;
+      const current = currentWorkbenchSelection.current;
       if (currentProjectId.current !== projectId || !result.resolved || current.tab !== 'changes' || current.repositoryId !== repositoryId || current.path !== path || saved.conflictFiles.includes(path)) return;
       const nextConflict = saved.conflictFiles[0];
       const nextFile = saved.fileStatuses.find((file) => file.path === path) ?? saved.fileStatuses[0];
@@ -689,9 +695,17 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     }
   }
 
-  function showGitContextMenu(event: GitContextEvent, target: GitContextTarget, position = { x: 'clientX' in event ? event.clientX : 0, y: 'clientY' in event ? event.clientY : 0 }): void {
+  function confirmApplyStash(repository: ProjectGitRepositoryWorkbenchItem, stash: ProjectGitRepositoryWorkbenchItem['snapshot']['stashes'][number]): void {
+    setMenuConfirmation(createApplyStashConfirmation(repository, stash, zh, execute));
+  }
+
+  function showGitContextMenu(event: GitContextEvent, target: GitContextTarget, position = { x: 'clientX' in event ? event.clientX : 0, y: 'clientY' in event ? event.clientY : 0 }, anchor?: HTMLElement): void {
     event.preventDefault();
     event.stopPropagation();
+    if (anchor && contextMenu?.anchor === anchor) {
+      setContextMenu(null);
+      return;
+    }
     const repository = repositories.find((item) => item.id === target.repositoryId);
     if (!repository) return;
     const copy = (text: string) => navigator.clipboard.writeText(text);
@@ -718,7 +732,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       items.push({
         label: title,
         disabled: busy !== null,
-        run: () => setMenuConfirmation({ title, description: `${repository.name} · ${target.ref}`, field, initialValue, run: async (text) => (await execute(repository, build(text), title)) !== null }),
+        run: () => setMenuConfirmation({ title, description: `${repository.name} · ${target.ref}`, field, initialValue, run: async ({ text }) => (await execute(repository, build(text), title)) !== null }),
       });
     const newBranch = (baseRef: string) => form(label('新建分支…', 'New branch…'), label('分支名称', 'Branch name'), (branchName) => ({ type: 'create_branch', branchName, baseRef }));
     const fileAction = (path: string, intent: 'open' | 'reveal') => () => launchRepositoryFile(repository, path, intent);
@@ -795,6 +809,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
           items.push({ label: label('设为当前分支的上游…', 'Track from current branch…'), disabled: busy !== null || repository.snapshot.detached || !repository.snapshot.localBranchHeads?.[repository.snapshot.branch], run: () => setBranchManagement({ kind: 'upstream', repository, branchName: repository.snapshot.branch, initialUpstreamRef: `refs/remotes/${target.ref}` }) });
         }
       }
+      items.push({ label: label('查看分支提交', 'View branch commits'), run: () => openReferenceHistory(repository, reference) });
       items.push({ label: label('与当前分支比较', 'Compare with current branch'), run: () => openDiffWindow(repository, '', { comparisonRef: reference, comparisonMode: 'current' }) });
       items.push({ label: label('与工作区比较', 'Compare with working tree'), run: () => openDiffWindow(repository, '', { comparisonRef: reference, comparisonMode: 'working-tree' }) });
       newBranch(reference);
@@ -863,8 +878,9 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       const commit = repository.snapshot.recentCommits.find((item) => item.hash === target.ref);
       if (commit) items.push({ label: label('复制提交说明', 'Copy commit message'), run: () => copy(commit.subject) });
     } else if (target.kind === 'stash') {
-      action(label('应用贮藏', 'Apply stash'), { type: 'apply_stash', stashRef: target.ref });
-      action(label('应用并移除贮藏…', 'Pop stash…'), { type: 'apply_stash', stashRef: target.ref, pop: true }, label('应用成功后删除该贮藏；发生冲突时保留。', 'Remove the stash after successful application; keep it on conflicts.'));
+      const stash = repository.snapshot.stashes.find(entry => entry.ref === target.ref);
+      if (!stash) return;
+      items.push({ label: label('应用贮藏…', 'Apply stash…'), disabled: busy !== null, run: () => confirmApplyStash(repository, stash) });
       action(label('删除贮藏…', 'Drop stash…'), { type: 'drop_stash', stashRef: target.ref }, label('将永久删除该贮藏，无法撤销。', 'Permanently delete this stash. This cannot be undone.'), true);
       items.push({ label: label('复制贮藏引用', 'Copy stash reference'), run: () => copy(target.ref) });
     } else {
@@ -929,7 +945,13 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       });
       items.push({ label: label('复制仓库名称', 'Copy repository name'), run: () => copy(repository.name) });
     }
-    setContextMenu({ ...position, title: menuTitle, items, target });
+    setContextMenu({ ...position, anchor, title: menuTitle, items, target });
+  }
+
+  function openReferenceHistory(repository: ProjectGitRepositoryWorkbenchItem, ref: string): void {
+    setHistoryRef(ref);
+    selectCommit(repository, ref);
+    if (tab !== 'log') setTab('log');
   }
 
   /** 提交、分支和标签入口共用显式选择，后台刷新不再自动选中首条提交。 */
@@ -1340,7 +1362,11 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
                         hideBranchIcons={branches === selectedRepository.snapshot.localBranches}
                         branches={[...branches]}
                         current={branches === selectedRepository.snapshot.localBranches && !selectedRepository.snapshot.detached ? selectedRepository.snapshot.branch : ''}
-                        selected={tab === 'log' ? (historyRef === 'HEAD' && namespace === 'heads' ? selectedRepository.snapshot.branch : historyRef.startsWith(`refs/${namespace}/`) ? historyRef.slice(`refs/${namespace}/`.length) : '') : ''}
+                        selected={activeSidebarReference === 'HEAD' && namespace === 'heads'
+                          ? selectedRepository.snapshot.branch
+                          : activeSidebarReference.startsWith(`refs/${namespace}/`) ? activeSidebarReference.slice(`refs/${namespace}/`.length) : ''}
+                        showActions={tab !== 'log'}
+                        activeMenuRef={contextMenu?.target.repositoryId === selectedRepository.id && contextMenu.target.kind === (namespace === 'tags' ? 'tag' : kind) ? contextMenu.target.ref : undefined}
                         branchDivergences={
                           branches === selectedRepository.snapshot.localBranches
                             ? {
@@ -1355,9 +1381,9 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
                         kind={kind}
                         zh={zh}
                         onSelect={(ref) => {
-                          setTab('log');
-                          setHistoryRef(`refs/${namespace}/${ref}`);
-                          selectCommit(selectedRepository, `refs/${namespace}/${ref}`);
+                          const reference = `refs/${namespace}/${ref}`;
+                          if (tab === 'log') openReferenceHistory(selectedRepository, reference);
+                          else setSidebarReference({ repositoryId: selectedRepository.id, ref: reference });
                         }}
                         onCheckout={
                           branches === selectedRepository.snapshot.tags
@@ -1369,14 +1395,24 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
                                 }
                                 if (!selectedRepository.snapshot.detached && selectedRepository.snapshot.branch === ref) return;
                                 void execute(selectedRepository, { type: 'checkout', branchName: ref }, zh ? `切换到分支“${ref}”` : `Checkout '${ref}'`).then((outcome) => {
-                                  if (outcome !== 'completed') return;
-                                  setTab('log');
-                                  setHistoryRef('');
-                                  setSelectedCommit(null);
+                                  const currentView = currentWorkbenchSelection.current;
+                                  if (outcome !== 'completed' || tab !== 'log' || currentView.tab !== 'log' || currentView.repositoryId !== selectedRepository.id) return;
+                                  const reference = `refs/heads/${ref}`;
+                                  setHistoryRef(current => current === reference ? '' : current);
+                                  setSelectedCommit(current => current?.repositoryId === selectedRepository.id && current.ref === reference ? null : current);
                                 });
                               }
                         }
-                        onContextMenu={(event, ref) => showGitContextMenu(event, { kind: branches === selectedRepository.snapshot.tags ? 'tag' : kind, repositoryId: selectedRepository.id, ref })}
+                        onContextMenu={(event, ref) => {
+                          const target: GitContextTarget = { kind: namespace === 'tags' ? 'tag' : kind, repositoryId: selectedRepository.id, ref };
+                          if (event.type === 'contextmenu' && 'clientX' in event && (event.clientX || event.clientY)) {
+                            showGitContextMenu(event, target);
+                            return;
+                          }
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          const anchor = event.type === 'click' && event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : undefined;
+                          showGitContextMenu(event, target, { x: rect.left, y: rect.bottom + 4 }, anchor);
+                        }}
                       />
                     </details>
                   ))}
@@ -1563,6 +1599,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
               busy={busy}
               onSelectFile={setSelectedFilePath}
               onOpenDiff={openDiffWindow}
+              onApplyStash={confirmApplyStash}
               onExecute={execute}
             />
           ) : (
@@ -2414,6 +2451,23 @@ function LocalChangesSurface(props: {
     props.onSelectRepository(repository.id);
     props.onSelectFile(path, stage);
   }
+  function navigateFileRows(event: ReactKeyboardEvent<HTMLElement>): void {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const button = event.target;
+    if (!(button instanceof HTMLButtonElement) || !button.hasAttribute('data-git-file-select')) return;
+    event.preventDefault();
+    const rows = visibleChangeFileRows(event.currentTarget);
+    const currentRow = button.closest<HTMLElement>('[data-git-file-path]');
+    const index = currentRow ? rows.indexOf(currentRow) : -1;
+    if (index < 0) return;
+    const nextRow = rows[index + (event.key === 'ArrowUp' ? -1 : 1)];
+    const nextButton = nextRow?.querySelector<HTMLButtonElement>('[data-git-file-select]');
+    if (!nextButton) return;
+    nextButton.focus({ preventScroll: true });
+    nextButton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    nextButton.click();
+  }
   function showFileMenu(event: GitContextEvent, path: string, stage: ChangeStage, orderedPaths: string[], position: { x: number; y: number }): void {
     if (!repository || !orderedPaths.includes(path)) {
       event.preventDefault();
@@ -2439,7 +2493,7 @@ function LocalChangesSurface(props: {
   const selectedDiff = stageDiff?.fileDiffs.find((file) => (file.newPath === props.selectedFilePath || file.oldPath === props.selectedFilePath) && matchesSubtree(file.newPath || file.oldPath)) ?? null;
   return (
     <div className="project-git-changes-layout project-git-navigator-layout" data-commit-active={commitActive}>
-      <aside className="project-git-change-tree" data-empty={emptyVisibleChanges || undefined}>
+      <aside className="project-git-change-tree" data-empty={emptyVisibleChanges || undefined} onKeyDown={navigateFileRows}>
         <header>
           <strong>{props.zh ? '变更文件' : 'Changed files'}</strong>
           <span className="project-git-file-view-control" title={fileView === 'flat' ? (props.zh ? '平铺结构' : 'Flat view') : props.zh ? '树状结构' : 'Tree view'}>
@@ -2680,6 +2734,11 @@ interface ChangeTreeNode {
   file: boolean;
 }
 
+function visibleChangeFileRows(root: HTMLElement | null): HTMLElement[] {
+  return [...(root?.querySelectorAll<HTMLElement>('[data-git-file-path]') ?? [])]
+    .filter((row) => !row.closest('details:not([open])') && row.checkVisibility());
+}
+
 function ChangeDirectoryTree(props: {
   view?: 'tree' | 'flat';
   files: string[];
@@ -2700,7 +2759,7 @@ function ChangeDirectoryTree(props: {
 }) {
   const root = useRef<HTMLDivElement>(null);
   function visiblePaths(): string[] {
-    return [...(root.current?.querySelectorAll<HTMLElement>('[data-git-file-path]') ?? [])].filter((element) => !element.closest('details:not([open])') && element.checkVisibility()).map((element) => element.dataset.gitFilePath!);
+    return visibleChangeFileRows(root.current).map((row) => row.dataset.gitFilePath!);
   }
   const nodes = useMemo(
     () => (props.view === 'flat' ? [...props.files].sort((a, b) => a.localeCompare(b)).map((path): ChangeTreeNode => ({ name: path, path, file: true, children: new Map() })) : [...buildChangeTree(props.files).children.values()]),
@@ -2828,6 +2887,7 @@ function StashSurface(props: {
   selectedFilePath: string;
   busy: BusyState;
   onSelectFile: (path: string) => void;
+  onApplyStash: (repository: ProjectGitRepositoryWorkbenchItem, stash: ProjectGitRepositoryWorkbenchItem['snapshot']['stashes'][number]) => void;
   onOpenDiff: (repository: ProjectGitRepositoryWorkbenchItem, filePath: string, options?: { stage?: 'combined' | ChangeStage; commitHash?: string; comparisonRef?: string; comparisonMode?: 'current' | 'working-tree'; revisions?: [string, string] }) => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
 }) {
@@ -2856,11 +2916,8 @@ function StashSurface(props: {
           </span>
         </span>
         <span className="project-git-stash-actions">
-          <Button variant="secondary" size="compact" disabled={props.busy !== null} onClick={() => void props.onExecute(repository, { type: 'apply_stash', stashRef: stash.ref }, props.zh ? '应用 Stash' : 'Apply stash')}>
+          <Button variant="secondary" size="compact" disabled={props.busy !== null} onClick={() => props.onApplyStash(repository, stash)}>
             {props.zh ? '应用' : 'Apply'}
-          </Button>
-          <Button variant="secondary" size="compact" disabled={props.busy !== null} onClick={() => void props.onExecute(repository, { type: 'apply_stash', stashRef: stash.ref, pop: true }, props.zh ? '弹出 Stash' : 'Pop stash')}>
-            {props.zh ? '弹出' : 'Pop'}
           </Button>
           <Button variant="danger" size="compact" disabled={props.busy !== null} onClick={() => void props.onExecute(repository, { type: 'drop_stash', stashRef: stash.ref }, props.zh ? '删除 Stash' : 'Drop stash')}>
             {props.zh ? '删除' : 'Delete'}

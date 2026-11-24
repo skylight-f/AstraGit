@@ -12,6 +12,7 @@ import type { GitCommitModelState } from './useGitCommitModels.js';
 import { ProjectGitDiffWindow, SideBySideDiff } from './ProjectGitDiffViewer.js';
 import { GitConflictEditor } from './GitConflictEditor.js';
 import { GitContextMenu, GitMenuActionDialog, type GitMenuConfirmation, type GitMenuItem } from './GitContextMenu.js';
+import { createApplyStashConfirmation } from './applyStashConfirmation.js';
 import { notifyProjectGitChanged, projectGitWorkbenchCacheEntry, readCachedProjectGitWorkbench, requestProjectGitWorkbench, subscribeProjectGitRefresh } from './projectGitWorkbenchState.js';
 import { SourceRepositoryLabel, SourceRepositoryTree } from './SourceFileTree.js';
 import { buildSourceCommitUnits, defaultSourcePushTarget, readSourceGitState, sourceRepositoryFiles, writeSourceGitState, type SourceGitState } from './sourceGitState.js';
@@ -370,8 +371,8 @@ export function ProjectSourceChanges(props: {
     setStashMenu({ repositoryId, stash, ...position });
   }
 
-  function applyStash(repository: ProjectGitRepositoryWorkbenchItem, stash: StashEntry) {
-    return execute(repository, { type: 'apply_stash', stashRef: stash.ref, expectedStashHash: stash.hash }, label('应用贮藏', 'Apply stash'));
+  function confirmApplyStash(repository: ProjectGitRepositoryWorkbenchItem, stash: StashEntry) {
+    setStashConfirmation(createApplyStashConfirmation(repository, stash, zh, execute));
   }
 
   function stashMenuItems(repository: ProjectGitRepositoryWorkbenchItem, stash: StashEntry): GitMenuItem[] {
@@ -392,8 +393,7 @@ export function ProjectSourceChanges(props: {
 
     return [
       { label: label('查看差异', 'View diff'), run: () => previewStash(repository.id, stash) },
-      { label: label('应用贮藏', 'Apply stash'), disabled: locked, run: async () => { await applyStash(repository, stash); } },
-      confirmAction(label('应用并移除贮藏', 'Pop stash'), label('应用成功后移除这条贮藏。发生冲突时会保留贮藏。', 'Remove this stash after successful application. The stash is kept if conflicts occur.'), { type: 'apply_stash', ...target, pop: true }),
+      { label: label('应用贮藏…', 'Apply stash…'), disabled: locked, run: () => confirmApplyStash(repository, stash) },
       { label: label('复制贮藏引用', 'Copy stash reference'), run: () => navigator.clipboard.writeText(stash.ref) },
       confirmAction(label('删除贮藏', 'Drop stash'), label('将永久删除这条贮藏。', 'This permanently deletes the selected stash.'), { type: 'drop_stash', ...target }, true),
     ];
@@ -523,7 +523,7 @@ export function ProjectSourceChanges(props: {
                       <span>{stash.subject}</span>
                       <small className="source-git-stash-ref">{stash.ref}</small>
                     </button>
-                    <button type="button" className="source-git-stash-apply" disabled={locked} onClick={() => void applyStash(repository, stash)}>
+                    <button type="button" className="source-git-stash-apply" disabled={locked} onClick={() => confirmApplyStash(repository, stash)}>
                       {label('应用', 'Apply')}
                     </button>
                   </div>

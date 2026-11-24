@@ -2,7 +2,7 @@ import './gitWorkspace.css';
 import { gitBranchNameIssue, splitGitRemoteBranch } from '@astragit/shared';
 import type { GitBranchManagementRequest } from './GitBranchManagementDialog.js';
 import { repositoryColor } from './repositoryColor.js';
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { MenuSurface, type MenuSubmenuAnchor } from '../ui/MenuSurface.js';
 import { MotionPresence } from '../ui/MotionPresence.js';
@@ -16,6 +16,7 @@ import { ArrowRightIcon as ArrowRight } from '@phosphor-icons/react/dist/csr/Arr
 import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { CaretRightIcon as CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { CheckIcon as Check } from '@phosphor-icons/react/dist/csr/Check';
+import { DotsThreeIcon as DotsThree } from '@phosphor-icons/react/dist/csr/DotsThree';
 import { GitBranchIcon as GitBranch } from '@phosphor-icons/react/dist/csr/GitBranch';
 import { MagnifyingGlassIcon as MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
 
@@ -51,7 +52,7 @@ export function BranchSwitcher(props: {
   const repositoryPopoverRef = useRef<HTMLDivElement>(null);
   const repositorySubmenuId = useId();
   const repositoryRowId = useId();
-  const [referenceMenu, setReferenceMenu] = useState<{ anchor: HTMLButtonElement; parent: HTMLElement; repository: ProjectGitRepositoryWorkbenchItem; reference: string; kind: BranchKind | 'tag' | 'revision' } | null>(null);
+  const [referenceMenu, setReferenceMenu] = useState<{ anchor: HTMLButtonElement; parent: HTMLElement; repository: ProjectGitRepositoryWorkbenchItem; reference: string; kind: BranchKind } | null>(null);
   const referenceMenuRef = useRef(referenceMenu);
   referenceMenuRef.current = referenceMenu;
   const menuTreeRef = useRef<HTMLDivElement>(null);
@@ -63,8 +64,11 @@ export function BranchSwitcher(props: {
   const searchRef = useRef<HTMLInputElement>(null);
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const triggerLabel = props.selectedRepository ? currentRepositoryRefLabel(props.selectedRepository, props.zh) : props.zh ? '选择分支' : 'Select branch';
+  const matchingRepositories = normalizedQuery
+    ? props.repositories.filter((repository) => `${repository.name}/${repository.relativePath}`.toLocaleLowerCase().includes(normalizedQuery) || repositoryHasMatchingBranch(repository, normalizedQuery))
+    : props.repositories;
   const visibleRepositories = normalizedQuery
-    ? props.repositories.filter((repository) => `${repository.name}/${repository.relativePath}`.toLocaleLowerCase().includes(normalizedQuery) || repositoryHasMatchingReference(repository, normalizedQuery))
+    ? matchingRepositories
     : props.selectedRepository
       ? [props.selectedRepository]
       : props.repositories.slice(0, 1);
@@ -122,7 +126,7 @@ export function BranchSwitcher(props: {
     closeMenus();
     action();
   };
-  const openReferenceMenu = (event: ReactMouseEvent<HTMLButtonElement>, repository: ProjectGitRepositoryWorkbenchItem, ref: string, kind: BranchKind | 'tag' | 'revision') => {
+  const openReferenceMenu = (event: ReactMouseEvent<HTMLButtonElement>, repository: ProjectGitRepositoryWorkbenchItem, ref: string, kind: BranchKind) => {
     const parent = event.currentTarget.closest<HTMLElement>('.project-git-branch-popover');
     if (!parent) return;
     if (!props.cascadeRepositories) props.onSelectRepository(repository.id);
@@ -219,39 +223,37 @@ export function BranchSwitcher(props: {
           ) : null}
           {props.cascadeRepositories || props.repositories.length > 1 ? (
             <section className="git-branch-repositories" aria-label={props.zh ? '仓库' : 'Repositories'}>
-              {props.repositories
-                .filter((repository) => !normalizedQuery || `${repository.name}/${repository.relativePath}`.toLocaleLowerCase().includes(normalizedQuery) || repositoryHasMatchingReference(repository, normalizedQuery))
-                .map((repository) => (
-                  <button
-                    type="button"
-                    key={repository.id}
-                    id={`${repositoryRowId}-${repository.id}`}
-                    className={(props.cascadeRepositories ? repositoryMenu?.repository.id === repository.id : repository.id === props.selectedRepository?.id) ? 'is-current' : ''}
-                    aria-haspopup={props.cascadeRepositories ? 'menu' : undefined}
-                    aria-expanded={props.cascadeRepositories ? repositoryMenu?.repository.id === repository.id : undefined}
-                    aria-controls={repositoryMenu?.repository.id === repository.id ? repositorySubmenuId : undefined}
-                    onKeyDown={(event) => {
-                      if (!props.cascadeRepositories || event.key !== 'ArrowRight') return;
-                      event.preventDefault();
-                      event.currentTarget.click();
-                    }}
-                    onClick={(event) => {
-                      setReferenceMenu(null);
-                      if (props.cascadeRepositories) {
-                        setRepositoryMenu({ anchor: event.currentTarget, repository });
-                      } else {
-                        props.onSelectRepository(repository.id);
-                        setQuery('');
-                      }
-                    }}
-                    title={repository.relativePath}
-                  >
-                    <span className="git-repository-dot" style={{ backgroundColor: repositoryColor(repository.id) }} />
-                    <span>{repository.name}</span>
-                    <small>{currentRepositoryRefLabel(repository, props.zh)}</small>
-                    <CaretRight />
-                  </button>
-                ))}
+              {matchingRepositories.map((repository) => (
+                <button
+                  type="button"
+                  key={repository.id}
+                  id={`${repositoryRowId}-${repository.id}`}
+                  className={(props.cascadeRepositories ? repositoryMenu?.repository.id === repository.id : repository.id === props.selectedRepository?.id) ? 'is-current' : ''}
+                  aria-haspopup={props.cascadeRepositories ? 'menu' : undefined}
+                  aria-expanded={props.cascadeRepositories ? repositoryMenu?.repository.id === repository.id : undefined}
+                  aria-controls={repositoryMenu?.repository.id === repository.id ? repositorySubmenuId : undefined}
+                  onKeyDown={(event) => {
+                    if (!props.cascadeRepositories || event.key !== 'ArrowRight') return;
+                    event.preventDefault();
+                    event.currentTarget.click();
+                  }}
+                  onClick={(event) => {
+                    setReferenceMenu(null);
+                    if (props.cascadeRepositories) {
+                      setRepositoryMenu({ anchor: event.currentTarget, repository });
+                    } else {
+                      props.onSelectRepository(repository.id);
+                      setQuery('');
+                    }
+                  }}
+                  title={repository.relativePath}
+                >
+                  <span className="git-repository-dot" style={{ backgroundColor: repositoryColor(repository.id) }} />
+                  <span>{repository.name}</span>
+                  <small>{currentRepositoryRefLabel(repository, props.zh)}</small>
+                  <CaretRight />
+                </button>
+              ))}
             </section>
           ) : null}
           {visibleRepositories.map((repository) => (
@@ -266,8 +268,8 @@ export function BranchSwitcher(props: {
               submenuId={submenuId}
             />
           ))}
-          {quickActions.length === 0 && !props.repositories.some((repository) => repositoryHasMatchingReference(repository, normalizedQuery)) ? (
-            <p className="project-git-branch-empty">{props.zh ? '没有匹配的分支、标签或操作。可使用“签出标签或 Revision”解析完整引用。' : 'No matching branch, tag, or action. Use Checkout Tag or Revision to resolve an exact ref.'}</p>
+          {quickActions.length === 0 && matchingRepositories.length === 0 ? (
+            <p className="project-git-branch-empty">{props.zh ? '没有匹配的分支、仓库或操作。' : 'No matching branches, repositories, or actions.'}</p>
           ) : null}
         </div>
       </div>
@@ -325,45 +327,23 @@ export function BranchSwitcher(props: {
       </MotionPresence>
       <MotionPresence>
         {open && referenceMenu && popoverRef.current ? (
-          referenceMenu.kind === 'local' || referenceMenu.kind === 'remote' ? (
-            <BranchContextMenu
-              key={referenceMenu.anchor.id}
-              id={submenuId}
-              x={0}
-              y={0}
-              submenuAnchor={{ row: referenceMenu.anchor, parent: referenceMenu.parent }}
-              repository={referenceMenu.repository}
-              branch={referenceMenu.reference}
-              kind={referenceMenu.kind}
-              zh={props.zh}
-              busy={props.busy}
-              onClose={() => setReferenceMenu(null)}
-              onAction={closeMenus}
-              onExecute={props.onExecute}
-              onManageBranch={props.onManageBranch}
-              onOpenDiff={props.onOpenDiff}
-            />
-          ) : (
-            <RevisionContextMenu
-              key={referenceMenu.anchor.id}
-              id={submenuId}
-              x={0}
-              y={0}
-              submenuAnchor={{ row: referenceMenu.anchor, parent: referenceMenu.parent }}
-              repository={referenceMenu.repository}
-              revision={referenceMenu.reference}
-              zh={props.zh}
-              busy={props.busy}
-              onClose={() => setReferenceMenu(null)}
-              onAction={closeMenus}
-              onExecute={props.onExecute}
-              onNewBranch={(baseRef) => {
-                closeMenus();
-                props.onSelectRepository(referenceMenu.repository.id);
-                props.onOpenNewBranch(baseRef);
-              }}
-            />
-          )
+          <BranchContextMenu
+            key={referenceMenu.anchor.id}
+            id={submenuId}
+            x={0}
+            y={0}
+            submenuAnchor={{ row: referenceMenu.anchor, parent: referenceMenu.parent }}
+            repository={referenceMenu.repository}
+            branch={referenceMenu.reference}
+            kind={referenceMenu.kind}
+            zh={props.zh}
+            busy={props.busy}
+            onClose={() => setReferenceMenu(null)}
+            onAction={closeMenus}
+            onExecute={props.onExecute}
+            onManageBranch={props.onManageBranch}
+            onOpenDiff={props.onOpenDiff}
+          />
         ) : null}
       </MotionPresence>
     </div>
@@ -401,14 +381,12 @@ export function RepositoryBranchGroups(props: {
   query: string;
   activeAnchorId?: string;
   submenuId: string;
-  onOpenReferenceMenu: (event: ReactMouseEvent<HTMLButtonElement>, repository: ProjectGitRepositoryWorkbenchItem, ref: string, kind: BranchKind | 'tag' | 'revision') => void;
+  onOpenReferenceMenu: (event: ReactMouseEvent<HTMLButtonElement>, repository: ProjectGitRepositoryWorkbenchItem, ref: string, kind: BranchKind) => void;
 }) {
   const matches = (value: string): boolean => !props.query || value.toLocaleLowerCase().includes(props.query);
   const groups = [
-    { id: 'recent', label: props.zh ? '最近' : 'Recent', values: props.repository.snapshot.recentRefs.filter((item) => matches(item.ref)) },
     { id: 'local', label: props.zh ? '本地' : 'Local', values: props.repository.snapshot.localBranches.filter(matches).map((ref) => ({ ref, kind: 'local' as const })) },
     { id: 'remote', label: props.zh ? '远程' : 'Remote', values: props.repository.snapshot.remoteBranches.filter(matches).map((ref) => ({ ref, kind: 'remote' as const })) },
-    { id: 'tags', label: props.zh ? '标签' : 'Tags', values: props.repository.snapshot.tags.filter(matches).map((ref) => ({ ref, kind: 'tag' as const })) },
   ].filter((group) => group.values.length > 0);
   if (groups.length === 0) return null;
   return (
@@ -419,7 +397,7 @@ export function RepositoryBranchGroups(props: {
       </header>
       {groups.map((group) =>
         props.collapsible ? (
-          <details key={`${group.id}:${props.query}`} className="git-branch-collapsible-group" open={Boolean(props.query) || group.id === 'recent' || (group.id === 'local' && !groups.some((item) => item.id === 'recent'))}>
+          <details key={`${group.id}:${props.query}`} className="git-branch-collapsible-group" open={Boolean(props.query) || group === groups[0]}>
             <summary>
               <CaretRight aria-hidden="true" />
               <span>
@@ -440,7 +418,7 @@ export function RepositoryBranchGroups(props: {
 }
 
 function ReferenceTree(props: {
-  items: Array<{ ref: string; kind: BranchKind | 'tag' | 'revision' }>;
+  items: Array<{ ref: string; kind: BranchKind }>;
   repository: ProjectGitRepositoryWorkbenchItem;
   zh: boolean;
   onOpenReferenceMenu: Parameters<typeof RepositoryBranchGroups>[0]['onOpenReferenceMenu'];
@@ -504,56 +482,6 @@ function ReferenceTree(props: {
         );
       })}
     </div>
-  );
-}
-
-export function RevisionContextMenu(props: {
-  id?: string;
-  submenuAnchor?: MenuSubmenuAnchor;
-  onAction?: () => void;
-  x: number;
-  y: number;
-  repository: ProjectGitRepositoryWorkbenchItem;
-  revision: string;
-  zh: boolean;
-  busy: BusyState;
-  onClose: () => void;
-  onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
-  onNewBranch: (baseRef: string) => void;
-}) {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const closeMenus = props.onAction ?? props.onClose;
-
-  return (
-    <MenuSurface
-      onClose={props.onClose}
-      ref={menuRef}
-      id={props.id}
-      submenuAnchor={props.submenuAnchor}
-      className="project-git-branch-context-menu"
-      role="menu"
-      aria-label={props.zh ? `引用操作：${props.revision}` : `Reference actions: ${props.revision}`}
-      style={{ left: props.x, top: props.y }}
-    >
-      <div className="git-reference-menu-heading" title={props.revision}>
-        <GitBranch aria-hidden="true" />
-        <strong>{props.revision}</strong>
-      </div>
-      <button
-        type="button"
-        role="menuitem"
-        disabled={props.busy !== null}
-        onClick={() => {
-          closeMenus();
-          void props.onExecute(props.repository, { type: 'checkout_revision', revision: props.revision }, props.zh ? `签出“${props.revision}”` : `Checkout '${props.revision}'`);
-        }}
-      >
-        {props.zh ? '签出（进入游离提交状态）' : 'Checkout (detached HEAD)'}
-      </button>
-      <button type="button" role="menuitem" disabled={props.busy !== null} onClick={() => props.onNewBranch(props.revision)}>
-        {props.zh ? `从“${props.revision}”新建分支…` : `New Branch from '${props.revision}'…`}
-      </button>
-    </MenuSurface>
   );
 }
 
@@ -960,9 +888,9 @@ export function intersectRepositoryValues(repositories: ProjectGitRepositoryWork
   return [...new Set(read(first!))].filter((value) => rest.every((repository) => read(repository).includes(value))).sort((left, right) => left.localeCompare(right));
 }
 
-export function repositoryHasMatchingReference(repository: ProjectGitRepositoryWorkbenchItem, query: string): boolean {
+export function repositoryHasMatchingBranch(repository: ProjectGitRepositoryWorkbenchItem, query: string): boolean {
   if (!query) return true;
-  return [...repository.snapshot.localBranches, ...repository.snapshot.remoteBranches, ...repository.snapshot.tags, ...repository.snapshot.recentRefs.map((item) => item.ref)].some((value) => value.toLocaleLowerCase().includes(query));
+  return [...repository.snapshot.localBranches, ...repository.snapshot.remoteBranches].some((value) => value.toLocaleLowerCase().includes(query));
 }
 
 export function readUpdateStrategy(projectId: string): ProjectGitUpdateStrategy {
@@ -976,11 +904,13 @@ export function BranchDirectoryTree(props: {
   branches: string[];
   current: string;
   selected?: string;
+  showActions?: boolean;
+  activeMenuRef?: string;
   branchDivergences?: Record<string, { ahead: number; behind: number }>;
   kind: BranchKind;
   zh: boolean;
   onCheckout?: (branch: string) => void;
-  onContextMenu: (event: ReactMouseEvent<HTMLButtonElement>, branch: string) => void;
+  onContextMenu: (event: ReactMouseEvent | ReactKeyboardEvent, branch: string) => void;
 }) {
   const tree = useMemo(() => buildBranchTree(props.branches), [props.branches.join('\0')]);
   return (
@@ -1003,29 +933,48 @@ export function BranchTreeEntry(props: Parameters<typeof BranchDirectoryTree>[0]
         .filter(Boolean)
         .join(props.zh ? '，' : ', ')
     : '';
+  const branch = props.node.branch;
+  const actionsLabel = props.zh ? '引用操作' : 'Reference actions';
   return (
-    <button
-      type="button"
-      className={props.node.branch === (props.selected ?? props.current) ? 'is-current' : ''}
-      data-checked-out={props.node.branch === props.current || undefined}
-      aria-current={props.selected === props.node.branch ? 'true' : undefined}
-      aria-label={props.node.branch === props.current ? `${props.node.branch}, ${props.zh ? '当前检出分支' : 'Checked out branch'}${divergenceLabel ? `, ${divergenceLabel}` : ''}` : undefined}
-      // 分支图标与目录箭头共用前导位置；隐藏图标时才用 padding 补足该位置。
-      style={{ paddingLeft: `${props.depth * 20 + (props.hideBranchIcons ? 25 : 5)}px` }}
-      onClick={() => props.onSelect?.(props.node.branch)}
-      onDoubleClick={() => props.onCheckout?.(props.node.branch)}
-      onContextMenu={(event) => props.onContextMenu(event, props.node.branch)}
-      title={props.onCheckout ? (props.zh ? `双击切换到分支“${props.node.branch}”` : `Double-click to check out '${props.node.branch}'`) : undefined}
-    >
-      {props.node.branch === props.current ? <span className="git-current-branch-dot" aria-hidden="true" /> : null}
-      {props.hideBranchIcons ? null : <GitBranch aria-hidden="true" />}
-      <span>{props.node.name}</span>
-      {divergenceText ? (
-        <span className="git-tracking-badge" aria-label={divergenceLabel} title={divergenceLabel}>
-          {divergenceText}
-        </span>
+    <div className="project-git-reference-row" onContextMenu={(event) => props.onContextMenu(event, branch)}>
+      <button
+        type="button"
+        className={branch === (props.selected ?? props.current) ? 'is-current' : ''}
+        data-checked-out={branch === props.current || undefined}
+        aria-current={props.selected === branch ? 'true' : undefined}
+        aria-label={branch === props.current ? `${branch}, ${props.zh ? '当前检出分支' : 'Checked out branch'}${divergenceLabel ? `, ${divergenceLabel}` : ''}` : undefined}
+        // 分支图标与目录箭头共用前导位置；隐藏图标时才用 padding 补足该位置。
+        style={{ paddingLeft: `${props.depth * 20 + (props.hideBranchIcons ? 25 : 5)}px` }}
+        onClick={() => props.onSelect?.(branch)}
+        onDoubleClick={() => props.onCheckout?.(branch)}
+        onKeyDown={(event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) props.onContextMenu(event, branch);
+        }}
+        title={props.onCheckout ? (props.zh ? `双击切换到分支“${branch}”` : `Double-click to check out '${branch}'`) : undefined}
+      >
+        {branch === props.current ? <span className="git-current-branch-dot" aria-hidden="true" /> : null}
+        {props.hideBranchIcons ? null : <GitBranch aria-hidden="true" />}
+        <span>{props.node.name}</span>
+        {divergenceText ? (
+          <span className="git-tracking-badge" aria-label={divergenceLabel} title={divergenceLabel}>
+            {divergenceText}
+          </span>
+        ) : null}
+      </button>
+      {props.showActions ? (
+        <button
+          type="button"
+          className="project-git-reference-actions"
+          aria-label={`${branch} · ${actionsLabel}`}
+          title={actionsLabel}
+          aria-haspopup="menu"
+          aria-expanded={props.activeMenuRef === branch}
+          onClick={(event) => props.onContextMenu(event, branch)}
+        >
+          <DotsThree aria-hidden="true" />
+        </button>
       ) : null}
-    </button>
+    </div>
   );
 }
 

@@ -10,11 +10,11 @@ export interface GitMenuItem {
   danger?: boolean;
   run: () => void | Promise<void>;
 }
-export function GitContextMenu(props: { x: number; y: number; title: string; items: GitMenuItem[]; onClose: () => void; onError: (error: unknown) => void }) {
+export function GitContextMenu(props: { x: number; y: number; anchor?: HTMLElement; title: string; items: GitMenuItem[]; onClose: () => void; onError: (error: unknown) => void }) {
   const ref = useRef<HTMLDivElement>(null);
 
   return createPortal(
-    <MenuSurface onClose={props.onClose} ref={ref} className="project-git-context-menu" role="menu" aria-label={props.title} style={{ left: props.x, top: props.y }} onContextMenu={(event) => event.preventDefault()}>
+    <MenuSurface onClose={props.onClose} anchor={props.anchor} ref={ref} className="project-git-context-menu" role="menu" aria-label={props.title} style={{ left: props.x, top: props.y }} onContextMenu={(event) => event.preventDefault()}>
       <strong>{props.title}</strong>
       {props.items.map((item, index) => (
         <button
@@ -47,12 +47,15 @@ export interface GitMenuConfirmation {
   field?: string;
   initialValue?: string;
   messageField?: string;
+  checkboxLabel?: string;
   danger?: boolean;
-  run: (value: string, message?: string) => Promise<boolean>;
+  run: (input: { text: string; message: string; checked: boolean }) => Promise<boolean>;
 }
 export function GitMenuActionDialog(props: { value: GitMenuConfirmation; zh: boolean; onClose: () => void }) {
   const [text, setText] = useState(props.value.initialValue ?? '');
   const [message, setMessage] = useState('');
+  const [checkedConfirmation, setCheckedConfirmation] = useState<GitMenuConfirmation | null>(null);
+  const checked = checkedConfirmation === props.value;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const submitting = useRef(false);
@@ -78,6 +81,12 @@ export function GitMenuActionDialog(props: { value: GitMenuConfirmation; zh: boo
               <textarea value={message} disabled={busy} onChange={(event) => setMessage(event.currentTarget.value)} />
             </label>
           ) : null}
+          {props.value.checkboxLabel ? (
+            <label className="git-checkout-stash">
+              <input type="checkbox" checked={checked} disabled={busy} onChange={event => setCheckedConfirmation(event.currentTarget.checked ? props.value : null)} />
+              {props.value.checkboxLabel}
+            </label>
+          ) : null}
           {error ? <p role="alert">{error}</p> : null}
         </div>
         <footer>
@@ -94,7 +103,7 @@ export function GitMenuActionDialog(props: { value: GitMenuConfirmation; zh: boo
               setBusy(true);
               setError('');
               try {
-                if (await props.value.run(text.trim(), message.trim())) props.onClose();
+                if (await props.value.run({ text: text.trim(), message: message.trim(), checked })) props.onClose();
                 else setError(props.zh ? '操作未完成，请处理错误后重试。' : 'The operation did not complete. Resolve the error and retry.');
               } catch (reason) {
                 setError(reason instanceof Error ? reason.message : String(reason));
