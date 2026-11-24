@@ -6,6 +6,7 @@ export interface SourceBatchResult {
   expectedHead: string; commitSha?: string; message: string; remote: string; targetBranch: string;
   dependsOn: string[]; status: SourceResultStatus; error?: string;
   pushRequested?: boolean;
+  setUpstream?: boolean;
 }
 export interface SourceGitState {
   selected: Record<string, string[]>; sharedMessage: string; drafts: Record<string, string>;
@@ -100,10 +101,4 @@ export function buildSourceCommitUnits(repositories: ProjectGitRepositoryWorkben
   };
   for (const unit of units.values()) visit(unit);
   return ordered;
-}
-
-export function defaultSourcePushTarget(repository: ProjectGitRepositoryWorkbenchItem): { remote: string; branch: string } {
-  const upstream = repository.snapshot.upstream ?? '';
-  const remote = [...repository.snapshot.remotes].sort((a, b) => b.length - a.length).find(remote => upstream.startsWith(`${remote}/`)) ?? '';
-  return { remote, branch: remote ? upstream.slice(remote.length + 1) : repository.snapshot.detached ? '' : repository.snapshot.branch };
 }

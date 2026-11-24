@@ -4,7 +4,7 @@ import { gitFailureText } from './gitOperationFeedback.js';
 
 export interface SourceReviewRow extends SourceBatchResult {
   relativePath: string; ordinaryPaths: string[]; gitlinks: SourceCommitUnit['gitlinks'];
-  fingerprint?: string; remotes: string[]; detached: boolean;
+  fingerprint?: string;
 }
 type BatchClient = Pick<DashboardClient, 'previewGitCommitSelection' | 'loadProjectGitWorkbench' | 'executeProjectGitAction' | 'validateGitPushTargets'>;
 const message = gitFailureText;
@@ -84,7 +84,7 @@ export async function runSourceBatch(input: {
 }
 export async function pushSourceResult(client: Pick<BatchClient, 'executeProjectGitAction'>, projectId: string, row: SourceBatchResult) {
   if (!row.commitSha || !row.remote || !row.targetBranch) throw new Error('没有可重试的提交或推送目标。');
-  await client.executeProjectGitAction(projectId, row.repositoryId, { type: 'push', remote: row.remote, sourceBranch: row.branch, targetBranch: row.targetBranch, expectedHeadSha: row.commitSha, expectedBranch: row.branch });
+  await client.executeProjectGitAction(projectId, row.repositoryId, { type: 'push', remote: row.remote, sourceBranch: row.branch, targetBranch: row.targetBranch, setUpstream: row.setUpstream, expectedHeadSha: row.commitSha, expectedBranch: row.branch });
 }
 export function previewForUnit(unit: SourceCommitUnit, preview: GitCommitSelectionPreview | null) {
   return preview?.repositories.find(repository => repository.repositoryId === unit.repository.id);

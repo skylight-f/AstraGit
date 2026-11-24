@@ -6,11 +6,23 @@ import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { executeProjectGitAction, getProjectGitRepositorySnapshot, parseGitUnifiedDiff, readSelectedGitCommitChanges, validateProjectGitPushTarget } from '../packages/git-core/dist/index.js';
-import { buildSourceCommitUnits, defaultSourcePushTarget } from '../apps/desktop/src/renderer/git/sourceGitState.ts';
+import { buildSourceCommitUnits } from '../apps/desktop/src/renderer/git/sourceGitState.ts';
+import { branchPushTarget, createPushDraft } from '../apps/desktop/src/renderer/git/pushTarget.ts';
 import { pushSourceResult, runSourceBatch, validateSourceReview } from '../apps/desktop/src/renderer/git/sourceGitBatch.ts';
 
 const exec = promisify(execFile);
 const gitAt = cwd => async (...args) => (await exec('git', args, { cwd })).stdout.trim();
+test('batch push and retry use the confirmed destination, tracking choice and commit', async () => {
+  const row = { repositoryId: 'child', branch: 'fix/home', remote: 'origin', targetBranch: 'review/home', setUpstream: false, commitSha: 'confirmed' };
+  const actions = [];
+  const client = { executeProjectGitAction: async (...args) => actions.push(args) };
+  await pushSourceResult(client, 'project', row);
+  assert.deepEqual(actions, [['project', 'child', {
+    type: 'push', remote: 'origin', sourceBranch: 'fix/home', targetBranch: 'review/home', setUpstream: false,
+    expectedHeadSha: 'confirmed', expectedBranch: 'fix/home',
+  }]]);
+});
+
 async function init(path) {
   await mkdir(path, { recursive: true }); const git = gitAt(path);
   await git('init', '--initial-branch=main'); await git('config', 'user.name', 'AstraGit Acceptance'); await git('config', 'user.email', 'acceptance@astragit.invalid'); await git('config', 'commit.gpgsign', 'false');
@@ -50,8 +62,8 @@ test('a project commits child before parent, preserves unchecked staging, and re
   const rows = [];
   for (const unit of units) {
     const value = unit.ordinaryPaths.length ? (await client.previewGitCommitSelection('project', [{ repositoryId: unit.repository.id, relativePath: unit.repository.relativePath, paths: unit.ordinaryPaths }], 'worktree')).repositories[0] : null;
-    const push = defaultSourcePushTarget(unit.repository);
-    rows.push({ repositoryId: unit.repository.id, repositoryName: unit.repository.name, relativePath: unit.repository.relativePath, branch: unit.repository.snapshot.branch, expectedHead: unit.repository.snapshot.headSha, paths: unit.paths, ordinaryPaths: unit.ordinaryPaths, gitlinks: unit.gitlinks, dependsOn: unit.dependsOn, mode: 'worktree', fingerprint: value?.fingerprint, message: 'feat: selected project batch', remote: push.remote, targetBranch: push.branch, remotes: ['origin'], detached: false, status: 'queued' });
+    const push = branchPushTarget(createPushDraft(unit.repository.snapshot), unit.repository.snapshot.branch);
+    rows.push({ repositoryId: unit.repository.id, repositoryName: unit.repository.name, relativePath: unit.repository.relativePath, branch: unit.repository.snapshot.branch, expectedHead: unit.repository.snapshot.headSha, paths: unit.paths, ordinaryPaths: unit.ordinaryPaths, gitlinks: unit.gitlinks, dependsOn: unit.dependsOn, mode: 'worktree', fingerprint: value?.fingerprint, message: 'feat: selected project batch', remote: push.remote, targetBranch: push.targetBranch, setUpstream: push.setUpstream, status: 'queued' });
   }
   await validateSourceReview(client, 'project', rows, true);
   const hook = join(root, 'child.git/hooks/pre-receive'); await writeFile(hook, '#!/bin/sh\nexit 1\n'); await chmod(hook, 0o755);

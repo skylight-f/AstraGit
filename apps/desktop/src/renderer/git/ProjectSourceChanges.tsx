@@ -15,9 +15,10 @@ import { GitContextMenu, GitMenuActionDialog, type GitMenuConfirmation, type Git
 import { createApplyStashConfirmation } from './applyStashConfirmation.js';
 import { notifyProjectGitChanged, projectGitWorkbenchCacheEntry, readCachedProjectGitWorkbench, requestProjectGitWorkbench, subscribeProjectGitRefresh } from './projectGitWorkbenchState.js';
 import { SourceRepositoryLabel, SourceRepositoryTree } from './SourceFileTree.js';
-import { buildSourceCommitUnits, defaultSourcePushTarget, readSourceGitState, sourceRepositoryFiles, writeSourceGitState, type SourceGitState } from './sourceGitState.js';
+import { buildSourceCommitUnits, readSourceGitState, sourceRepositoryFiles, writeSourceGitState, type SourceGitState } from './sourceGitState.js';
 import { previewForUnit, pushSourceResult, runSourceBatch, validateSourceReview, type SourceReviewRow } from './sourceGitBatch.js';
-import { SourceCommitReview } from './SourceCommitReview.js';
+import { createPushDraft } from './pushTarget.js';
+import { SourceCommitReview, type SourceReviewDraft } from './SourceCommitReview.js';
 import { SourceCommitOptions } from './SourceCommitOptions.js';
 import { SourceRepositoryControls } from './SourceRepositoryControls.js';
 import { GitPaneSeparator } from './GitPaneSeparator.js';
@@ -88,7 +89,7 @@ export function ProjectSourceChanges(props: {
   const [generating, setGenerating] = useState(false);
   const updateParents = state.updateParents;
   const [draftRepository, setDraftRepository] = useState('');
-  const [review, setReview] = useState<{ rows: SourceReviewRow[]; push: boolean } | null>(null);
+  const [review, setReview] = useState<{ rows: SourceReviewDraft[]; push: boolean } | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewError, setReviewError] = useState('');
   const [diff, setDiff] = useState<GitDiffSummary | null>(null);
@@ -238,11 +239,29 @@ export function ProjectSourceChanges(props: {
       const currentUnits = buildSourceCommitUnits(fresh.repositories, stateRef.current.selected, stateRef.current.selectionMode, updateParents);
       const targets = currentUnits.filter(unit => unit.ordinaryPaths.length).map(unit => ({ repositoryId: unit.repository.id, relativePath: unit.repository.relativePath, paths: unit.ordinaryPaths }));
       const preview = targets.length ? await client.previewGitCommitSelection(project.id, targets, stateRef.current.selectionMode) : null;
-      const rows: SourceReviewRow[] = currentUnits.map(unit => {
-        const value = previewForUnit(unit, preview); const repository = unit.repository; const pushTarget = defaultSourcePushTarget(repository);
+      const rows: SourceReviewDraft[] = currentUnits.map(unit => {
+        const value = previewForUnit(unit, preview);
+        const { repository } = unit;
+        if (value && (value.branch !== repository.snapshot.branch || value.detached !== repository.snapshot.detached)) throw new Error(`${repository.name}: ${label('仓库分支已变化，请重新预览。', 'The branch changed. Reopen the review.')}`);
         if (repository.snapshot.conflictFiles.length || repository.snapshot.integrationState) throw new Error(`${repository.name}: ${label('请先在工作台解决冲突或完成合并。', 'Resolve conflicts or complete integration in the workbench first.')}`);
         if (value && !value.diff.diffText.trim() && !unit.gitlinks.length) throw new Error(`${repository.name}: ${label('所选内容没有可提交的差异。', 'No committable changes in the selection.')}`);
-        return { repositoryId: repository.id, repositoryName: repository.name, relativePath: repository.relativePath, branch: value?.branch ?? repository.snapshot.branch, expectedHead: value?.headSha ?? repository.snapshot.headSha, fingerprint: value?.fingerprint, mode: stateRef.current.selectionMode, paths: unit.paths, ordinaryPaths: unit.ordinaryPaths, gitlinks: unit.gitlinks, dependsOn: unit.dependsOn, message: stateRef.current.messageMode === 'shared' ? stateRef.current.sharedMessage : stateRef.current.drafts[repository.id] ?? '', remote: pushTarget.remote, targetBranch: pushTarget.branch, remotes: repository.snapshot.remotes, detached: repository.snapshot.detached, status: 'queued' };
+        return {
+          repositoryId: repository.id,
+          repositoryName: repository.name,
+          relativePath: repository.relativePath,
+          branch: repository.snapshot.branch,
+          expectedHead: value?.headSha ?? repository.snapshot.headSha,
+          fingerprint: value?.fingerprint,
+          mode: stateRef.current.selectionMode,
+          paths: unit.paths,
+          ordinaryPaths: unit.ordinaryPaths,
+          gitlinks: unit.gitlinks,
+          dependsOn: unit.dependsOn,
+          message: stateRef.current.messageMode === 'shared' ? stateRef.current.sharedMessage : stateRef.current.drafts[repository.id] ?? '',
+          snapshot: repository.snapshot,
+          pushDraft: createPushDraft(repository.snapshot),
+          status: 'queued',
+        };
       });
       if (!rows.length) throw new Error(label('所选文件已无更改，请重新选择。', 'Selected files have no remaining changes.'));
       if (rows.some(row => row.fingerprint && stateRef.current.fingerprints[row.repositoryId] && row.fingerprint !== stateRef.current.fingerprints[row.repositoryId])) setReviewError(label('生成 AI 说明后文件已变化，请检查本次说明与文件列表后再确认。', 'Content changed after AI generation. Review the message and file list.'));
@@ -250,20 +269,20 @@ export function ProjectSourceChanges(props: {
     } catch (reason) { setError(gitFailureText(reason)); }
     finally { setReviewBusy(false); }
   }
-  async function confirm() {
+  async function confirm(rows: SourceReviewRow[]) {
     if (!review || busyRef.current || reviewBusy) return;
     setReviewBusy(true); setReviewError('');
     let batchStarted = false;
     try {
-      await validateSourceReview(client, project.id, review.rows, review.push);
+      await validateSourceReview(client, project.id, rows, review.push);
       busyRef.current = true; setBusy(true); onBusyChange(true); stopped.current = false; setReview(null);
       batchStarted = true;
-      await runSourceBatch({ client, projectId: project.id, rows: review.rows, push: review.push, stopped: () => stopped.current,
+      await runSourceBatch({ client, projectId: project.id, rows, push: review.push, stopped: () => stopped.current,
         onActive: id => { activeRepository.current = id; }, onResults: lastResults => update({ lastResults }),
         onCommitted: row => update(current => ({ ...current, selected: { ...current.selected, [row.repositoryId]: (current.selected[row.repositoryId] ?? []).filter(path => !row.paths.includes(path)) } })),
       });
       // 子模块成功、父仓库失败时保留新增引用供下次重新预览。
-      for (const row of review.rows) if (row.gitlinks.length && !stateRef.current.lastResults.find(result => result.repositoryId === row.repositoryId)?.commitSha) toggle(row.repositoryId, row.gitlinks.map(link => link.path), true);
+      for (const row of rows) if (row.gitlinks.length && !stateRef.current.lastResults.find(result => result.repositoryId === row.repositoryId)?.commitSha) toggle(row.repositoryId, row.gitlinks.map(link => link.path), true);
       notifyProjectGitChanged(project.id); await refresh();
     } catch (reason) { const message = gitFailureText(reason); if (batchStarted) setError(message); else setReviewError(message); }
     finally { activeRepository.current = null; busyRef.current = false; setBusy(false); onBusyChange(false); setReviewBusy(false); }
@@ -567,6 +586,6 @@ export function ProjectSourceChanges(props: {
         items={stashMenuItems(stashMenuRepository, stashMenu.stash)} onClose={() => setStashMenu(null)} onError={reason => setError(gitFailureText(reason))} />
     ) : null}
     {stashConfirmation ? <GitMenuActionDialog value={stashConfirmation} zh={zh} onClose={() => setStashConfirmation(null)} /> : null}
-    {review ? <SourceCommitReview rows={review.rows} push={review.push} zh={zh} busy={reviewBusy} error={reviewError} onChange={rows => setReview({ ...review, rows })} onClose={() => setReview(null)} onConfirm={() => void confirm()} /> : null}
+    {review ? <SourceCommitReview rows={review.rows} push={review.push} zh={zh} busy={reviewBusy} error={reviewError} onChange={rows => setReview({ ...review, rows })} onClose={() => setReview(null)} onConfirm={rows => void confirm(rows)} /> : null}
   </main>;
 }

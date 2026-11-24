@@ -2679,7 +2679,7 @@ function LocalChangesSurface(props: {
               />
             </div>
             <div className="project-git-commit-actions">
-              <label className="project-git-commit-push-option" title={pushTarget ? `${pushTarget.remote}/${pushTarget.targetBranch}${pushTarget.setUpstream ? (props.zh ? '（首次推送并建立跟踪）' : ' (publish and set upstream)') : ''}` : props.zh ? '请先配置远程与分支推送目标；游离 HEAD 无法自动推送。' : 'Configure a remote and branch target first; detached HEAD cannot be pushed automatically.'}>
+              <label className="project-git-commit-push-option" title={pushTarget ? `${pushTarget.remote}/${pushTarget.targetBranch}${pushTarget.setUpstream ? (props.zh ? '（跟踪此远程分支）' : ' (track this remote branch)') : ''}` : props.zh ? '请先配置远程与分支推送目标；游离 HEAD 无法自动推送。' : 'Configure a remote and branch target first; detached HEAD cannot be pushed automatically.'}>
                 <input type="checkbox" checked={pushAfterCommit} disabled={!pushTarget || props.busy !== null || generating} onChange={event => setPushSelection(event.target.checked ? pushKey : null)} />
                 <span>{pushTarget ? (props.zh ? `立即推送变更到 ${pushTarget.remote}/${pushTarget.targetBranch}` : `Push changes immediately to ${pushTarget.remote}/${pushTarget.targetBranch}`) : (props.zh ? '提交后立即推送（暂无可用目标）' : 'Push after commit (no target available)')}</span>
               </label>

@@ -1,6 +1,8 @@
 import './gitWorkspace.css';
 import { gitBranchNameIssue, splitGitRemoteBranch } from '@astragit/shared';
 import type { GitBranchManagementRequest } from './GitBranchManagementDialog.js';
+import { RepositoryPushFields } from './RepositoryPushFields.js';
+import { branchPushTarget, createPushDraft, defaultRemote, type PushDestinationDraft } from './pushTarget.js';
 import { repositoryColor } from './repositoryColor.js';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -1269,7 +1271,7 @@ export function PullDialog(props: {
   onClose: () => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
 }) {
-  const initial = defaultPushTarget(props.repository);
+  const initial = defaultPullTarget(props.repository);
   const [remote, setRemote] = useState(initial.remote);
   const [branch, setBranch] = useState(initial.targetBranch);
   const [rebase, setRebase] = useState(false);
@@ -1406,37 +1408,25 @@ export function PushDialog(props: {
 }) {
   const [repositoryId, setRepositoryId] = useState(props.selectedRepository?.id ?? props.repositories[0]?.id ?? '');
   const repository = props.repositories.find((item) => item.id === repositoryId);
-  const [selections, setSelections] = useState<PushSelection[]>(() => {
+  const [drafts, setDrafts] = useState<Record<string, PushDestinationDraft>>(() => Object.fromEntries(
+    props.repositories.map(item => [item.id, createPushDraft(item.snapshot)]),
+  ));
+  const [checked, setChecked] = useState<Array<Pick<PushSelection, 'repositoryId' | 'sourceBranch'>>>(() => {
     const current = props.selectedRepository ?? props.repositories[0];
     if (!current || current.snapshot.detached || !current.snapshot.localBranches.includes(current.snapshot.branch) || !current.snapshot.remotes.length) return [];
-    return [{ repositoryId: current.id, remote: defaultPushTarget(current).remote, sourceBranch: current.snapshot.branch, targetBranch: current.snapshot.branch, setUpstream: true }];
+    return [{ repositoryId: current.id, sourceBranch: current.snapshot.branch }];
   });
-  const [remotes, setRemotes] = useState<Record<string, string>>({});
-  const [targets, setTargets] = useState<Record<string, { targetBranch: string; setUpstream: boolean }>>({});
   const [forceWithLease, setForceWithLease] = useState(false);
   const [pushTags, setPushTags] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const optionsId = useId();
   const locked = submitting || props.busy !== null;
   if (!props.open || !repository) return null;
-  const remote = remotes[repositoryId] ?? defaultPushTarget(repository).remote;
-  const branches = repository.snapshot.localBranches;
-  const remoteBranches = repository.snapshot.remoteBranches.filter((ref) => ref.startsWith(remote + '/') && !ref.endsWith('/HEAD')).map((ref) => ref.slice(remote.length + 1));
-  const branchTarget = (sourceBranch: string) => {
-    const configured = targets[JSON.stringify([repositoryId, remote, sourceBranch])];
-    // A branch may still track the branch it was created from. Publish its own
-    // name by default; pushing with setUpstream creates and tracks that branch.
-    return configured ?? { targetBranch: sourceBranch, setUpstream: true };
-  };
-  const selectionFor = (sourceBranch: string): PushSelection => ({ repositoryId, remote, sourceBranch, ...branchTarget(sourceBranch) });
-  const selected = (sourceBranch: string) => selections.some((item) => item.repositoryId === repositoryId && item.sourceBranch === sourceBranch);
-  const changeTarget = (sourceBranch: string, update: { targetBranch: string; setUpstream: boolean }) => {
-    setTargets((current) => ({ ...current, [JSON.stringify([repositoryId, remote, sourceBranch])]: update }));
-    setSelections((current) => current.map((item) => (item.repositoryId === repositoryId && item.sourceBranch === sourceBranch ? { ...item, ...update } : item)));
-  };
+  const draft = drafts[repositoryId] ?? createPushDraft(repository.snapshot);
+  const selections = checked.map(({ repositoryId, sourceBranch }) => ({
+    repositoryId, ...branchPushTarget(drafts[repositoryId]!, sourceBranch),
+  }));
   const resultMode = props.results.length > 0;
   const completed = resultMode && !locked && props.results.every((result) => result.tone === 'success');
-  const allSelected = branches.length > 0 && branches.every(selected);
   const duplicateTarget = selections.some((item, index) =>
     selections.some((other, otherIndex) => index !== otherIndex && item.repositoryId === other.repositoryId && item.remote === other.remote && item.targetBranch.trim() === other.targetBranch.trim()),
   );
@@ -1460,7 +1450,22 @@ export function PushDialog(props: {
           ) : null}
           {!completed ? (
             <>
-              <fieldset disabled={locked} className="project-git-sync-fields">
+              <RepositoryPushFields
+                zh={props.zh}
+                disabled={locked}
+                snapshot={repository.snapshot}
+                draft={draft}
+                selectedBranches={checked.filter(item => item.repositoryId === repositoryId).map(item => item.sourceBranch)}
+                onChange={next => setDrafts(current => ({ ...current, [repositoryId]: next }))}
+                onSelect={(branches, select) => {
+                  setDrafts(current => ({ ...current, [repositoryId]: draft }));
+                  const changed = new Set(branches);
+                  setChecked(current => {
+                    const rest = current.filter(item => item.repositoryId !== repositoryId || !changed.has(item.sourceBranch));
+                    return select ? [...rest, ...branches.map(sourceBranch => ({ repositoryId, sourceBranch }))] : rest;
+                  });
+                }}
+              >
                 {props.repositories.length > 1 ? (
                   <label>
                     <span>{props.zh ? '本地仓库' : 'Repository'}</span>
@@ -1473,108 +1478,7 @@ export function PushDialog(props: {
                     </select>
                   </label>
                 ) : null}
-                <label>
-                  <span>{props.zh ? '推送到仓库' : 'Push to remote'}</span>
-                  <select
-                    value={remote}
-                    onChange={(event) => {
-                      const next = event.currentTarget.value;
-                      setRemotes((current) => ({ ...current, [repositoryId]: next }));
-                      setSelections((current) =>
-                        current.map((item) =>
-                          item.repositoryId === repositoryId
-                            ? {
-                                ...item,
-                                remote: next,
-                                targetBranch:
-                                  targets[JSON.stringify([repositoryId, next, item.sourceBranch])]?.targetBranch ??
-                                  item.sourceBranch,
-                                setUpstream: targets[JSON.stringify([repositoryId, next, item.sourceBranch])]?.setUpstream ?? true,
-                              }
-                            : item,
-                        ),
-                      );
-                    }}
-                  >
-                    {repository.snapshot.remotes.map((name) => (
-                      <option key={name}>{name}</option>
-                    ))}
-                  </select>
-                </label>
-                <p className="project-git-remote-url">{repository.snapshot.remoteDetails?.find((item) => item.name === remote)?.pushUrl}</p>
-              </fieldset>
-              <fieldset disabled={locked || !remote} className="project-git-sync-options">
-                <legend>{props.zh ? '要推送的分支' : 'Branches to push'}</legend>
-                <div className="project-git-sync-table-scroll">
-                  <table className="project-git-sync-table">
-                    <thead>
-                      <tr>
-                        <th>{props.zh ? '推送' : 'Push'}</th>
-                        <th>{props.zh ? '本地分支' : 'Local branch'}</th>
-                        <th>{props.zh ? '远程分支' : 'Remote branch'}</th>
-                        <th>{props.zh ? '跟踪' : 'Track'}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {branches.map((branch) => {
-                        const target = branchTarget(branch);
-                        return (
-                          <tr key={branch}>
-                            <td>
-                              <input
-                                aria-label={(props.zh ? '推送分支 ' : 'Push branch ') + branch}
-                                type="checkbox"
-                                checked={selected(branch)}
-                                onChange={(event) => {
-                                  const checked = event.currentTarget.checked;
-                                  setSelections((current) => (checked ? [...current, selectionFor(branch)] : current.filter((item) => item.repositoryId !== repositoryId || item.sourceBranch !== branch)));
-                                }}
-                              />
-                            </td>
-                            <th scope="row">
-                              {branch}
-                              {branch === repository.snapshot.branch ? <small>{props.zh ? '当前' : 'Current'}</small> : null}
-                            </th>
-                            <td>
-                              <input
-                                aria-label={(props.zh ? '远程目标 ' : 'Remote target ') + branch}
-                                list={optionsId}
-                                value={selected(branch) || remoteBranches.includes(branch) || targets[JSON.stringify([repositoryId, remote, branch])] ? target.targetBranch : ''}
-                                onChange={(event) => changeTarget(branch, { ...target, targetBranch: event.currentTarget.value })}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                aria-label={(props.zh ? '设置跟踪 ' : 'Set upstream ') + branch}
-                                type="checkbox"
-                                checked={target.setUpstream}
-                                onChange={(event) => changeTarget(branch, { ...target, setUpstream: event.currentTarget.checked })}
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                <datalist id={optionsId}>
-                  {remoteBranches.map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
-                {!branches.length ? <p>{props.zh ? '当前仓库没有本地分支。' : 'No local branches in this repository.'}</p> : null}
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={(event) => {
-                      const rest = selections.filter((item) => item.repositoryId !== repositoryId);
-                      setSelections(event.currentTarget.checked ? [...rest, ...branches.map(selectionFor)] : rest);
-                    }}
-                  />
-                  {props.zh ? '全选当前仓库分支' : 'Select all branches in this repository'}
-                </label>
-              </fieldset>
+              </RepositoryPushFields>
               <fieldset disabled={locked} className="project-git-sync-options">
                 <label>
                   <input type="checkbox" checked={pushTags} onChange={(event) => setPushTags(event.currentTarget.checked)} />
@@ -1626,9 +1530,9 @@ export function PushDialog(props: {
   );
 }
 
-export function defaultPushTarget(repository: ProjectGitRepositoryWorkbenchItem): { remote: string; targetBranch: string } {
+function defaultPullTarget(repository: ProjectGitRepositoryWorkbenchItem): { remote: string; targetBranch: string } {
   const upstream = repository.snapshot.upstream;
-  const remote = upstream ? splitGitRemoteBranch(upstream, repository.snapshot.remotes)?.remote ?? repository.snapshot.remotes.find(name => name === 'origin') ?? repository.snapshot.remotes[0] ?? '' : repository.snapshot.remotes.find(name => name === 'origin') ?? repository.snapshot.remotes[0] ?? '';
+  const remote = defaultRemote(repository.snapshot);
   return { remote, targetBranch: upstream?.startsWith(`${remote}/`) ? upstream.slice(remote.length + 1) : repository.snapshot.branch };
 }
 

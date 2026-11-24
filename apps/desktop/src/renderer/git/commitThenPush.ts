@@ -1,18 +1,12 @@
-import { splitGitRemoteBranch } from '@astragit/shared';
+import { branchPushTarget, createPushDraft, type BranchPushTarget } from './pushTarget.js';
 import type { DashboardClient, ProjectGitAction, ProjectGitRepositorySnapshot } from '../apiClient.js';
 
-export type CommitPushTarget = { remote: string; sourceBranch: string; targetBranch: string; setUpstream: boolean };
+export type CommitPushTarget = BranchPushTarget;
 type ActionResponse = Awaited<ReturnType<DashboardClient['executeProjectGitAction']>>;
 
 export function commitPushTarget(snapshot: ProjectGitRepositorySnapshot): CommitPushTarget | null {
-  if (snapshot.detached || !snapshot.branch || snapshot.branch === 'HEAD') return null;
-  // Use the tracked destination, including differently named branches and remotes containing '/'.
-  if (snapshot.upstream) {
-    const tracked = splitGitRemoteBranch(snapshot.upstream, snapshot.remotes);
-    return tracked ? { remote: tracked.remote, sourceBranch: snapshot.branch, targetBranch: tracked.branch, setUpstream: false } : null;
-  }
-  const remote = snapshot.remotes.includes('origin') ? 'origin' : snapshot.remotes.length === 1 ? snapshot.remotes[0] : null;
-  return remote ? { remote, sourceBranch: snapshot.branch, targetBranch: snapshot.branch, setUpstream: true } : null;
+  if (snapshot.detached || !snapshot.branch || snapshot.branch === 'HEAD' || !snapshot.remotes.length) return null;
+  return branchPushTarget(createPushDraft(snapshot), snapshot.branch);
 }
 
 /** One user action, two native operations: a failed push must never repeat the commit. */

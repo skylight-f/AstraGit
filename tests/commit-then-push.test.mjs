@@ -5,18 +5,31 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { commitPushTarget, commitThenPush } from '../apps/desktop/src/renderer/git/commitThenPush.ts';
+import { branchPushTarget, changePushDestination, createPushDraft } from '../apps/desktop/src/renderer/git/pushTarget.ts';
 import { executeProjectGitAction, getProjectGitRepositorySnapshot } from '../packages/git-core/dist/index.js';
 
-test('commit push target uses the actual tracked branch, or an unambiguous first-push destination', () => {
+test('commit push target publishes the local branch name, using the same remote defaults as standalone push', () => {
   const snapshot = { branch: 'feature/local', detached: false, remotes: ['origin', 'team/mirror'], upstream: 'team/mirror/review/remote' };
-  assert.deepEqual(commitPushTarget(snapshot), { sourceBranch: 'feature/local', remote: 'team/mirror', targetBranch: 'review/remote', setUpstream: false });
+  assert.deepEqual(commitPushTarget(snapshot), { sourceBranch: 'feature/local', remote: 'team/mirror', targetBranch: 'feature/local', setUpstream: true });
   assert.deepEqual(commitPushTarget({ ...snapshot, upstream: null }), { sourceBranch: 'feature/local', remote: 'origin', targetBranch: 'feature/local', setUpstream: true });
   assert.equal(commitPushTarget({ ...snapshot, detached: true }), null);
   assert.equal(commitPushTarget({ ...snapshot, upstream: null, remotes: [] }), null);
-  assert.equal(commitPushTarget({ ...snapshot, upstream: null, remotes: ['one', 'two'] }), null);
-  assert.equal(commitPushTarget({ ...snapshot, upstream: 'missing/main' }), null);
-  assert.equal(commitPushTarget({ ...snapshot, upstream: 'main' }), null);
+  assert.equal(commitPushTarget({ ...snapshot, upstream: null, remotes: ['one', 'two'] }).remote, 'one');
+  assert.equal(commitPushTarget({ ...snapshot, upstream: 'missing/main' }).remote, 'origin');
+  assert.equal(commitPushTarget({ ...snapshot, upstream: 'main' }).remote, 'origin');
   assert.equal(commitPushTarget({ ...snapshot, upstream: null, remotes: ['publish'] }).remote, 'publish');
+});
+
+test('push destination edits and tracking are scoped to the selected remote and local branch', () => {
+  const snapshot = { branch: 'fix/home', remotes: ['origin', 'mirror'], upstream: 'origin/master' };
+  const draft = createPushDraft(snapshot);
+  assert.deepEqual(branchPushTarget(draft, snapshot.branch), commitPushTarget(snapshot));
+  assert.equal(branchPushTarget(draft, snapshot.branch).targetBranch, snapshot.branch);
+  const edited = changePushDestination(draft, snapshot.branch, { targetBranch: 'review/home', setUpstream: false });
+  assert.deepEqual(branchPushTarget(edited, snapshot.branch), { sourceBranch: 'fix/home', remote: 'origin', targetBranch: 'review/home', setUpstream: false });
+  assert.deepEqual(branchPushTarget({ ...edited, remote: 'mirror' }, snapshot.branch), { sourceBranch: 'fix/home', remote: 'mirror', targetBranch: 'fix/home', setUpstream: true });
+  assert.equal(branchPushTarget(edited, 'release').targetBranch, 'release');
+  assert.equal(branchPushTarget(draft, 'fix/home').targetBranch, 'fix/home');
 });
 
 async function fixture(t) {

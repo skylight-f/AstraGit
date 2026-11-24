@@ -801,10 +801,6 @@ body {
   letter-spacing: -0.01em !important;
 }
 
-.gitapp-tab.is-active .gitapp-tab-label {
-  font-weight: 650 !important;
-}
-
 .gitapp-tab-close {
   display: inline-flex !important;
   align-items: center !important;
