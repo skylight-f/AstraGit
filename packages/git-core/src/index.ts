@@ -665,7 +665,7 @@ export async function discoverGitRepositories(containerPath: string, maxDepth = 
   return projectGitExecution.run({ ...execution, signal: combined, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' } }, () => discoverGitRepositoriesInternal(containerPath, maxDepth, combined));
 }
 
-async function findRepositoryCandidates(containerRoot: string, maxDepth: number, signal?: AbortSignal, options?: { skipHidden: boolean; onUnreadable(): void }): Promise<string[]> {
+async function findRepositoryCandidates(containerRoot: string, maxDepth: number, signal?: AbortSignal, options?: { skipHidden: boolean; stopAtRepository: boolean; onUnreadable(): void }): Promise<string[]> {
   if (dirname(containerRoot) === containerRoot) throw new Error('请选择实际项目目录，不能在文件系统根目录发现仓库。');
   const candidates = new Set<string>();
   const skippedDirectories = new Set(['.git', '.tmp', '.astragit-worktrees', 'node_modules', 'dist', 'build', 'target', '.next', '.turbo', '.cache']);
@@ -675,17 +675,16 @@ async function findRepositoryCandidates(containerRoot: string, maxDepth: number,
     const nested = await mapWithConcurrency(currentLevel, 8, async (directoryPath) => {
       signal?.throwIfAborted();
       try {
-        const [gitMarker, entries] = await Promise.all([
-          lstat(join(directoryPath, '.git')).catch((error: NodeJS.ErrnoException) => {
-            if (error.code === 'ENOENT') return null;
-            throw error;
-          }),
-          readdir(directoryPath, { withFileTypes: true }),
-        ]);
+        const gitMarker = await lstat(join(directoryPath, '.git')).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        });
         if (gitMarker?.isDirectory() || gitMarker?.isFile()) {
           candidates.add(canonicalFilesystemPath(directoryPath));
+          if (options?.stopAtRepository) return [];
         }
         if (depth === maxDepth) return [];
+        const entries = await readdir(directoryPath, { withFileTypes: true });
         return entries
           .filter(entry => entry.isDirectory() && !entry.isSymbolicLink() && !skippedDirectories.has(entry.name) && !(options?.skipHidden && entry.name.startsWith('.')))
           .map(entry => join(directoryPath, entry.name));
@@ -707,7 +706,7 @@ async function findRepositoryCandidates(containerRoot: string, maxDepth: number,
 export async function scanGitProjectDirectories(directory: string, signal?: AbortSignal) {
   const root = await realpath(directory);
   let skipped = 0;
-  const candidates = await findRepositoryCandidates(root, 6, signal, { skipHidden: true, onUnreadable: () => { skipped += 1; } });
+  const candidates = await findRepositoryCandidates(root, 1, signal, { skipHidden: true, stopAtRepository: true, onUnreadable: () => { skipped += 1; } });
   const directories = await mapWithConcurrency(candidates, 4, async (candidate) => {
     try {
       if (isPathInside(root, candidate) && await readRepositoryRoot(candidate, { signal }) === candidate) return candidate;
