@@ -104,11 +104,11 @@ Apple Silicon 与 Intel 使用各自的 DMG 和摘要。Homebrew 安装采用 As
 
 ## 系统代理
 
-AstraGit 跟随 macOS 系统代理。更新检查与下载、模型请求使用 Electron 系统网络栈；应用启动的 Homebrew、Git HTTP(S)、Codex 和默认 Git SSH 连接通过本机转发服务按目标解析同一套系统规则。系统代理切换后，新请求使用新规则，已建立的连接继续到结束；本机 API 与登录回调保持直连，无需给 AstraGit 单独配置代理端口。
+AstraGit 的 HTTP(S) 请求跟随 macOS 系统代理。更新检查与下载、模型请求使用 Electron 系统网络栈。应用启动的 Homebrew、Git HTTP(S) 和 Codex 通过本机转发服务按目标解析系统代理规则。系统代理切换后，新请求使用新规则，已建立的连接继续到结束。本机 API 与登录回调保持直连。
 
-转发支持 HTTP、HTTPS、SOCKS4/5 及 PAC 首选路由。代理连接失败会报错，不自动尝试 PAC 后续备用项或直连，不重放写入请求。需要代理账号认证的企业代理尚未接入系统凭据。显式 Git `http.proxy`、自定义 SSH 命令和 `ProxyJump` / `ProxyCommand` 仍按用户配置执行；通过外部浏览器打开的链接由浏览器管理网络。
+转发支持 HTTP、HTTPS、SOCKS4/5 及 PAC 首选路由。代理连接失败会报错，不自动尝试 PAC 后续备用项或直连，不重放写入请求。需要代理账号认证的企业代理尚未接入系统凭据。Git HTTP(S) 支持显式配置 `http.proxy`。通过外部浏览器打开的链接由浏览器管理网络。
 
-默认 SSH 代理兼容 macOS 原生 `nc` 的 HTTP/1.0 CONNECT 握手，隧道建立后原样传输 SSH 数据。若系统代理仍在连接 GitHub 的 22 端口后断开，可按 [GitHub 官方说明](https://docs.github.com/en/authentication/troubleshooting-ssh/using-ssh-over-the-https-port)验证 `ssh.github.com:443`；应用不会自动改写远端或 SSH 配置，端口可达性与代理握手兼容性须分别检查。
+通过 SSH 拉取或推送时，AstraGit 沿用本机 Git 和 SSH 配置。远端地址和 `~/.ssh/config` 决定主机与端口，SSH 按该主机的配置选择密钥、`ProxyJump` 或 `ProxyCommand`。已指定的 `core.sshCommand`、`GIT_SSH` 和 `GIT_SSH_COMMAND` 按 Git 原有的优先级生效。
 
 如果内网 Git 仓库通过代理返回 HTTP 502，可在该仓库目录先验证直连。以下命令中的地址需换成远端实际使用的协议、主机名及端口。
 

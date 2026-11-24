@@ -215,7 +215,7 @@ function ensureSystemProxy(): Promise<void> {
     systemProxy = await startSystemProxyBridge({ resolveProxy: url => session.defaultSession.resolveProxy(url) });
     try {
       // Install before constructing server/Codex managers or running Homebrew.
-      proxyEnvironment = await installSystemProxyEnvironment({ proxyUrl: systemProxy.proxyUrl });
+      proxyEnvironment = installSystemProxyEnvironment({ proxyUrl: systemProxy.proxyUrl });
     } catch (error) {
       await systemProxy.close();
       systemProxy = null;
@@ -245,7 +245,7 @@ function closeServices(): Promise<void> {
       if (failures.length) throw new AggregateError(failures, 'AstraGit 服务退出失败。');
     } finally {
       try { await systemProxy?.close(); }
-      finally { await proxyEnvironment?.close(); }
+      finally { proxyEnvironment?.restore(); }
     }
   })();
   return servicesClosing;

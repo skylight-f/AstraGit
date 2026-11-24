@@ -39,9 +39,9 @@ async function temporaryDirectory(t) {
   return root;
 }
 
-async function installProxyEnvironment(t) {
-  const installed = await installSystemProxyEnvironment({ proxyUrl, platform: 'linux' });
-  t.after(() => installed.close());
+function installProxyEnvironment(t) {
+  const installed = installSystemProxyEnvironment({ proxyUrl });
+  t.after(() => installed.restore());
 }
 
 function assertProxyEnvironment(actual) {
@@ -77,7 +77,7 @@ if (args[0] === 'list') {
 }
 `, { mode: 0o755 });
   setEnvironment(t, { ASTRAGIT_HOMEBREW_BIN: brewPath });
-  await installProxyEnvironment(t);
+  installProxyEnvironment(t);
   const service = createHomebrewUpdateService({
     currentAppPath: appPath,
     currentAppVersion: '0.1.0',
@@ -132,7 +132,7 @@ createInterface({ input: process.stdin }).on('line', line => {
 });
 ` : `await import(${JSON.stringify(new URL('./fixtures/codex-app-server.mjs', import.meta.url).href)});\n`;
   await writeFile(commandPath, recorder + body, { mode: 0o755 });
-  await installProxyEnvironment(t);
+  installProxyEnvironment(t);
   const manager = createCodexAppServerManager({
     codexHome: home,
     lightweightGeneration: true,
