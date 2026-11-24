@@ -77,6 +77,18 @@ test('rename and binary metadata retain actual leading a and b directories rathe
   await f.git('commit', '-qm', 'rename'); const detail = await getProjectGitCommitDetail(f.cwd, 'HEAD'); assert.equal(detail.diff.fileDiffs.find(file => file.newPath === 'b/new\t名.txt').oldPath, 'a/old space.txt');
 });
 
+test('unstaging a rename from its displayed name restores both index paths and keeps later edits', async t => {
+  const f = await fixture(t, { 'old.txt': 'original\n', 'other.txt': 'other\n' });
+  await f.git('mv', 'old.txt', 'new.txt');
+  await f.write('new.txt', 'later edit\n');
+  await f.write('other.txt', 'staged separately\n');
+  await f.git('add', 'other.txt');
+  await f.run({ type: 'unstage', paths: ['new.txt'] });
+  assert.equal(await f.git('diff', '--cached', '--name-only'), 'other.txt');
+  assert.equal(await f.git('show', ':old.txt'), 'original');
+  assert.equal(await readFile(join(f.cwd, 'new.txt'), 'utf8'), 'later edit\n');
+});
+
 test('history, branch comparison and stash detail retain native diff trailing bytes', async t => {
   const f = await fixture(t); const content = 'start\nnew    \n'; await f.write('file.txt', content); await f.git('add', 'file.txt'); await f.git('commit', '-qm', 'update');
   const detail = await getProjectGitCommitDetail(f.cwd, 'HEAD'); assert.equal(detail.diff.diffText, await f.raw('-c', 'core.quotePath=false', 'show', '--format=', '--no-ext-diff', '--find-renames', 'HEAD')); assert.deepEqual(added(detail.diff.fileDiffs[0]), ['new    ']);

@@ -33,7 +33,7 @@ import type { OperationTone } from './gitWorkbenchTypes.js';
 import type { BusyState } from './gitWorkbenchTypes.js';
 import { MenuSurface } from '../ui/MenuSurface.js';
 import { MotionPresence } from '../ui/MotionPresence.js';
-import { useGitCommitDrafts } from './useGitCommitDrafts.js';
+import { batchSummaryId, repositoryDraftScope, useGitCommitDrafts, type GitCommitDrafts } from './useGitCommitDrafts.js';
 import { commitPushTarget, commitThenPush, type CommitPushTarget } from './commitThenPush.js';
 import { GitCommitTemplateControl } from './GitCommitTemplateControl.js';
 import { repositoryColor } from './repositoryColor.js';
@@ -43,6 +43,8 @@ import { useGitOperationHistory } from './useGitOperationHistory.js';
 import { GitContextMenu, GitMenuActionDialog, type GitMenuItem, type GitMenuConfirmation } from './GitContextMenu.js';
 import { createApplyStashConfirmation } from './applyStashConfirmation.js';
 import { GitPaneSeparator } from './GitPaneSeparator.js';
+import { generateStagedCommitDrafts } from './generateStagedCommitDrafts.js';
+import { stagedCommitUnits, type SourceCommitUnit } from './sourceGitState.js';
 import { ProjectSourceChanges, type SourceCommitCommands } from './ProjectSourceChanges.js';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type MouseEvent as ReactMouseEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -195,9 +197,11 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const [ignoredQuery, setIgnoredQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; anchor?: HTMLElement; title: string; items: GitMenuItem[]; target: GitContextTarget } | null>(null);
   const [menuConfirmation, setMenuConfirmation] = useState<GitMenuConfirmation | null>(null);
-  const [commitDrafts, setCommitDrafts] = useGitCommitDrafts(props.project.id);
+  const commitMessages = useGitCommitDrafts(props.project.id);
   const { modelRef: commitModelRef, loading: commitModelsLoading } = props.commitModels;
   const [generatingCommitFor, setGeneratingCommitFor] = useState<string | null>(null);
+  const [generationPreview, setGenerationPreview] = useState<{ id: string; text: string; original: string } | null>(null);
+  const preview = generationPreview && (commitMessages.drafts[generationPreview.id]?.message ?? '') === generationPreview.original ? generationPreview : null;
   const generatingCommitRef = useRef(false);
   const commitGenerationController = useRef<AbortController | null>(null);
   useEffect(() => () => commitGenerationController.current?.abort(), [props.project.id]);
@@ -545,6 +549,9 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
           onPushing: next => { failureAction = next; setBusy({ repositoryId: repository.id, action: 'push' }); },
         })
         : await props.client.executeProjectGitAction(projectId, repository.id, preparedAction);
+      // A read started while Git was writing can still contain the previous index.
+      ++requestVersionRef.current;
+      projectGitWorkbenchCacheEntry(props.client, projectId).request = null;
       setLoadState('ready');
       setSnapshot((current) =>
         current
@@ -641,41 +648,33 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     }
   }
 
-  async function generateCommitMessage(repository: ProjectGitRepositoryWorkbenchItem): Promise<void> {
-    if (generatingCommitRef.current || busy || commitModelsLoading || !commitModelRef) return;
+  async function generateCommitMessage(units: SourceCommitUnit[], summary = false): Promise<void> {
+    const first = units[0];
+    if (!first || generatingCommitRef.current || busy || commitModelsLoading || !commitModelRef) return;
+    const id = summary ? batchSummaryId : first.repository.id;
+    const original = commitMessages.drafts[id];
+    const originalMessage = original?.message ?? '';
     generatingCommitRef.current = true;
     const controller = new AbortController();
     commitGenerationController.current = controller;
-    setGeneratingCommitFor(repository.id);
-    setCommitGenerationFeedback((current) => ({ ...current, [repository.id]: '' }));
-    const originalMessage = commitDrafts[repository.id] ?? '';
-    let lastGenerated = originalMessage;
-    const updateGenerated = (message: string) => {
-      const expected = lastGenerated;
-      lastGenerated = message;
-      setCommitDrafts((current) => ((current[repository.id] ?? '') === expected ? { ...current, [repository.id]: message } : current));
-    };
+    setGeneratingCommitFor(id);
+    setCommitGenerationFeedback(current => ({ ...current, [id]: '' }));
     try {
-      const result = await props.client.generateGitCommitMessage(
-        props.project.id,
-        { repositoryId: repository.id, relativePath: repository.relativePath, language: zh ? 'zh-CN' : 'en', modelRef: commitModelRef },
-        (text) => {
-          if (!controller.signal.aborted) updateGenerated(text);
-        },
-        controller.signal,
-      );
+      const generated = await generateStagedCommitDrafts({
+        client: props.client, projectId: props.project.id, units, summary, drafts: commitMessages.drafts,
+        language: zh ? 'zh-CN' : 'en', model: commitModelRef, signal: controller.signal,
+        onText: text => { if (!controller.signal.aborted) setGenerationPreview({ id, text, original: originalMessage }); },
+      });
       controller.signal.throwIfAborted();
-      updateGenerated(result.message);
-      setCommitGenerationFeedback((current) => ({
-        ...current,
-        [repository.id]:
-          (zh ? `已由 ${result.model} 生成，请检查后提交。` : `Generated by ${result.model}. Review before committing.`) +
-          (result.truncated ? (zh ? ' 部分大文件或生成文件仅提供摘要，请核对完整性。' : ' Large or generated files were summarized; check completeness.') : ''),
+      for (const draft of generated.messages) commitMessages.write(draft.id, draft.message, draft.scope, draft.expected);
+      setCommitGenerationFeedback(current => ({ ...current, [id]:
+        (zh ? '已生成，请检查后提交。' : 'Generated. Review before committing.') +
+        (generated.truncated ? (zh ? ' 部分大文件或生成文件仅提供摘要，请核对完整性。' : ' Large or generated files were summarized; check completeness.') : ''),
       }));
     } catch (reason) {
-      updateGenerated(originalMessage);
-      setCommitGenerationFeedback((current) => ({ ...current, [repository.id]: controller.signal.aborted ? (zh ? '已停止生成，已保留原提交说明。' : 'Generation stopped. The original message was preserved.') : errorMessage(reason, zh) }));
+      setCommitGenerationFeedback(current => ({ ...current, [id]: controller.signal.aborted ? (zh ? '已停止生成，已保留原提交说明。' : 'Generation stopped. The original message was preserved.') : errorMessage(reason, zh) }));
     } finally {
+      setGenerationPreview(null);
       generatingCommitRef.current = false;
       if (commitGenerationController.current === controller) commitGenerationController.current = null;
       setGeneratingCommitFor(null);
@@ -1258,7 +1257,19 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
             commitModels={props.commitModels}
             onOpenModelSettings={props.onOpenModelSettings}
             onBusyChange={sourceView.onBusyChange}
-            repositoryCommandBusy={sourceToolbarBusy}
+            snapshot={snapshot}
+            setSnapshot={setSnapshot}
+            refreshVersion={requestVersionRef}
+            commitMessages={commitMessages}
+            generationPreview={preview}
+            generatingFor={generatingCommitFor}
+            generationFeedback={commitGenerationFeedback}
+            onGenerate={generateCommitMessage}
+            onStopGeneration={() => commitGenerationController.current?.abort()}
+            selectedRepositoryId={selectedRepositoryId}
+            onSelectRepository={setSelectedRepositoryId}
+            onStageAction={execute}
+            repositoryCommandBusy={busy !== null}
             commandsRef={sourceCommands}
             onCommandTargetChange={setSourceTarget}
           />
@@ -1576,16 +1587,15 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
                   run: async () => (await execute(repository, action, title)) !== null,
                 })
               }
-              onCommit={() => setCommitOpen(true)}
-              commitDrafts={commitDrafts}
+              onCommit={() => { if (!generatingCommitRef.current) setCommitOpen(true); }}
+              commitMessages={commitMessages}
               commitModels={props.commitModels}
               onOpenModelSettings={props.onOpenModelSettings}
+              generationPreview={preview}
               generatingCommitFor={generatingCommitFor}
               generationFeedback={selectedRepository ? commitGenerationFeedback[selectedRepository.id] : undefined}
-              onGenerateCommitMessage={generateCommitMessage}
+              onGenerateCommitMessage={repository => generateCommitMessage(stagedCommitUnits([repository]))}
               onStopCommitGeneration={() => commitGenerationController.current?.abort()}
-              onCommitMessageChange={(repositoryId, message) => setCommitDrafts((current) => ({ ...current, [repositoryId]: message }))}
-              onCommitTemplateApply={(repositoryId, message, expected) => setCommitDrafts(current => (current[repositoryId] ?? '') === expected ? { ...current, [repositoryId]: message } : current)}
             />
           ) : tab === 'stash' ? (
             <StashSurface
@@ -1616,7 +1626,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       </MotionPresence>
       <MotionPresence>{contextMenu ? <GitContextMenu {...contextMenu} onClose={() => setContextMenu(null)} onError={(reason) => setError(errorMessage(reason, zh))} /> : null}</MotionPresence>
       <MotionPresence>{menuConfirmation ? <GitMenuActionDialog value={menuConfirmation} zh={zh} onClose={() => setMenuConfirmation(null)} /> : null}</MotionPresence>
-      <MotionPresence>{commitOpen ? <CommitDialog open={commitOpen} client={props.client} projectId={props.project.id} zh={zh} repositories={repositories} busy={busy} onClose={() => setCommitOpen(false)} onExecute={execute} /> : null}</MotionPresence>
+      <MotionPresence>{commitOpen ? <CommitDialog commitMessages={commitMessages} open={commitOpen} client={props.client} projectId={props.project.id} zh={zh} repositories={repositories} busy={busy} onClose={() => setCommitOpen(false)} onExecute={execute} /> : null}</MotionPresence>
       <MotionPresence>{interactiveRebase ? <GitInteractiveRebaseDialog key={`${props.project.id}:${interactiveRebase.repository.id}:${interactiveRebase.baseRef ?? 'default'}`} request={interactiveRebase} projectId={props.project.id} client={props.client} zh={zh} busy={busy !== null} onClose={() => setInteractiveRebase(null)} onExecute={execute} /> : null}</MotionPresence>
       <MotionPresence>{amendStepRepository ? <GitAmendDialog key={`rebase:${amendStepRepository.id}`} projectId={props.project.id} client={props.client} repository={amendStepRepository} rebaseStep zh={zh} busy={busy !== null} onClose={() => setAmendStepRepository(null)} onExecute={execute} /> : null}</MotionPresence>
       <MotionPresence>{amendRepository ? <GitAmendDialog key={amendRepository.id} projectId={props.project.id} client={props.client} repository={amendRepository} zh={zh} busy={busy !== null} onClose={() => setAmendRepository(null)} onExecute={execute} /> : null}</MotionPresence>
@@ -2364,15 +2374,14 @@ function LocalChangesSurface(props: {
   onConfirmAction: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, title: string, description: string, danger: boolean) => void;
   onCommit: () => void;
   onCommitAndPush: (repository: ProjectGitRepositoryWorkbenchItem, message: string, target: CommitPushTarget, onCommitted: () => void) => Promise<ExecutionOutcome>;
-  commitDrafts: Record<string, string>;
+  commitMessages: GitCommitDrafts;
   commitModels: GitCommitModelState;
   onOpenModelSettings: () => void;
+  generationPreview: { id: string; text: string } | null;
   generatingCommitFor: string | null;
   generationFeedback?: string;
   onGenerateCommitMessage: (repository: ProjectGitRepositoryWorkbenchItem) => Promise<void>;
   onStopCommitGeneration: () => void;
-  onCommitMessageChange: (repositoryId: string, message: string) => void;
-  onCommitTemplateApply: (repositoryId: string, message: string, expected: string) => void;
 }) {
   const { modelRef: commitModelRef, loading: commitModelsLoading } = props.commitModels;
   const committingRef = useRef(false);
@@ -2401,7 +2410,10 @@ function LocalChangesSurface(props: {
   useEffect(() => { setPushSelection(null); }, [repository?.id, repository?.snapshot.branch]);
   const conflicts = new Set(repository?.snapshot.conflictFiles ?? []);
   const selectedConflict = Boolean(repository && conflicts.has(props.selectedFilePath));
-  const message = repository ? (props.commitDrafts[repository.id] ?? '') : '';
+  const draft = repository && props.commitMessages.drafts[repository.id];
+  const message = props.generationPreview && props.generationPreview.id === repository?.id ? props.generationPreview.text : draft?.message ?? '';
+  const scope = repository && repositoryDraftScope(repository.snapshot);
+  const staleDraft = draft?.scope && scope !== draft.scope;
   const stagedCount = repository?.snapshot.fileStatuses.filter((file) => !conflicts.has(file.path) && file.indexStatus !== ' ' && file.indexStatus !== '?').length ?? 0;
   const generating = props.generatingCommitFor === repository?.id;
   const canCommit = Boolean(repository && !conflicts.size && stagedCount > 0 && message.trim() && !props.busy && !generating);
@@ -2410,7 +2422,7 @@ function LocalChangesSurface(props: {
     committingRef.current = true;
     try {
       const clearCommittedDraft = () => {
-        props.onCommitMessageChange(repository.id, '');
+        props.commitMessages.write(repository.id, '', undefined, message);
         setEditingRepository(null);
       };
       if (pushAfterCommit && pushTarget) {
@@ -2640,8 +2652,8 @@ function LocalChangesSurface(props: {
               <div className="project-git-commit-message-heading">
                 <label htmlFor="project-git-commit-message">{props.zh ? '提交说明' : 'Commit message'}</label>
                 <div className="project-git-commit-generation-controls">
-                  {repository ? <GitCommitTemplateControl key={`${props.projectId}:${repository.id}`} client={props.client} projectId={props.projectId} repositoryId={repository.id} repositoryName={repository.name} value={message} zh={props.zh} disabled={props.busy !== null || generating} onApply={(next, expected) => props.onCommitTemplateApply(repository.id, next, expected)} /> : null}
-                  <small className="project-git-commit-generation-feedback" role="status">{props.generationFeedback}</small>
+                  {repository ? <GitCommitTemplateControl key={`${props.projectId}:${repository.id}`} client={props.client} projectId={props.projectId} repositoryId={repository.id} repositoryName={repository.name} value={message} zh={props.zh} disabled={props.busy !== null || generating} onApply={(next, expected) => props.commitMessages.write(repository.id, next, scope ?? undefined, expected)} /> : null}
+                  <small className="project-git-commit-generation-feedback" role="status">{staleDraft ? (props.zh ? '提交范围已变化，可重新生成。' : 'Staged content changed. You can regenerate the message.') : props.generationFeedback}</small>
                   <GitCommitAiControls
                     zh={props.zh}
                     models={props.commitModels}
@@ -2664,7 +2676,7 @@ function LocalChangesSurface(props: {
                 placeholder={props.zh ? '简要描述本次修改，可换行补充详情' : 'Describe this change; add details on subsequent lines'}
                 disabled={!repository || props.busy !== null || generating}
                 onChange={(event) => {
-                  if (repository) props.onCommitMessageChange(repository.id, event.currentTarget.value);
+                  if (repository) props.commitMessages.write(repository.id, event.currentTarget.value, scope ?? undefined);
                 }}
                 onKeyDown={(event) => {
                   if (event.key === 'Escape' && !event.nativeEvent.isComposing && !props.busy && !generating) {
@@ -2690,7 +2702,7 @@ function LocalChangesSurface(props: {
                 {pushAfterCommit ? (props.zh ? '提交并推送' : 'Commit and push') : props.zh ? '提交已暂存变更' : 'Commit staged changes'}
               </Button>
               {props.repositories.length > 1 ? (
-                <Button variant="secondary" onClick={props.onCommit} disabled={props.busy !== null}>
+                <Button variant="secondary" onClick={props.onCommit} disabled={props.busy !== null || props.generatingCommitFor !== null}>
                   {props.zh ? '多仓库提交…' : 'Commit across repositories…'}
                 </Button>
               ) : null}
@@ -3226,6 +3238,7 @@ function OperationsMenu(props: {
 }
 
 function CommitDialog(props: {
+  commitMessages: GitCommitDrafts;
   open: boolean;
   client: Pick<DashboardClient, 'loadProjectGitCommitTemplate'>;
   projectId: string;
@@ -3235,10 +3248,7 @@ function CommitDialog(props: {
   onClose: () => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
 }) {
-  const [message, setMessage] = useState('');
-  const [templateSource, setTemplateSource] = useState('');
-  const staged = props.repositories.filter((repository) => repository.snapshot.fileStatuses.some((file) => file.indexStatus !== ' ' && file.indexStatus !== '?'));
-  const templateRepository = staged.length === 1 ? staged[0] : staged.find(repository => repository.id === templateSource);
+  const staged = stagedCommitUnits(props.repositories);
   if (!props.open) return null;
   return (
     <ModalPortal
@@ -3255,23 +3265,21 @@ function CommitDialog(props: {
           <small>{props.zh ? '每个仓库会分别创建提交。' : 'Each repository will receive a separate commit.'}</small>
         </header>
         <main>
-          {staged.map((repository) => (
-            <span key={repository.id}>
-              <GitBranch aria-hidden="true" />
-              <strong>{repository.name}</strong>
-              <small>
-                {repository.snapshot.fileStatuses.filter((file) => file.indexStatus !== ' ' && file.indexStatus !== '?').length} {props.zh ? '个文件' : 'files'}
-              </small>
-            </span>
-          ))}
-          <div className="source-git-template">
-            {staged.length > 1 ? <select aria-label={props.zh ? '提交模板来源仓库' : 'Commit template source repository'} value={templateRepository?.id ?? ''} disabled={props.busy !== null} onChange={event => setTemplateSource(event.target.value)}><option value="">{props.zh ? '选择模板来源仓库' : 'Choose a template repository'}</option>{staged.map(repository => <option key={repository.id} value={repository.id}>{repository.name}</option>)}</select> : null}
-            <GitCommitTemplateControl key={`${props.projectId}:${templateRepository?.id ?? ''}`} client={props.client} projectId={props.projectId} repositoryId={templateRepository?.id ?? ''} repositoryName={templateRepository?.name} value={message} zh={props.zh} disabled={props.busy !== null} active={props.open} autoFill={staged.length === 1} onApply={(next, expected) => setMessage(current => current === expected ? next : current)} />
-          </div>
-          <label>
-            <span>{props.zh ? '提交说明' : 'Commit message'}</span>
-            <textarea value={message} onChange={(event) => setMessage(event.currentTarget.value)} autoFocus />
-          </label>
+          {staged.map(({ repository, paths }) => {
+            const draft = props.commitMessages.drafts[repository.id];
+            const message = draft?.message ?? '';
+            const scope = repositoryDraftScope(repository.snapshot);
+            return <div key={repository.id}>
+              <label>
+                <strong>{repository.name}</strong> · {paths.length} {props.zh ? '个已暂存文件' : 'staged files'}
+                <textarea value={message} disabled={props.busy !== null} onChange={event => props.commitMessages.write(repository.id, event.target.value, scope)} />
+              </label>
+              {draft?.scope && draft.scope !== scope && <small role="status">{props.zh ? '提交范围已变化，请核对提交说明。' : 'The commit scope changed. Review the message.'}</small>}
+              <GitCommitTemplateControl client={props.client} projectId={props.projectId} repositoryId={repository.id} repositoryName={repository.name} value={message} zh={props.zh}
+                disabled={props.busy !== null} active={props.open} autoFill={staged.length === 1}
+                onApply={(next, expected) => props.commitMessages.write(repository.id, next, scope, expected)} />
+            </div>;
+          })}
         </main>
         <footer>
           <Button variant="secondary" onClick={props.onClose} disabled={props.busy !== null}>
@@ -3280,13 +3288,14 @@ function CommitDialog(props: {
           <Button
             variant="primary"
             busy={props.busy?.action === 'commit'}
-            disabled={!message.trim() || staged.length === 0 || props.busy !== null}
+            disabled={!staged.length || staged.some(({ repository }) => !props.commitMessages.drafts[repository.id]?.message.trim()) || props.busy !== null}
             onClick={async () => {
-              for (const repository of staged) {
+              for (const { repository } of staged) {
+                const message = props.commitMessages.drafts[repository.id]!.message;
                 const outcome = await props.onExecute(repository, { type: 'commit', message: message.trim() }, props.zh ? '提交已暂存变更' : 'Commit staged changes');
                 if (outcome !== 'completed') return;
+                props.commitMessages.write(repository.id, '', undefined, message);
               }
-              setMessage('');
               props.onClose();
             }}
           >

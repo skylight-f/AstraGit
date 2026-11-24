@@ -1,4 +1,6 @@
 import type { GitCommitSelectionMode, GitFileStatusSummary, ProjectGitRepositoryWorkbenchItem } from '../apiClient.js';
+import { fileStagingState, gitFileStagePaths } from './gitFileStages.js';
+import { visibleRepositoryFiles } from './projectGitWorkbenchState.js';
 
 export type SourceResultStatus = 'queued' | 'committing' | 'committed' | 'commit_failed' | 'blocked' | 'pushing' | 'done' | 'push_failed' | 'push_blocked' | 'unknown';
 export interface SourceBatchResult {
@@ -9,27 +11,22 @@ export interface SourceBatchResult {
   setUpstream?: boolean;
 }
 export interface SourceGitState {
-  selected: Record<string, string[]>; sharedMessage: string; drafts: Record<string, string>;
-  messageMode: 'shared' | 'individual'; selectionMode: GitCommitSelectionMode;
+  stagedOnly: boolean;
   updateParents: boolean; fileView: 'tree' | 'flat';
   focus: { repositoryId: string; path: string } | null; collapsed: string[]; search: string;
-  fingerprints: Record<string, string>; lastResults: SourceBatchResult[];
+  lastResults: SourceBatchResult[];
 }
 const sourceStates = new Map<string, SourceGitState>();
 export function readSourceGitState(projectId: string): SourceGitState {
-  const empty: SourceGitState = { selected: {}, sharedMessage: '', drafts: {}, messageMode: 'shared', selectionMode: 'worktree', updateParents: false, fileView: 'flat', focus: null, collapsed: [], search: '', fingerprints: {}, lastResults: [] };
+  const empty: SourceGitState = { stagedOnly: false, updateParents: false, fileView: 'flat', focus: null, collapsed: [], search: '', lastResults: [] };
   if (sourceStates.has(projectId)) return sourceStates.get(projectId)!;
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(`astragit.source-git.v1:${projectId}`) ?? 'null');
+    const value: unknown = JSON.parse(localStorage.getItem(`astragit.source-git.v2:${projectId}`) ?? localStorage.getItem(`astragit.source-git.v1:${projectId}`) ?? 'null');
     if (!value || typeof value !== 'object') return empty;
     const data = value as Partial<SourceGitState>;
-    const strings = (record: unknown): Record<string, string> => record && typeof record === 'object' ? Object.fromEntries(Object.entries(record).filter(([key, value]) => key.length < 220 && typeof value === 'string' && value.length <= 30_000)) : {};
     return {
       ...empty,
-      selected: data.selected && typeof data.selected === 'object' ? Object.fromEntries(Object.entries(data.selected).slice(0, 100).filter(([, paths]) => Array.isArray(paths)).map(([key, paths]) => [key, paths.filter(path => typeof path === 'string' && path.length < 4096).slice(0, 2000)])) : {},
-      sharedMessage: typeof data.sharedMessage === 'string' ? data.sharedMessage.slice(0, 30_000) : '',
-      drafts: strings(data.drafts), fingerprints: strings(data.fingerprints),
-      messageMode: data.messageMode === 'individual' ? 'individual' : 'shared', selectionMode: data.selectionMode === 'staged' ? 'staged' : 'worktree',
+      stagedOnly: data.stagedOnly === true || ('selectionMode' in data && data.selectionMode === 'staged'),
       updateParents: data.updateParents === true, fileView: data.fileView === 'tree' ? 'tree' : empty.fileView,
       focus: data.focus && typeof data.focus.repositoryId === 'string' && typeof data.focus.path === 'string' ? data.focus : null,
       collapsed: Array.isArray(data.collapsed) ? data.collapsed.filter(value => typeof value === 'string').slice(0, 2000) : [],
@@ -43,16 +40,13 @@ export function readSourceGitState(projectId: string): SourceGitState {
 }
 export function writeSourceGitState(projectId: string, state: SourceGitState) {
   sourceStates.set(projectId, state);
-  try { localStorage.setItem(`astragit.source-git.v1:${projectId}`, JSON.stringify(state)); } catch { /* 存储不可用时仍保留进程内状态。 */ }
+  try { localStorage.setItem(`astragit.source-git.v2:${projectId}`, JSON.stringify(state)); } catch { /* 存储不可用时仍保留进程内状态。 */ }
 }
 export function sourceRepositoryFiles(repository: ProjectGitRepositoryWorkbenchItem, repositories: ProjectGitRepositoryWorkbenchItem[], mode: GitCommitSelectionMode): GitFileStatusSummary[] {
-  const nested = new Set(repositories.filter(item => item.id !== repository.id).map(item => item.relativePath));
-  return repository.snapshot.fileStatuses.filter(file => {
-    if (mode === 'staged' && (file.indexStatus === ' ' || file.indexStatus === '?')) return false;
-    if (file.indexStatus !== '?' || !file.path.endsWith('/')) return true;
-    const path = [repository.relativePath === '.' ? '' : repository.relativePath, file.path.replace(/\/$/u, '')].filter(Boolean).join('/');
-    return !nested.has(path);
-  });
+  const files = visibleRepositoryFiles(repository, repositories);
+  if (mode !== 'staged') return files;
+  const conflicts = new Set(repository.snapshot.conflictFiles);
+  return files.filter(file => !conflicts.has(file.path) && fileStagingState(file) !== 'unstaged');
 }
 export interface SourceCommitUnit {
   repository: ProjectGitRepositoryWorkbenchItem; paths: string[]; ordinaryPaths: string[];
@@ -66,7 +60,7 @@ export function buildSourceCommitUnits(repositories: ProjectGitRepositoryWorkben
     const paths = [...new Set(selected[repository.id] ?? [])].filter(path => eligible.has(path));
     if (paths.length) units.set(repository.id, { repository, paths, ordinaryPaths: [...paths], gitlinks: [], dependsOn: [] });
   }
-  if (mode === 'worktree') {
+  if (mode === 'worktree' || updateParents) {
     for (const unit of units.values()) {
       for (const parent of repositories) {
         const module = parent.snapshot.submodules?.find(module => [parent.relativePath === '.' ? '' : parent.relativePath, module.path].filter(Boolean).join('/') === unit.repository.relativePath);
@@ -101,4 +95,12 @@ export function buildSourceCommitUnits(repositories: ProjectGitRepositoryWorkben
   };
   for (const unit of units.values()) visit(unit);
   return ordered;
+}
+
+/** The index determines commit scope even when the file list is filtered. */
+export function stagedCommitUnits(repositories: ProjectGitRepositoryWorkbenchItem[], updateParents = false) {
+  const paths = Object.fromEntries(repositories.map(repository => [
+    repository.id, gitFileStagePaths(repository.snapshot.fileStatuses, repository.snapshot.conflictFiles).staged,
+  ]));
+  return buildSourceCommitUnits(repositories, paths, 'staged', updateParents);
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { gitFileStagePaths } from '../apps/desktop/src/renderer/git/gitFileStages.ts';
+import { gitFileStagePaths, stagingCheckboxState } from '../apps/desktop/src/renderer/git/gitFileStages.ts';
 
 const file = (path, status, category = 'modified') => ({ path, indexStatus: status[0], workingTreeStatus: status[1], category });
 
@@ -27,4 +27,15 @@ test('the conflict list remains visible even when a status entry is missing and 
 test('a resolved and staged file moves from unstaged to staged', () => {
   assert.deepEqual(gitFileStagePaths([file('resolved.txt', 'UU', 'conflict')], ['resolved.txt']), { staged: [], unstaged: ['resolved.txt'] });
   assert.deepEqual(gitFileStagePaths([file('resolved.txt', 'M ')], []), { staged: ['resolved.txt'], unstaged: [] });
+});
+
+test('a single partially staged file keeps its file, folder and repository checkbox mixed', () => {
+  const partial = file('folder/partial.txt', 'MM');
+  const staged = file('folder/staged.txt', 'A ');
+  const untracked = file('new.txt', '??');
+  for (const files of [[partial], [partial, staged], [staged, untracked]]) {
+    assert.deepEqual(stagingCheckboxState(files), { checked: false, mixed: true });
+  }
+  assert.deepEqual(stagingCheckboxState([staged]), { checked: true, mixed: false });
+  assert.deepEqual(stagingCheckboxState([untracked]), { checked: false, mixed: false });
 });

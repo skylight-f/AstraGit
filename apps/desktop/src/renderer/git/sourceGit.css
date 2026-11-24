@@ -457,3 +457,21 @@
 }
 
 .source-git-review h2{font-size:18px;margin:0}.source-git-review header p{color:#768197;margin:7px 0 0}.source-git-review-list{max-height:58vh;overflow:auto;padding:0 22px}.source-git-review-list section{border-bottom:1px solid #e5e7ee;padding:16px 0}.source-git-review h3{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px;font-size:14px}.source-git-review h3 small{margin-left:auto;color:#788092;font-weight:400;font-size:12px}.source-git-review-list ul{max-height:100px;overflow:auto;font-size:12px;color:#647188;padding-left:20px}.source-git-review label{display:grid;gap:6px}.source-git-review textarea,.source-git-review input,.source-git-review select{border:1px solid #dde0e9;padding:8px;border-radius:7px;min-width:0}.source-git-review textarea{min-height:65px;resize:vertical}.source-git-review>footer{display:flex;justify-content:flex-end;gap:9px;padding:15px 22px;background:#fafbfe}.source-git-review>.source-git-error{margin:10px 22px}
+
+.source-git-partial {
+  flex: none;
+  color: var(--zeus-product-muted);
+  font-size: 10px;
+}
+.macos-ai-app .source-git-files input[type='checkbox']:indeterminate {
+  appearance: none;
+  background: var(--zeus-product-accent);
+  border-color: var(--zeus-product-accent);
+}
+.macos-ai-app .source-git-files input[type='checkbox']:indeterminate::before {
+  background: white;
+  inline-size: 8px;
+  block-size: 2px;
+  transform: none;
+  opacity: 1;
+}

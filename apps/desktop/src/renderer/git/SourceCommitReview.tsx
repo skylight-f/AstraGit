@@ -12,11 +12,10 @@ export interface SourceReviewDraft extends Omit<SourceReviewRow, 'remote' | 'tar
   pushDraft: PushDestinationDraft;
 }
 
-export function SourceCommitReview(props: { rows: SourceReviewDraft[]; push: boolean; zh: boolean; busy: boolean; error: string; onChange: (rows: SourceReviewDraft[]) => void; onClose: () => void; onConfirm: (rows: SourceReviewRow[]) => void }) {
+export function SourceCommitReview(props: { rows: SourceReviewDraft[]; push: boolean; zh: boolean; busy: boolean; error: string; onChange: (row: SourceReviewDraft, patch: Partial<SourceReviewDraft>) => void; onClose: () => void; onConfirm: (rows: SourceReviewRow[]) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { const element = dialog.current!; element.showModal(); return () => element.close(); }, []);
   const label = (cn: string, en: string) => props.zh ? cn : en;
-  const change = (id: string, patch: Partial<SourceReviewDraft>) => props.onChange(props.rows.map(row => row.repositoryId === id ? { ...row, ...patch } : row));
   return <dialog ref={dialog} className="source-git-review" aria-labelledby="source-review-title" onCancel={event => { event.preventDefault(); if (!props.busy) props.onClose(); }}>
     <header>
       <div>
@@ -31,11 +30,11 @@ export function SourceCommitReview(props: { rows: SourceReviewDraft[]; push: boo
       <h3>{index + 1}. {row.repositoryName}<small>{row.branch} · {row.relativePath}</small></h3>
       <p>{row.mode === 'staged' ? label('所选文件的已暂存内容', 'Selected staged content') : label('所选文件的全部工作区内容', 'Full working tree content of selected files')} · {row.paths.length} {label('个文件', 'files')}</p>
       <ul>{row.paths.map(path => <li key={path}>{path}{row.gitlinks.some(link => link.path === path) ? label('（子模块提交后的新引用）', ' (new submodule commit)') : ''}</li>)}</ul>
-      <label>{label('提交说明', 'Commit message')}<textarea value={row.message} disabled={props.busy} onChange={event => change(row.repositoryId, { message: event.target.value })} /></label>
+      <label>{label('提交说明', 'Commit message')}<textarea value={row.message} disabled={props.busy} onChange={event => props.onChange(row, { message: event.target.value })} /></label>
       {props.push && <div className="project-git-sync-dialog source-git-review-push">
         <RepositoryPushFields snapshot={row.snapshot} draft={row.pushDraft} selectedBranches={[row.branch]}
           zh={props.zh} disabled={props.busy || row.snapshot.detached}
-          onChange={pushDraft => change(row.repositoryId, { pushDraft })} />
+          onChange={pushDraft => props.onChange(row, { pushDraft })} />
         {row.snapshot.detached && <p role="alert">{label('游离 HEAD 无法直接推送，请先创建分支。', 'Create a branch before pushing a detached HEAD.')}</p>}
       </div>}
     </section>)}</div>

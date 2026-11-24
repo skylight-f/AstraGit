@@ -4,9 +4,9 @@ import { gitFailureText } from './gitOperationFeedback.js';
 
 export interface SourceReviewRow extends SourceBatchResult {
   relativePath: string; ordinaryPaths: string[]; gitlinks: SourceCommitUnit['gitlinks'];
-  fingerprint?: string;
+  fingerprint?: string; expectedIndex?: string;
 }
-type BatchClient = Pick<DashboardClient, 'previewGitCommitSelection' | 'loadProjectGitWorkbench' | 'executeProjectGitAction' | 'validateGitPushTargets'>;
+type BatchClient = Pick<DashboardClient, 'previewGitCommitSelection' | 'loadProjectGitWorkbench' | 'executeProjectGitAction' | 'validateGitPushTargets' | 'loadRepositoryGitSubmodules'>;
 const message = gitFailureText;
 
 export async function validateSourceReview(client: BatchClient, projectId: string, rows: SourceReviewRow[], push: boolean) {
@@ -18,7 +18,7 @@ export async function validateSourceReview(client: BatchClient, projectId: strin
   for (const row of rows) {
     const repository = snapshot.repositories.find(repo => repo.id === row.repositoryId);
     const preview = previews.find(repo => repo.repositoryId === row.repositoryId);
-    if (!repository || repository.snapshot.headSha !== row.expectedHead || repository.snapshot.branch !== row.branch || repository.snapshot.conflictFiles.length || repository.snapshot.integrationState || (row.fingerprint && preview?.fingerprint !== row.fingerprint)) throw new Error(`${row.repositoryName} 的内容或分支已变化，请重新预览。`);
+    if (!repository || repository.snapshot.headSha !== row.expectedHead || repository.snapshot.branch !== row.branch || (row.expectedIndex && repository.snapshot.indexFingerprint !== row.expectedIndex) || repository.snapshot.conflictFiles.length || repository.snapshot.integrationState || (row.fingerprint && preview?.fingerprint !== row.fingerprint)) throw new Error(`${row.repositoryName} 的内容或分支已变化，请重新预览。`);
   }
   if (push) await client.validateGitPushTargets(projectId, rows.map(row => ({ repositoryId: row.repositoryId, relativePath: row.relativePath, remote: row.remote, sourceBranch: row.branch, targetBranch: row.targetBranch })));
 }
@@ -44,16 +44,27 @@ export async function runSourceBatch(input: {
         if (row.gitlinks.length) {
           const current = await client.loadProjectGitWorkbench(projectId);
           const parent = current.repositories.find(repo => repo.id === row.repositoryId);
-          if (parent?.snapshot.headSha !== row.expectedHead || parent.snapshot.branch !== row.branch) throw new Error('父仓库分支或提交已变化，请重新预览。');
+          if (parent?.snapshot.headSha !== row.expectedHead || parent.snapshot.branch !== row.branch || (row.expectedIndex && parent.snapshot.indexFingerprint !== row.expectedIndex)) throw new Error('父仓库分支或提交已变化，请重新预览。');
           for (const link of row.gitlinks) {
             const child = current.repositories.find(repo => repo.id === link.repositoryId);
             if (child?.snapshot.headSha !== results.find(result => result.repositoryId === link.repositoryId)?.commitSha) throw new Error('子模块提交已变化，请重新预览引用。');
+          }
+          if (row.mode === 'staged') {
+            // Only the explicitly requested gitlinks follow the new child commits.
+            await client.executeProjectGitAction(projectId, row.repositoryId, { type: 'stage', paths: row.gitlinks.map(link => link.path) });
+          }
+          const preview = await client.previewGitCommitSelection(projectId, [{ repositoryId: row.repositoryId, relativePath: row.relativePath, paths: row.paths }], row.mode);
+          if (row.mode === 'staged') {
+            const { modules } = await client.loadRepositoryGitSubmodules(projectId, row.repositoryId);
+            for (const link of row.gitlinks) {
+              const expected = results.find(result => result.repositoryId === link.repositoryId)?.commitSha;
+              if (modules.find(module => module.path === link.path)?.recordedSha !== expected) throw new Error('暂存的子模块引用已变化，请重新预览。');
+            }
           }
           if (row.ordinaryPaths.length) {
             const ordinary = await client.previewGitCommitSelection(projectId, [{ repositoryId: row.repositoryId, relativePath: row.relativePath, paths: row.ordinaryPaths }], row.mode);
             if (ordinary.repositories[0]?.fingerprint !== row.fingerprint) throw new Error('父仓库所选文件已变化，请重新预览。');
           }
-          const preview = await client.previewGitCommitSelection(projectId, [{ repositoryId: row.repositoryId, relativePath: row.relativePath, paths: row.paths }], row.mode);
           fingerprint = preview.repositories[0]?.fingerprint;
         }
         if (!fingerprint) throw new Error('提交内容无法核对，请重新预览。');

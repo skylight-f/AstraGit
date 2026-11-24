@@ -1,3 +1,5 @@
+import { generateStagedCommitDrafts } from '../apps/desktop/src/renderer/git/generateStagedCommitDrafts.ts';
+import { repositoryDraftScope } from '../apps/desktop/src/renderer/git/useGitCommitDrafts.ts';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -83,5 +85,46 @@ test('AI drafts use the selected mode across project repositories and reject con
   for (const repo of repositories) {
     assert.equal(await repo.git('rev-parse', 'HEAD'), repo.head);
     assert.deepEqual(await readFile(join(repo.path, '.git/index')), repo.index, 'AI must not stage or commit any file.');
+  }
+});
+
+test('batch AI keeps a hand-edited repo message and generates each empty draft from its own index', async () => {
+  const units = ['pim', 'web-base', 'eiam'].map(id => ({
+    repository: { id, name: id, relativePath: id, snapshot: { branch: 'main', headSha: 'head', indexFingerprint: id } },
+    ordinaryPaths: ['partial.txt'], gitlinks: [],
+  }));
+  const calls = [];
+  const client = { async generateGitCommitMessage(_project, request) {
+    calls.push(request);
+    return { message: request.selection ? 'batch only' : request.repositoryId, truncated: false };
+  } };
+  const controller = new AbortController();
+  const input = { client, projectId: 'project', units, summary: true, drafts: { pim: { message: 'hand edit' } },
+    language: 'zh-CN', model: 'model', signal: controller.signal, onText() {} };
+  const { messages } = await generateStagedCommitDrafts(input);
+  assert.deepEqual(calls.map(call => [call.selectionMode, call.selection?.map(target => target.repositoryId) ?? call.repositoryId]), [
+    ['staged', ['pim', 'web-base', 'eiam']], ['staged', 'web-base'], ['staged', 'eiam'],
+  ]);
+  assert.deepEqual(messages.map(({ id, message }) => [id, message]), [['batch-summary', 'batch only'], ['web-base', 'web-base'], ['eiam', 'eiam']]);
+  assert.ok(messages.every(draft => draft.expected === ''));
+  await assert.rejects(generateStagedCommitDrafts({ ...input, client: { async generateGitCommitMessage() {
+    controller.abort(); return { message: 'incomplete' };
+  } } }), { name: 'AbortError' });
+  assert.deepEqual(input.drafts, { pim: { message: 'hand edit' } });
+});
+
+test('a parent draft records planned submodule updates in both generation modes', async () => {
+  const snapshot = { branch: 'main', headSha: 'head', indexFingerprint: 'index' };
+  const gitlinks = [{ path: 'apps/pim', repositoryId: 'pim' }];
+  const unit = { repository: { id: 'parent', name: 'parent', snapshot }, ordinaryPaths: [], gitlinks };
+  const ordinaryScope = repositoryDraftScope(snapshot);
+  assert.equal(ordinaryScope, repositoryDraftScope(snapshot, []));
+  for (const summary of [false, true]) {
+    const { messages } = await generateStagedCommitDrafts({ client: {}, projectId: 'project', units: [unit],
+      summary, drafts: {}, language: 'zh-CN', model: 'model', signal: new AbortController().signal, onText() {} });
+    const draft = messages.find(message => message.id === 'parent');
+    assert.match(draft.message, /apps\/pim/u);
+    assert.equal(draft.scope, repositoryDraftScope(snapshot, gitlinks));
+    assert.notEqual(draft.scope, ordinaryScope);
   }
 });

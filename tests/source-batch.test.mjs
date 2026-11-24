@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { executeProjectGitAction, getProjectGitRepositorySnapshot, parseGitUnifiedDiff, readSelectedGitCommitChanges, validateProjectGitPushTarget } from '../packages/git-core/dist/index.js';
-import { buildSourceCommitUnits } from '../apps/desktop/src/renderer/git/sourceGitState.ts';
+import { executeProjectGitAction, getProjectGitRepositorySnapshot, getProjectGitSubmodules, parseGitUnifiedDiff, readSelectedGitCommitChanges, validateProjectGitPushTarget } from '../packages/git-core/dist/index.js';
+import { buildSourceCommitUnits, stagedCommitUnits } from '../apps/desktop/src/renderer/git/sourceGitState.ts';
 import { branchPushTarget, createPushDraft } from '../apps/desktop/src/renderer/git/pushTarget.ts';
 import { pushSourceResult, runSourceBatch, validateSourceReview } from '../apps/desktop/src/renderer/git/sourceGitBatch.ts';
 
@@ -47,6 +47,7 @@ test('a project commits child before parent, preserves unchecked staging, and re
   const actions = [];
   const client = {
     loadProjectGitWorkbench: snapshot,
+    loadRepositoryGitSubmodules: (_id, id) => getProjectGitSubmodules(records.find(record => record.id === id).path),
     previewGitCommitSelection: async (_id, selection, mode) => ({ projectId: 'project', selectionMode: mode, repositories: await Promise.all(selection.map(async target => {
       const record = records.find(record => record.id === target.repositoryId); const changes = await readSelectedGitCommitChanges(record.path, target.paths, mode); const repository = await getProjectGitRepositorySnapshot(record.path);
       return { ...target, name: record.name, fingerprint: changes.fingerprint, headSha: changes.head, branch: repository.branch, detached: repository.detached, diff: { files: changes.files, diffText: changes.diff, fileDiffs: parseGitUnifiedDiff(changes.diff), isRepository: true } };
@@ -101,4 +102,26 @@ test('a project commits child before parent, preserves unchecked staging, and re
   assert.equal((await parentGit('ls-tree', 'HEAD', 'lib')).split(/\s+/u)[2], stagedReference);
   assert.notEqual(await childGit('rev-parse', 'HEAD'), stagedReference);
   assert.equal(await parentGit('diff', '--cached', '--name-only'), 'other.txt');
+  // The project's normal staged path updates the requested gitlink and preserves later edits in both worktrees.
+  await writeFile(join(childPath, 'selected.txt'), 'child staged version\n');
+  await childGit('add', 'selected.txt');
+  await writeFile(join(childPath, 'selected.txt'), 'child unstaged version\n');
+  await writeFile(join(project, 'other.txt'), 'parent unstaged version\n');
+  const synchronized = stagedCommitUnits((await snapshot()).repositories, true);
+  assert.deepEqual(synchronized.map(unit => unit.repository.id), ['child', 'parent']);
+  const synchronizedRows = [];
+  for (const unit of synchronized) {
+    const preview = (await client.previewGitCommitSelection('project', [{ repositoryId: unit.repository.id, paths: unit.ordinaryPaths }], 'staged')).repositories[0];
+    synchronizedRows.push({ ...rows.find(row => row.repositoryId === unit.repository.id), mode: 'staged', expectedHead: preview.headSha, expectedIndex: unit.repository.snapshot.indexFingerprint,
+      paths: unit.paths, ordinaryPaths: unit.ordinaryPaths, gitlinks: unit.gitlinks, dependsOn: unit.dependsOn, fingerprint: preview.fingerprint, message: `commit for ${unit.repository.id}` });
+  }
+  await validateSourceReview(client, 'project', synchronizedRows, false);
+  await runSourceBatch({ client, projectId: 'project', rows: synchronizedRows, push: false, stopped: () => false, onResults: value => { results = value; }, onActive: () => {}, onCommitted: () => {} });
+  assert.deepEqual(results.map(result => result.status), ['committed', 'committed'], JSON.stringify(results));
+  assert.equal(await childGit('show', 'HEAD:selected.txt'), 'child staged version');
+  assert.equal(await parentGit('show', 'HEAD:other.txt'), 'keep parent staged');
+  assert.equal(await parentGit('rev-parse', 'HEAD:lib'), await childGit('rev-parse', 'HEAD'));
+  assert.equal(await readFile(join(childPath, 'selected.txt'), 'utf8'), 'child unstaged version\n');
+  assert.equal(await readFile(join(project, 'other.txt'), 'utf8'), 'parent unstaged version\n');
+
 });

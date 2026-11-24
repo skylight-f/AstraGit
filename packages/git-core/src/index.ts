@@ -3671,11 +3671,27 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
       validateGitStageReview(await getProjectGitStagePreview(repositoryPath, { paths, thresholdBytes: review?.thresholdBytes }), review);
       return finishProjectGitAction(repositoryPath, action.type, await runGit(repositoryPath, ['--literal-pathspecs', 'add', '-A', '--pathspec-from-file=-', '--pathspec-file-nul'], paths.join('\0') + '\0'));
     }
-    case 'unstage':
-      args = context.headSha
-        ? ['--literal-pathspecs', 'restore', '--staged', '--', ...requireRepositoryPaths(repositoryPath, action.paths)]
-        : ['--literal-pathspecs', 'rm', '--cached', '--', ...requireRepositoryPaths(repositoryPath, action.paths)];
+    case 'unstage': {
+      const paths = requireRepositoryPaths(repositoryPath, action.paths);
+      if (!context.headSha) {
+        args = ['--literal-pathspecs', 'rm', '--cached', '--', ...paths];
+        break;
+      }
+      // A rename is one checkbox, but restoring it requires both index paths.
+      const status = await runGit(repositoryPath, ['status', '--porcelain=v1', '-z', '--untracked-files=no']);
+      const files = parseGitPorcelainEntries(status.stdout);
+      const selected = new Set(paths);
+      for (const file of files) {
+        if (file.indexStatus !== 'R' || !file.originalPath || !selected.has(file.path)) continue;
+        const oldDirectory = file.originalPath + '/';
+        if (files.some(other => other.path.startsWith(oldDirectory) && other.indexStatus !== ' ' && !selected.has(other.path))) {
+          throw gitCoreError('ASTRAGIT_GIT_PATH_INVALID', '重命名的原路径下还有其他已暂存文件，请同时选择这些文件后再取消暂存。');
+        }
+        paths.push(file.originalPath);
+      }
+      args = ['--literal-pathspecs', 'restore', '--staged', '--', ...new Set(paths)];
       break;
+    }
     case 'import_mailbox': {
       const prepared = await patchRead(() => mailboxPreview(repositoryPath, action.mailbox, undefined, action.expectedFingerprint));
       return finishProjectGitAction(repositoryPath, action.type, await runGitPreservingConflict(repositoryPath, prepared.args, undefined, prepared.bytes));
