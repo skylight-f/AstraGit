@@ -4,7 +4,7 @@ import { gitFailureText } from './gitOperationFeedback.js';
 
 export interface SourceReviewRow extends SourceBatchResult {
   relativePath: string; ordinaryPaths: string[]; gitlinks: SourceCommitUnit['gitlinks'];
-  fingerprint?: string; expectedIndex?: string;
+  fingerprint?: string;
 }
 type BatchClient = Pick<DashboardClient, 'previewGitCommitSelection' | 'loadProjectGitWorkbench' | 'executeProjectGitAction' | 'validateGitPushTargets' | 'loadRepositoryGitSubmodules'>;
 const message = gitFailureText;
@@ -69,6 +69,7 @@ export async function runSourceBatch(input: {
         }
         if (!fingerprint) throw new Error('提交内容无法核对，请重新预览。');
         const result = await client.executeProjectGitAction(projectId, row.repositoryId, { type: 'commit', paths: row.paths, selectionMode: row.mode, message: row.message, expectedFingerprint: fingerprint, expectedHeadSha: row.expectedHead, expectedBranch: row.branch });
+        if (result.result.outcome !== 'completed' || !result.result.headSha) throw new Error('无法确认提交已完成，请核对仓库状态。');
         update(row.repositoryId, { status: 'committed', commitSha: result.result.headSha }); input.onCommitted(row);
       } catch (error) {
         let status: SourceBatchResult['status'] = 'unknown';

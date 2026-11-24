@@ -6,6 +6,7 @@ export type SourceResultStatus = 'queued' | 'committing' | 'committed' | 'commit
 export interface SourceBatchResult {
   repositoryId: string; repositoryName: string; branch: string; paths: string[]; mode: GitCommitSelectionMode;
   expectedHead: string; commitSha?: string; message: string; remote: string; targetBranch: string;
+  expectedIndex?: string; gitlinks?: SourceCommitUnit['gitlinks'];
   dependsOn: string[]; status: SourceResultStatus; error?: string;
   pushRequested?: boolean;
   setUpstream?: boolean;

@@ -17,7 +17,7 @@ import { notifyProjectGitChanged, projectGitWorkbenchCacheEntry, requestProjectG
 import { SourceRepositoryLabel, SourceRepositoryTree } from './SourceFileTree.js';
 import { stagedCommitUnits, type SourceCommitUnit, readSourceGitState, sourceRepositoryFiles, writeSourceGitState, type SourceGitState } from './sourceGitState.js';
 import { previewForUnit, pushSourceResult, runSourceBatch, validateSourceReview, type SourceReviewRow } from './sourceGitBatch.js';
-import { batchDraftScope, batchSummaryId, repositoryDraftScope, type GitCommitDrafts } from './useGitCommitDrafts.js';
+import { batchDraftScope, batchSummaryId, clearDraftsOnBatchCommit, repositoryDraftScope, type GitCommitDrafts } from './useGitCommitDrafts.js';
 import { fileStagingState } from './gitFileStages.js';
 import { createPushDraft } from './pushTarget.js';
 import { SourceCommitReview, type SourceReviewDraft } from './SourceCommitReview.js';
@@ -54,7 +54,6 @@ export function ProjectSourceChanges(props: {
   onSelectRepository: (id: string) => void;
   generationPreview: { id: string; text: string } | null;
   generatingFor: string | null;
-  generationFeedback: Record<string, string>;
   onGenerate: (units: SourceCommitUnit[], summary?: boolean) => Promise<void>;
   onStopGeneration: () => void;
   onStageAction: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, title: string) => Promise<ExecutionOutcome>;
@@ -103,7 +102,7 @@ export function ProjectSourceChanges(props: {
   const generating = props.generatingFor !== null;
   const updateParents = state.updateParents;
   const [summary, setEditingSummary] = useState(false);
-  const [review, setReview] = useState<{ rows: SourceReviewDraft[]; push: boolean } | null>(null);
+  const [review, setReview] = useState<{ rows: SourceReviewDraft[]; units: SourceCommitUnit[]; push: boolean } | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewError, setReviewError] = useState('');
   const [diff, setDiff] = useState<GitDiffSummary | null>(null);
@@ -146,7 +145,7 @@ export function ProjectSourceChanges(props: {
   const locked = sourceLocked || props.repositoryCommandBusy;
   const editorFeedback = staleDraft
     ? label('提交范围已变化，可重新生成。', 'Staged content changed. You can regenerate the message.')
-    : props.generationFeedback[editorId];
+    : commitMessages.generationFeedback[editorId];
   const hasFeedback = Boolean(feedback || editorFeedback);
   const modelName = models.find(item => item.id === model)?.label;
   const aiActionTitle = (summary ? units.length > 0 : Boolean(editorUnit))
@@ -250,7 +249,7 @@ export function ProjectSourceChanges(props: {
       });
       if (!rows.length) throw new Error(label('所选文件已无更改，请重新选择。', 'Selected files have no remaining changes.'));
       if (rows.some(row => { const saved = commitMessages.drafts[row.repositoryId]; return saved?.scope && saved.scope !== repositoryDraftScope(row.snapshot, row.gitlinks); })) setReviewError(label('填写说明后暂存内容已变化，请检查本次说明与文件列表后再确认。', 'Staged content changed after this message was written. Review the message and file list.'));
-      setReview({ rows, push });
+      setReview({ rows, units: currentUnits, push });
     } catch (reason) { setError(gitFailureText(reason)); }
     finally { setReviewBusy(false); }
   }
@@ -264,7 +263,7 @@ export function ProjectSourceChanges(props: {
       batchStarted = true;
       await runSourceBatch({ client, projectId: project.id, rows, push: review.push, stopped: () => stopped.current,
         onActive: id => { activeRepository.current = id; }, onResults: lastResults => update({ lastResults }),
-        onCommitted: row => commitMessages.write(row.repositoryId, '', undefined, row.message),
+        onCommitted: clearDraftsOnBatchCommit(review.units, rows, commitMessages),
       });
       notifyProjectGitChanged(project.id); await refresh();
     } catch (reason) { const message = gitFailureText(reason); if (batchStarted) setError(message); else setReviewError(message); }
@@ -580,8 +579,11 @@ export function ProjectSourceChanges(props: {
     ) : null}
     {stashConfirmation ? <GitMenuActionDialog value={stashConfirmation} zh={zh} onClose={() => setStashConfirmation(null)} /> : null}
     {review ? <SourceCommitReview rows={review.rows} push={review.push} zh={zh} busy={reviewBusy} error={reviewError} onChange={(edited, patch) => {
-      if (patch.message !== undefined) commitMessages.write(edited.repositoryId, patch.message, repositoryDraftScope(edited.snapshot, edited.gitlinks));
-      setReview({ ...review, rows: review.rows.map(row => row.repositoryId === edited.repositoryId ? { ...row, ...patch } : row) });
+      if (patch.message !== undefined) {
+        for (const row of edited) commitMessages.write(row.repositoryId, patch.message, repositoryDraftScope(row.snapshot, row.gitlinks));
+      }
+      const ids = new Set(edited.map(row => row.repositoryId));
+      setReview(current => current && { ...current, rows: current.rows.map(row => ids.has(row.repositoryId) ? { ...row, ...patch } : row) });
     }} onClose={() => setReview(null)} onConfirm={rows => void confirm(rows)} /> : null}
   </main>;
 }

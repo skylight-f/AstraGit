@@ -205,7 +205,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const generatingCommitRef = useRef(false);
   const commitGenerationController = useRef<AbortController | null>(null);
   useEffect(() => () => commitGenerationController.current?.abort(), [props.project.id]);
-  const [commitGenerationFeedback, setCommitGenerationFeedback] = useState<Record<string, string>>({});
+  const { generationFeedback: commitGenerationFeedback, setGenerationFeedback: setCommitGenerationFeedback } = commitMessages;
   const [updateOpen, setUpdateOpen] = useState(false);
   const [newBranchOpen, setNewBranchOpen] = useState(false);
   const [newBranchBase, setNewBranchBase] = useState('');
@@ -1263,7 +1263,6 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
             commitMessages={commitMessages}
             generationPreview={preview}
             generatingFor={generatingCommitFor}
-            generationFeedback={commitGenerationFeedback}
             onGenerate={generateCommitMessage}
             onStopGeneration={() => commitGenerationController.current?.abort()}
             selectedRepositoryId={selectedRepositoryId}
@@ -2422,7 +2421,7 @@ function LocalChangesSurface(props: {
     committingRef.current = true;
     try {
       const clearCommittedDraft = () => {
-        props.commitMessages.write(repository.id, '', undefined, message);
+        props.commitMessages.clearCommitted(repository.id, message);
         setEditingRepository(null);
       };
       if (pushAfterCommit && pushTarget) {
@@ -3294,7 +3293,7 @@ function CommitDialog(props: {
                 const message = props.commitMessages.drafts[repository.id]!.message;
                 const outcome = await props.onExecute(repository, { type: 'commit', message: message.trim() }, props.zh ? '提交已暂存变更' : 'Commit staged changes');
                 if (outcome !== 'completed') return;
-                props.commitMessages.write(repository.id, '', undefined, message);
+                props.commitMessages.clearCommitted(repository.id, message);
               }
               props.onClose();
             }}
