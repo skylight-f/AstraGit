@@ -11,6 +11,7 @@ import {
   getProjectGitLfsState, getProjectGitLfsPreview, parseGitLfsChange,
   getProjectGitFlowState, getProjectGitFlowPreview, parseGitFlowChange,
   discoverGitRepositories,
+  autoFetchProjectGitRepository,
   getProjectGitExternalToolSettings,
   getProjectGitExternalToolPreview,
   parseGitExternalToolInput,
@@ -122,10 +123,50 @@ interface ResolvedProjectGitRepository {
 /** 工作台服务：只从简化项目列表解析可信路径，再发现仓库。 */
 export class ProjectGitWorkbenchService {
   private readonly activeRepositories = new Map<string, AbortController>();
+  private readonly autoFetchRetryAt = new Map<string, number>();
+  private readonly autoFetches = new Map<string, { controller: AbortController; result: Promise<boolean> }>();
   private readonly readQueries = new Set<AbortController>();
   private readonly historyScopes = new Map<string, { scope: GitHistorySearchScope; identity: string; lastRead: number }>();
 
   constructor(private readonly projects: ProjectStore, private readonly operations: OperationHistoryStore) {}
+
+  async autoFetch(projectId: string, repositoryId: string, signal: AbortSignal): Promise<{ fetched: boolean }> {
+    // A recently visited tab can skip repository discovery altogether.
+    if (Date.now() < (this.autoFetchRetryAt.get(repositoryId) ?? 0)) return { fetched: false };
+    const { repository } = await this.resolveRepository(projectId, repositoryId, signal);
+    const path = repository.localPath;
+    signal.throwIfAborted();
+    const pending = this.autoFetches.get(path);
+    if (pending) return { fetched: await pending.result };
+    const now = Date.now();
+    if (this.activeRepositories.has(path)) return { fetched: false };
+    // Overlapping projects have different repository IDs for the same directory.
+    const retryAt = this.autoFetchRetryAt.get(path) ?? 0;
+    if (now < retryAt) {
+      this.autoFetchRetryAt.set(repositoryId, retryAt);
+      return { fetched: false };
+    }
+    for (const [key, until] of this.autoFetchRetryAt) if (until <= now) this.autoFetchRetryAt.delete(key);
+    const nextAttempt = now + 5 * 60_000;
+    this.autoFetchRetryAt.set(path, nextAttempt);
+    const controller = new AbortController();
+    const result = autoFetchProjectGitRepository(path, AbortSignal.any([controller.signal, signal]))
+      .catch(() => false)
+      .finally(() => {
+        this.autoFetches.delete(path);
+        this.autoFetchRetryAt.set(repositoryId, nextAttempt);
+      });
+    this.autoFetches.set(path, { controller, result });
+    return { fetched: await result };
+  }
+
+  private async stopAutoFetch(path: string): Promise<void> {
+    const pending = this.autoFetches.get(path);
+    if (pending) {
+      pending.controller.abort();
+      await pending.result;
+    }
+  }
 
   async loadWorkbench(projectId: string): Promise<ProjectGitWorkbenchSnapshot> {
     const project = this.requireProject(projectId);
@@ -319,7 +360,11 @@ export class ProjectGitWorkbenchService {
     return this.withReadQuery(signal, async combined => { const resolved = await this.resolveRepository(projectId, repositoryId, combined); return writeProjectGitArchive(resolved.repository.localPath, input, output, combined); });
   }
 
-  cancelReadQueries() { for (const controller of this.readQueries) controller.abort(); this.historyScopes.clear(); }
+  cancelReadQueries() {
+    for (const controller of this.readQueries) controller.abort();
+    for (const { controller } of this.autoFetches.values()) controller.abort();
+    this.historyScopes.clear();
+  }
 
   async loadSkipPreview(projectId: string, repositoryId: string, kind: 'rebase' | 'cherry_pick' | 'revert' | 'am', signal?: AbortSignal) {
     return this.withReadQuery(signal, async combined => {
@@ -403,6 +448,7 @@ export class ProjectGitWorkbenchService {
     const resolved = await this.resolveRepository(projectId, repositoryId);
     const action = parseProjectGitAction(value);
     const repositoryPath = resolved.repository.localPath;
+    if (this.autoFetches.has(repositoryPath)) await this.stopAutoFetch(repositoryPath);
     if (this.activeRepositories.has(repositoryPath)) throw projectError('ASTRAGIT_BUSY', '该仓库已有 Git 操作正在执行，请等待完成。');
     const operation = this.operations.start(projectId, resolved.id, resolved.repository.name, action.type);
     const controller = new AbortController();
@@ -494,6 +540,7 @@ export class ProjectGitWorkbenchService {
   /** 与工作台写操作共用同一仓库互斥门；读取三方快照时也不与切换/暂存交错。 */
   private async withRepositoryGate<T>(resolved: ResolvedProjectGitRepository, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const path = resolved.repository.localPath;
+    if (this.autoFetches.has(path)) await this.stopAutoFetch(path);
     if (this.activeRepositories.has(path)) throw projectError('ASTRAGIT_BUSY', '该仓库已有 Git 操作正在执行，请等待完成。');
     const controller = new AbortController();
     this.activeRepositories.set(path, controller);

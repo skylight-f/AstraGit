@@ -105,6 +105,7 @@ export interface ProjectGitWorkbenchProps {
   /** 独立应用固定为项目工作台；保留字段以兼容迁移后的调用方。 */
   conversationScope?: boolean;
   project: ProjectRecord;
+  autoFetchEnabled: boolean;
   client: DashboardClient;
   language: 'zh-CN' | 'en-US';
   tab: ProjectGitTab;
@@ -258,6 +259,38 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     ? historyRef
     : sidebarReference && sidebarReference.repositoryId === selectedRepository?.id ? sidebarReference.ref : '';
   const sourceLocked = sourceVisible && sourceTarget.locked;
+  const autoFetchRepositoryId = props.autoFetchEnabled && selectedRepository?.snapshot.remotes.length
+    ? selectedRepository.id : undefined;
+  const autoFetchBlocked = useRef(false);
+  autoFetchBlocked.current = sourceLocked || busy !== null;
+  useEffect(() => {
+    if (!autoFetchRepositoryId) return;
+    const projectId = props.project.id;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (document.visibilityState !== 'visible' || autoFetchBlocked.current || actionBusyRef.current) return;
+        void props.client.autoFetchProjectGitRepository(projectId, autoFetchRepositoryId).then(({ fetched }) => {
+          if (!fetched) return;
+          // The request can finish after switching projects. Refresh its original project only.
+          projectGitWorkbenchCacheEntry(props.client, projectId).request = null;
+          notifyProjectGitChanged(projectId);
+          if (active) setHistoryReload(value => value + 1);
+        }).catch(() => { /* Manual fetch provides interactive error feedback. */ });
+      }, 250);
+    };
+    schedule();
+    window.addEventListener('focus', schedule);
+    document.addEventListener('visibilitychange', schedule);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      window.removeEventListener('focus', schedule);
+      document.removeEventListener('visibilitychange', schedule);
+    };
+  }, [props.client, props.project.id, autoFetchRepositoryId]);
   const activeOperationRepository = busy ? repositories.find((repository) => repository.id === busy.repositoryId) : selectedRepository;
   const stashRepository = repositories.find((repository) => repository.id === stashRepositoryId) ?? null;
   const remoteCheckoutRepository = repositories.find((repository) => repository.id === remoteCheckoutTarget?.repositoryId) ?? null;

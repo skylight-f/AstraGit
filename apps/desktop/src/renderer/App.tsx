@@ -17,7 +17,7 @@ import { ProjectGitWorkbench } from './git/ProjectGitWorkbench.js';
 import { useGitCommitModels } from './git/useGitCommitModels.js';
 import { Settings, type SettingsSection } from './Settings.js';
 import { useApplicationUpdates } from './useApplicationUpdates.js';
-import { readLanguagePreference, resolveApplicationLanguage, saveLanguagePreference, type LanguagePreference } from './applicationPreferences.js';
+import { readAutoFetchPreference, readLanguagePreference, resolveApplicationLanguage, saveAutoFetchPreference, saveLanguagePreference, type LanguagePreference } from './applicationPreferences.js';
 import { ReleaseUpdateButton } from './ReleaseUpdateButton.js';
 import { Button } from './ui/Button.js';
 import { MenuSurface } from './ui/MenuSurface.js';
@@ -62,9 +62,14 @@ function projectTabDropTarget(nav: HTMLElement, layout: ProjectTabDragLayout, x:
 
 export function App(props: AppProps) {
   const [languagePreference, setLanguagePreference] = useState(readLanguagePreference);
+  const [autoFetchEnabled, setAutoFetchEnabled] = useState(readAutoFetchPreference);
   const language = resolveApplicationLanguage(languagePreference, props.language);
   const zh = language === 'zh-CN';
   useEffect(() => { document.documentElement.lang = language; }, [language]);
+  const changeAutoFetch = (enabled: boolean) => {
+    try { saveAutoFetchPreference(enabled); setAutoFetchEnabled(enabled); }
+    catch (reason) { reportApplicationError(reason, { language: zh ? 'zh-CN' : 'en' }); }
+  };
   const changeLanguage = (value: LanguagePreference) => {
     try { saveLanguagePreference(value); setLanguagePreference(value); }
     catch (reason) { reportApplicationError(reason, { language: zh ? 'zh-CN' : 'en' }); }
@@ -496,6 +501,7 @@ export function App(props: AppProps) {
           <div className="gitapp-workbench-host" key={activeProject.id}>
             <ProjectGitWorkbench
               project={activeProject}
+              autoFetchEnabled={autoFetchEnabled && !settingsOpen}
               client={props.client}
               language={language}
               tab={activeGitTab}
@@ -603,7 +609,7 @@ export function App(props: AppProps) {
       </div>
       {reviewVisible ? <GitPaneSeparator name="review-main" label={zh ? '调整代码评审宽度' : 'Resize code review'} initial={68} min={40} max={78} /> : null}
       {reviewVisited && activeProject ? <CodeReviewPanel key={activeProject.id} client={props.client} project={activeProject} zh={zh} active={reviewVisible} modelSettingsRevision={modelSettingsRevision} onSettings={() => openSettings('models')} onClose={() => { setReviewOpen(false); reviewButton.current?.focus(); }} onNavigate={navigateSearch} /> : null}
-      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} onModelsChanged={modelSettingsChanged} section={settingsSection} onSectionChange={setSettingsSection} update={applicationUpdates} updateDisabled={sourceBatchBusy || repositorySetup.busy} /> : null}
+      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} autoFetchEnabled={autoFetchEnabled} onAutoFetchChange={changeAutoFetch} onModelsChanged={modelSettingsChanged} section={settingsSection} onSectionChange={setSettingsSection} update={applicationUpdates} updateDisabled={sourceBatchBusy || repositorySetup.busy} /> : null}
       </div>
       </div>
       </div>

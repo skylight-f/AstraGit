@@ -326,6 +326,15 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     }
   });
 
+  server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/auto-fetch', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string } }>, reply) => {
+    const controller = new AbortController();
+    const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.once('close', disconnected);
+    try { return await workbench.autoFetch(request.params.projectId, request.params.repositoryId, controller.signal); }
+    catch (error) { return sendError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+
   server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/line-diff', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string }; Body: unknown }>, reply) => {
     const controller = new AbortController(); const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); }; reply.raw.on('close', disconnected);
     try { return await workbench.lineDiff(request.params.projectId, request.params.repositoryId, request.body, controller.signal); }

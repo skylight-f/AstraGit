@@ -965,6 +965,19 @@ body {
   gap: 16px;
 }
 
+.gitapp-auto-fetch-setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gitapp-auto-fetch-setting input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--ag-accent);
+}
+
 .gitapp-language-setting select {
   padding: 9px 12px;
   color: inherit;

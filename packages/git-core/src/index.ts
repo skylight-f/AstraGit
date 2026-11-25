@@ -42,6 +42,7 @@ export type { GitHistorySearchScope, GitHistorySearchQuery, GitHistorySearchPage
 export type { GitTrackedFileQuery, GitTrackedFilePage, GitFileHistoryQuery, GitFileHistoryEntry, GitFileHistoryPage, GitFileRevisionQuery, GitFileRevision, GitFileOriginLine } from './gitFileHistory.js';
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { devNull } from 'node:os';
 import { constants, realpathSync } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -77,7 +78,7 @@ export { readSelectedCommitFingerprint, readSelectedGitCommitChanges, type GitCo
 
 const execFileAsync = promisify(execFile);
 /** 当前工作台操作的取消、凭据环境和命令记录回调，彼此隔离。 */
-const projectGitExecution = new AsyncLocalStorage<{ signal?: AbortSignal; env?: NodeJS.ProcessEnv; onCommand?: (command: string) => Promise<void>; onOutput?: (text: string) => void; timeoutMs?: number }>();
+const projectGitExecution = new AsyncLocalStorage<{ signal?: AbortSignal; env?: NodeJS.ProcessEnv; onCommand?: (command: string) => Promise<void>; onOutput?: (text: string) => void; timeoutMs?: number; gracefulStop?: boolean }>();
 const gitDirectoryEnvironment = { GIT_DIR: undefined, GIT_COMMON_DIR: undefined, GIT_WORK_TREE: undefined, GIT_INDEX_FILE: undefined, GIT_NAMESPACE: undefined, GIT_OBJECT_DIRECTORY: undefined, GIT_ALTERNATE_OBJECT_DIRECTORIES: undefined, GIT_PREFIX: undefined };
 
 /**
@@ -92,6 +93,7 @@ export const gitMutatingCapabilityNames = [
   'cleanupPreparedTaskWorktree',
   'refreshConflictTaskWorkspace',
   'fetchGitRemote',
+  'autoFetchProjectGitRepository',
   'commitTaskWorkspace',
   'pushTaskWorkspace',
   'pushLocalBranch',
@@ -1284,6 +1286,27 @@ export async function fetchGitRemote(
   };
 }
 
+/** Refresh only the configured remote-tracking refs, without prompting or fetching nested repositories. */
+export async function autoFetchProjectGitRepository(cwd: string, signal: AbortSignal): Promise<boolean> {
+  const env = { GIT_ASKPASS: 'false', SSH_ASKPASS: 'false', SSH_ASKPASS_REQUIRE: 'never', GCM_INTERACTIVE: 'never', GCM_GUI_PROMPT: '0' };
+  return projectGitExecution.run({ signal, env, timeoutMs: 30_000, gracefulStop: true }, async () => {
+    const context = await getGitRepositoryContext(cwd, signal);
+    if (!context.isRepository || !context.remotes.length) return false;
+    const upstream = context.detached ? '' : await requireGitStdout(cwd, ['config', '--default', '', '--get', `branch.${context.branch}.remote`]);
+    const remote = requireKnownRemote(context, upstream === '.' ? undefined : upstream);
+    const configured = await runGit(cwd, ['config', '--null', '--get-all', `remote.${remote}.fetch`]);
+    const refspecs = configured.stdout.split('\0').filter(Boolean);
+    // Respect single-branch clones and exclusions. Mirror mappings can write local branches.
+    const tracking = refspecs.filter(spec => spec.split(':')[1]?.startsWith(`refs/remotes/${remote}/`));
+    if (!tracking.length) return false;
+    await runGit(cwd, ['-c', `core.hooksPath=${devNull}`, '-c', 'credential.interactive=false',
+      'fetch', '--atomic', '--prune', '--no-prune-tags', '--no-tags', '--no-write-fetch-head',
+      '--no-recurse-submodules', '--no-auto-maintenance', '--refmap=', '--', remote,
+      ...tracking, ...refspecs.filter(spec => spec.startsWith('^'))]);
+    return true;
+  });
+}
+
 /** 读取已经刷新到本机的远端跟踪分支提交；不会再次访问网络。 */
 export async function getRemoteTrackingBranchHead(cwd: string, remoteName: string, remoteBranch: string): Promise<string | null> {
   const remote = requireSafeGitRef(remoteName, 'remote');
@@ -2474,14 +2497,24 @@ async function defaultGitCommandRunner(cwd: string, args: string[], input?: stri
     let stderr = '';
     let bytes = 0;
     let stopped: string | undefined;
-    const stop = (reason: string) => {
-      stopped ??= reason;
-      // 同时终止 SSH、凭据助手等子进程，防止取消后仍在后台写入。
+    let forceStop: ReturnType<typeof setTimeout> | undefined;
+    const killGroup = (signal: NodeJS.Signals) => {
       try {
-        if (child.pid && process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL');
-        else child.kill('SIGKILL');
+        if (child.pid && process.platform !== 'win32') process.kill(-child.pid, signal);
+        else child.kill(signal);
       } catch {
         /* 进程可能已经退出。 */
+      }
+    };
+    const stop = (reason: string) => {
+      if (stopped) return;
+      stopped = reason;
+      if (execution?.gracefulStop) {
+        // Let fetch release its reference locks before the foreground action takes over.
+        killGroup('SIGTERM');
+        forceStop = setTimeout(() => killGroup('SIGKILL'), 1000);
+      } else {
+        killGroup('SIGKILL');
       }
     };
     const cancel = () => stop('Git 操作已中止。');
@@ -2490,6 +2523,7 @@ async function defaultGitCommandRunner(cwd: string, args: string[], input?: stri
     if (execution?.signal?.aborted) cancel();
     const cleanup = () => {
       clearTimeout(timer);
+      clearTimeout(forceStop);
       execution?.signal?.removeEventListener('abort', cancel);
     };
     child.stdout.setEncoding('utf8');

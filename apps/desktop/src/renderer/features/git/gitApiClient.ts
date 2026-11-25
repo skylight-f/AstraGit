@@ -84,6 +84,7 @@ export interface GitApiClient {
   loadGitDiff: () => Promise<GitDiffSummary>;
   loadProjectGitStatus: (projectId: string) => Promise<GitStatusSummary>;
   loadProjectGitWorkbench: (projectId: string) => Promise<ProjectGitWorkbenchSnapshot>;
+  autoFetchProjectGitRepository: (projectId: string, repositoryId: string) => Promise<{ fetched: boolean }>;
   previewRepositoryGitMailbox: (projectId: string, repositoryId: string, input: GitMailboxInput, signal?: AbortSignal) => Promise<GitMailboxPreview>;
   loadRepositoryGitExternalTools: (projectId: string, repositoryId: string, signal?: AbortSignal) => Promise<GitExternalToolSettings>;
   previewRepositoryGitExternalTool: (projectId: string, repositoryId: string, input: GitExternalToolInput, signal?: AbortSignal) => Promise<GitExternalToolPreview>;
@@ -197,6 +198,7 @@ export function createGitApiClient(transport: LocalApiTransport): GitApiClient {
     previewRepositoryGitReplaySeries: (projectId, repositoryId, input, signal) => transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/replay-series-preview`, { ...jsonRequest('POST', input), signal }, { readOnly: true }),
     loadProjectGitStatus: (projectId) => transport.request<GitStatusSummary>(`${projectGitPath(projectId)}/status`),
     loadProjectGitWorkbench: (projectId) => transport.request<ProjectGitWorkbenchSnapshot>(`${projectGitPath(projectId)}/workbench`),
+    autoFetchProjectGitRepository: (projectId, repositoryId) => transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/auto-fetch`, { method: 'POST' }),
     previewRepositoryGitArchive: (projectId, repositoryId, input, signal) => transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/archive-preview`, { ...jsonRequest('POST', input), signal }, { readOnly: true }),
     loadProjectGitLineDiff: (projectId, repositoryId, input, signal) => transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/line-diff`, { ...jsonRequest('POST', input), signal }, { readOnly: true }),
     previewProjectGitStage: (projectId, repositoryId, input, signal) => transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/stage-preview`, { ...jsonRequest('POST', input), signal }, { readOnly: true }),
