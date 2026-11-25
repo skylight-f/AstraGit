@@ -25,6 +25,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: 检出 Homebrew Tap 并验证发布权限
+        uses: actions/checkout@v4
+        with:
+          repository: skylight-f/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: .tmp/homebrew-tap
       - uses: pnpm/action-setup@v4
         with:
           version: 10.31.0
@@ -32,6 +38,8 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: 验证 Homebrew Tap 实际推送权限
+        run: node scripts/sync-homebrew-tap.mjs --check-access .tmp/homebrew-tap
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify:publish
   candidate:
@@ -232,6 +240,8 @@ jobs:
           pattern: release-*
           path: release
           merge-multiple: true
+      - name: 公开发行前复验 Homebrew 推送权限
+        run: node scripts/sync-homebrew-tap.mjs --check-access .tmp/homebrew-tap
       - name: 校验全部资产后公开发行
         env:
           REQUIRE_APPLE_DISTRIBUTION: ${{ vars.REQUIRE_APPLE_DISTRIBUTION }}

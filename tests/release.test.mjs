@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { parseReleaseManifest } from '../packages/shared/dist/index.js';
@@ -9,7 +9,43 @@ import { createReleaseUpdateService, downloadVerifiedArtifact } from '../apps/de
 import { readApplicationReleaseNotes } from '../apps/desktop/src/main/applicationReleaseNotes.ts';
 import { formatReleaseChanges, selectAutomaticVersion } from '../scripts/prepare-automatic-release.mjs';
 import { renderHomebrewCask } from '../scripts/homebrew-cask.mjs';
-import { loadHomebrewRelease, verifyHomebrewRelease } from '../scripts/sync-homebrew-tap.mjs';
+import { checkHomebrewTapAccess, loadHomebrewRelease, verifyHomebrewRelease } from '../scripts/sync-homebrew-tap.mjs';
+
+test('Homebrew preflight verifies push access without updating a remote ref', () => {
+  const calls = [];
+  checkHomebrewTapAccess('.tmp/homebrew-tap', (command, args, options) => {
+    assert.equal(command, 'git');
+    assert.equal(options.cwd, resolve('.tmp/homebrew-tap'));
+    assert.equal(options.timeout, 60_000);
+    calls.push(args);
+    return args[0] === 'remote' ? 'https://github.com/skylight-f/homebrew-tap\n' : '';
+  });
+  assert.deepEqual(calls, [
+    ['remote', 'get-url', 'origin'], ['status', '--porcelain'],
+    ['push', '--dry-run', 'origin', 'HEAD:refs/heads/main'],
+  ]);
+});
+
+test('Homebrew preflight rejects readable taps with no push permission and explains the required credential', () => {
+  assert.throws(() => checkHomebrewTapAccess('.tmp/homebrew-tap', (_command, args) => {
+    if (args[0] === 'remote') return 'https://github.com/skylight-f/homebrew-tap';
+    if (args[0] === 'status') return '';
+    throw Object.assign(new Error('push failed'), { status: 128, stderr: 'remote: Permission to skylight-f/homebrew-tap.git denied to skylight-f. HTTP 403' });
+  }), error => {
+    for (const text of ['push', '403', 'HOMEBREW_TAP_TOKEN', 'Contents: Read and write']) assert.ok(error.message.includes(text), text);
+    return true;
+  });
+});
+
+test('Homebrew preflight rejects foreign origins or dirty checkouts before attempting push access', () => {
+  for (const [origin, status] of [['https://github.com/foreign/tap', ''], ['https://github.com/skylight-f/homebrew-tap', ' M Casks/astragit.rb']]) {
+    assert.throws(() => checkHomebrewTapAccess('.tmp/homebrew-tap', (_command, args) => {
+      if (args[0] === 'remote') return origin;
+      if (args[0] === 'status') return status;
+      assert.fail('Invalid tap must not attempt push access.');
+    }), /来源或检出状态无效/u);
+  }
+});
 
 test('application release notes read the requested stable tag and isolate the changes section', async () => {
   const release = { tag_name: 'v0.2.0', draft: false, prerelease: false, body: "# AstraGit 0.2.0\r\n\r\n## What's Changed\r\n\r\n- Add folder scanning\r\n\r\n### Fixes\r\n\r\n- Preserve project settings\r\n\r\n## Installation\r\n\r\nDownload the installer." };

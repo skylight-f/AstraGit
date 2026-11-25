@@ -1,0 +1,77 @@
+.macos-ai-app .zeus-select.ai-model-select[data-control-size='compact'] > .zeus-select-trigger {
+  min-block-size: var(--ag-tool-size);
+  border-color: var(--ag-control-line);
+  border-radius: var(--ag-control-radius);
+  background: var(--ag-control);
+  color: var(--ag-ink);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.macos-ai-app .zeus-select.ai-model-select > .zeus-select-trigger:is(:hover, [aria-expanded='true']):not(:disabled) {
+  background: var(--ag-brand-selected);
+  border-color: var(--ag-brand-edge);
+  color: var(--ag-brand-ink);
+}
+
+.macos-ai-app .ai-model-select-popover .zeus-select-listbox {
+  max-block-size: min(300px, max(64px, calc(100dvh - 160px)));
+}
+
+.macos-ai-app .zeus-select-portal-root[data-zeus-primitive='select-popover'][data-control-size='compact'] .ai-model-select-popover .zeus-select-option {
+  min-block-size: 32px;
+  gap: 8px;
+  padding: 4px 8px;
+  font: 12px/1.35 system-ui;
+}
+
+.macos-ai-app .ai-model-select-popover .zeus-select-option[aria-selected='true'] {
+  background: var(--ag-brand-selected);
+  color: var(--ag-brand-ink);
+  font-weight: 600;
+}
+
+.ai-model-select-logo, .ai-model-select-symbol {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  object-fit: contain;
+}
+
+.ai-model-select-symbol {
+  display: grid;
+  place-items: center;
+  background: var(--ag-control);
+  color: var(--ag-brand-ink);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.ai-model-select-actions {
+  display: grid;
+  gap: 2px;
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid var(--ag-line);
+}
+
+.macos-ai-app .ai-model-select-actions > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ag-ink);
+  font: 12px/1.35 system-ui;
+  text-align: left;
+  cursor: pointer;
+}
+
+.macos-ai-app .ai-model-select-actions > button:not(:disabled):is(:hover, :focus-visible) { background: var(--zeus-brand-hover); }
+.macos-ai-app .ai-model-select-actions > button:focus-visible { outline: 1px solid var(--ag-focus); outline-offset: -1px; }
+.macos-ai-app .ai-model-select-actions > button:disabled { color: var(--ag-muted); opacity: .55; cursor: default; }

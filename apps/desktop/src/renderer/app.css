@@ -87,8 +87,7 @@ body {
 .gitapp-review-controls > label > span { display: block; margin-bottom: 4px; color: var(--ag-muted); font-size: 11px; }
 .gitapp-review-controls .zeus-select { width: 100%; }
 .gitapp-review-controls .zeus-select-trigger { min-height: 30px; width: 100%; font-size: 12px; }
-.gitapp-review-model-actions, .gitapp-review-run { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
-.gitapp-review-model-actions > button { padding: 0; border: 0; background: transparent; color: var(--ag-brand-ink); font: inherit; cursor: pointer; }
+.gitapp-review-run { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
 .gitapp-review-run > span { color: var(--ag-muted); font-size: 11px; }
 .gitapp-review-run > button { flex-shrink: 0; padding: 5px 12px; border: 1px solid var(--ag-line); border-radius: 6px; background: #fff; color: var(--ag-ink); font: inherit; cursor: pointer; }
 .gitapp-review-run > button.is-primary { border-color: var(--ag-accent); background: var(--ag-accent); color: white; }

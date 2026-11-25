@@ -51,6 +51,8 @@ export interface ZeusSelectProps<T extends string> {
   emptyLabel?: string;
   searchable?: boolean;
   popoverMinWidth?: number;
+  /** 各入口可统一浮层宽度，窄窗口仍受视口约束。 */
+  popoverMaxWidth?: number;
   /** 浮层箭头对齐触发器的起始、中部或末端交互区。 */
   popoverArrowAlignment?: 'start' | 'center' | 'end';
   /** 启用后使用包含选择与置顶按钮的对话框，避免在选项内嵌套按钮。 */
@@ -59,8 +61,8 @@ export interface ZeusSelectProps<T extends string> {
   popoverClassName?: string;
   /** 列表之外的标题和操作区域，清除操作不应作为可选值。 */
   header?: ReactNode;
-  /** 列表之外的独立操作区域，例如筛选结果的显示开关。 */
-  footer?: ReactNode;
+  /** 列表外的独立操作；回调可先收起浮层再打开设置等工作面。 */
+  footer?: ReactNode | ((close: () => void) => ReactNode);
   size: 'compact' | 'regular' | 'roomy';
 }
 
@@ -234,7 +236,7 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
     const viewportPadding = 8;
     const popoverGap = 6;
     /** 模型长名称截断显示，避免单个长名称把菜单撑成横跨页面的大面板。 */
-    const maxWidth = Math.max(0, Math.min(window.innerWidth - viewportPadding * 2, props.pinning ? 360 : Number.POSITIVE_INFINITY));
+    const maxWidth = Math.max(0, Math.min(window.innerWidth - viewportPadding * 2, props.popoverMaxWidth ?? (props.pinning ? 360 : Number.POSITIVE_INFINITY)));
     if (popoverRef.current) {
       popoverContentWidthRef.current = Math.max(popoverContentWidthRef.current, measurePopoverContentWidth(popoverRef.current, maxWidth));
     }
@@ -262,7 +264,7 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
       }
       return nextLayout;
     });
-  }, [props.popoverArrowAlignment, props.popoverMinWidth, props.pinning]);
+  }, [props.popoverArrowAlignment, props.popoverMinWidth, props.popoverMaxWidth, props.pinning]);
 
   const closeListbox = (restoreFocus = true) => {
     setOpen(false);
@@ -270,9 +272,8 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
   };
 
   const openListbox = (nextActiveValue = props.value) => {
-    if (props.disabled || enabledOptions.length === 0) return;
-    const resolvedActiveValue = enabledOptions.some((option) => option.value === nextActiveValue) ? nextActiveValue : enabledOptions[0]?.value;
-    if (resolvedActiveValue === undefined) return;
+    if (props.disabled || (enabledOptions.length === 0 && !props.footer)) return;
+    const resolvedActiveValue = enabledOptions.some((option) => option.value === nextActiveValue) ? nextActiveValue : enabledOptions[0]?.value ?? props.value;
     setQuery('');
     if (props.pinning) setPinnedValues(readPinnedValues(props.pinning.storageKey));
     setPinSaveFailed(false);
@@ -457,11 +458,12 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
   }, [open, searchPlaceholder, searchable, syncPopoverLayout, visibleOptions]);
 
   // 只在打开时自动聚焦；方向键移动后不能把焦点抢回搜索框。
+  const readyForFocus = open && popoverPresent && popoverLayout !== null;
   useEffect(() => {
-    if (!open || typeof window === 'undefined') return undefined;
-    // 选项已挂载即可聚焦，避免旧帧在关闭后把焦点带回退出中的菜单。
+    if (!readyForFocus || typeof window === 'undefined') return undefined;
+    // 等浮层挂载并完成定位，visibility:hidden 时无法接收焦点。
     focusElement(searchable ? (searchRef.current ?? undefined) : (optionRefs.current.get(activeValue) ?? undefined));
-  }, [open, searchable]);
+  }, [readyForFocus, searchable]);
   useEffect(() => {
     setActiveValue(props.value);
   }, [props.value]);
@@ -598,7 +600,7 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
             </span>
           )}
         </span>
-        {props.footer ? <span className="zeus-select-footer">{props.footer}</span> : null}
+        {props.footer ? <span className="zeus-select-footer">{typeof props.footer === 'function' ? props.footer(() => closeListbox()) : props.footer}</span> : null}
       </span>
     </span>
   ) : null;

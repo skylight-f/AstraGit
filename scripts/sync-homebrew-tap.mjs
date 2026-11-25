@@ -76,18 +76,34 @@ export async function loadHomebrewRelease({ tag, sourceCommit, token }) {
   return { manifest, caskBytes };
 }
 
-export async function syncHomebrewTap(directory) {
-  const { manifest, caskBytes } = await loadHomebrewRelease({ tag: process.env.RELEASE_TAG, sourceCommit: process.env.RELEASE_COMMIT, token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
-  const root = resolve(directory);
-  const git = (...args) => {
+function homebrewGit(root, execute = execFileSync) {
+  return (...args) => {
     try {
-      return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+      return execute('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 }).trim();
     } catch (error) {
-      throw new Error(`Homebrew Git ${args[0]} 失败（exit=${error.status ?? 'unknown'}）：${String(error.stderr || error.message).trim()}`);
+      const output = String(error.stderr || error.message).trim();
+      const permission = /(?:403|permission.*denied|write access.*not granted|authentication failed)/iu.test(output)
+        ? ' HOMEBREW_TAP_TOKEN 无法写入 skylight-f/homebrew-tap；请授予目标仓库 Contents: Read and write 权限后重试。'
+        : '';
+      throw new Error(`Homebrew Git ${args[0]} 失败（exit=${error.status ?? 'unknown'}）：${output}${permission}`);
     }
   };
+}
+
+/** 检出成功只证明可读；通过 receive-pack 校验当前凭据的推送权限，不移动远端引用。 */
+export function checkHomebrewTapAccess(directory, execute = execFileSync) {
+  const root = resolve(directory);
+  const git = homebrewGit(root, execute);
   const origin = git('remote', 'get-url', 'origin');
   if (![ `git@github.com:${homebrewRepository}.git`, `https://github.com/${homebrewRepository}.git`, `https://github.com/${homebrewRepository}` ].includes(origin) || git('status', '--porcelain')) throw new Error('Homebrew Tap 来源或检出状态无效。');
+  git('push', '--dry-run', 'origin', 'HEAD:refs/heads/main');
+}
+
+export async function syncHomebrewTap(directory) {
+  checkHomebrewTapAccess(directory);
+  const { manifest, caskBytes } = await loadHomebrewRelease({ tag: process.env.RELEASE_TAG, sourceCommit: process.env.RELEASE_COMMIT, token: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+  const root = resolve(directory);
+  const git = homebrewGit(root);
   const path = join(root, 'Casks/astragit.rb');
   const previous = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
   const version = previous.match(/^\s*version "(\d+\.\d+\.\d+)"$/mu)?.[1];
@@ -99,6 +115,10 @@ export async function syncHomebrewTap(directory) {
   console.info(`已自动同步 skylight-f/tap/astragit ${manifest.version}。`);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const directory = process.argv[2]; if (!directory) throw new Error('需要 Homebrew Tap 检出目录。');
-  await syncHomebrewTap(directory);
+  const checkAccess = process.argv[2] === '--check-access';
+  const directory = process.argv[checkAccess ? 3 : 2]; if (!directory) throw new Error('需要 Homebrew Tap 检出目录。');
+  if (checkAccess) {
+    checkHomebrewTapAccess(directory);
+    console.info('Homebrew Tap 来源、工作区和推送权限校验通过（dry-run，未修改远端引用）。');
+  } else await syncHomebrewTap(directory);
 }

@@ -1,10 +1,15 @@
 import { X } from '@phosphor-icons/react/dist/csr/X';
 import { ShieldCheck } from '@phosphor-icons/react/dist/csr/ShieldCheck';
+import { Copy } from '@phosphor-icons/react/dist/csr/Copy';
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardClient, ProjectRecord, GitCodeReviewInput, GitCodeReviewScope, GitCodeReviewReport, GitCodeReviewFinding } from './apiClient.js';
 import { loadGitCommitModelOptions } from './git/gitCommitModels.js';
 import { readCachedProjectGitWorkbench, requestProjectGitWorkbench } from './git/projectGitWorkbenchState.js';
 import { ZeusSelect } from './ZeusSelect.js';
+import { ModelSelect } from './ModelSelect.js';
+import type { GitCommitModelOption } from './features/git/gitApiClient.js';
+import { Button } from './ui/Button.js';
+import { formatCodeReviewMarkdown } from './codeReviewMarkdown.js';
 import type { WorkspaceSearchDestination } from './workspaceSearchState.js';
 import './codeReview.css';
 
@@ -15,7 +20,8 @@ export function CodeReviewPanel({ client, project, zh, active, modelSettingsRevi
   const label = (cn: string, en: string) => zh ? cn : en;
   const [repositoryId, setRepositoryId] = useState('');
   const [mode, setMode] = useState<'worktree' | 'staged'>('worktree');
-  const [models, setModels] = useState<Array<{ id: string; label: string }>>([]);
+  const [models, setModels] = useState<GitCommitModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
   const [modelRef, setModelRef] = useState('');
   const [modelWarning, setModelWarning] = useState('');
   const [repositoryOptions, setRepositoryOptions] = useState<GitCodeReviewScope['repositories']>([]);
@@ -25,6 +31,7 @@ export function CodeReviewPanel({ client, project, zh, active, modelSettingsRevi
   const [report, setReport] = useState<GitCodeReviewReport | null>(null);
   const [thinking, setThinking] = useState('');
   const [completed, setCompleted] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
   const thinkingView = useRef<HTMLPreElement>(null);
   const followThinking = useRef(true);
   const [error, setError] = useState('');
@@ -38,6 +45,7 @@ export function CodeReviewPanel({ client, project, zh, active, modelSettingsRevi
     if (followThinking.current && thinkingView.current) thinkingView.current.scrollTop = thinkingView.current.scrollHeight;
   }, [thinking]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; request.current?.abort(); }; }, []);
+  useEffect(() => { setCopyStatus('idle'); }, [report, zh]);
   useEffect(() => {
     if (!active) return;
     let alive = true;
@@ -52,11 +60,12 @@ export function CodeReviewPanel({ client, project, zh, active, modelSettingsRevi
   }, [client, project.id, active]);
   useEffect(() => {
     let alive = true;
+    setModelsLoading(true);
     void loadGitCommitModelOptions(client, project.id).then(value => {
       if (!alive) return;
       setModels(value.items); setModelWarning(value.warning);
       setModelRef(current => value.items.some(item => item.id === current) ? current : value.modelRef);
-    }).catch(() => { if (alive) { setModels([]); setModelRef(''); setModelWarning(label('无法加载模型，请检查 AI 设置。', 'Unable to load models. Check AI settings.')); } });
+    }).catch(() => { if (alive) { setModels([]); setModelRef(''); setModelWarning(label('无法加载模型，请检查 AI 设置。', 'Unable to load models. Check AI settings.')); } }).finally(() => { if (alive) setModelsLoading(false); });
     return () => { alive = false; };
   }, [client, project.id, modelSettingsRevision, modelRevision, zh]);
   useEffect(() => {
@@ -109,6 +118,16 @@ export function CodeReviewPanel({ client, project, zh, active, modelSettingsRevi
     }
   };
   const stale = Boolean(report && (scopeError || scope?.fingerprint !== report.fingerprint));
+  const copyMarkdown = async () => {
+    if (!report || busy || copyStatus === 'copying') return;
+    setCopyStatus('copying');
+    try {
+      await navigator.clipboard.writeText(formatCodeReviewMarkdown(report, project.name, zh, { completed, stale }));
+      if (mounted.current) setCopyStatus('copied');
+    } catch {
+      if (mounted.current) setCopyStatus('error');
+    }
+  };
   const openFinding = async (finding: GitCodeReviewFinding) => {
     if (opening || stale || busy || !report) return;
     setOpening(true); setError('');
@@ -133,8 +152,7 @@ export function CodeReviewPanel({ client, project, zh, active, modelSettingsRevi
         <p className="gitapp-review-project" title={project.localPath}>{project.name}</p>
         <label><span>{label('评审仓库', 'Repositories')}</span><ZeusSelect size="compact" ariaLabel={label('评审仓库', 'Review repositories')} value={repositoryId} disabled={busy} onChange={value => changeScope(value, mode)} options={[{ value: '', label: label('当前项目全部仓库', 'All repositories in project') }, ...repositoryOptions.map(repo => ({ value: repo.id, label: repo.relativePath === '.' ? repo.name : repo.relativePath }))]} /></label>
         <label><span>{label('改动范围', 'Changes')}</span><ZeusSelect size="compact" ariaLabel={label('评审改动范围', 'Review change scope')} value={mode} disabled={busy} onChange={value => changeScope(repositoryId, value as 'worktree' | 'staged')} options={[{ value: 'worktree', label: label('全部工作区改动', 'All working tree changes') }, { value: 'staged', label: label('仅已暂存改动', 'Staged changes only') }]} /></label>
-        <label><span>{label('AI 模型', 'AI model')}</span><ZeusSelect size="compact" ariaLabel={label('评审 AI 模型', 'Review AI model')} value={modelRef} disabled={busy || !models.length} onChange={setModelRef} options={models.length ? models.map(model => ({ value: model.id, label: model.label })) : [{ value: '', label: label('请先配置 AI 模型', 'Configure an AI model') }]} /></label>
-        <div className="gitapp-review-model-actions"><button type="button" onClick={onSettings}>{label('AI 设置', 'AI settings')}</button><button type="button" disabled={busy} onClick={() => setModelRevision(value => value + 1)}>{label('刷新模型', 'Refresh models')}</button></div>
+        <label><span>{label('AI 模型', 'AI model')}</span><ModelSelect ariaLabel={label('评审 AI 模型', 'Review AI model')} zh={zh} items={models} value={modelRef} disabled={busy} loading={modelsLoading} onChange={setModelRef} onRefresh={() => setModelRevision(value => value + 1)} onOpenSettings={onSettings} /></label>
         {modelWarning ? <p className="gitapp-review-note">{modelWarning}</p> : null}
         <p className="gitapp-review-note">{label('将所选范围的差异发送至所选模型，只读分析代码；不会执行测试。', 'Sends the selected diff to your model for read-only analysis. Tests are not executed.')}</p>
         <div className="gitapp-review-run"><span>{scopeLoading ? label('读取改动中…', 'Reading changes…') : scope ? label(`${scope.fileCount} 个文件 · ${scope.repositories.filter(repo => repo.fileCount).length} 个仓库`, `${scope.fileCount} files · ${scope.repositories.filter(repo => repo.fileCount).length} repositories`) : ''}</span>{busy ? <button type="button" onClick={() => { request.current?.abort(); setNotice(label('评审已取消。', 'Review cancelled.')); }}>{label('取消评审', 'Cancel review')}</button> : <button type="button" className="is-primary" disabled={!modelRef || scopeLoading || !scope?.fileCount || Boolean(scopeError)} onClick={() => { void start(); }}>{report ? label('重新评审', 'Review again') : label('开始评审', 'Start review')}</button>}</div>
@@ -145,7 +163,8 @@ export function CodeReviewPanel({ client, project, zh, active, modelSettingsRevi
       {thinking ? <details className="gitapp-review-thinking" open><summary>{busy ? label('模型思考中…', 'Model thinking…') : label('模型思考过程', 'Model reasoning')}</summary><pre ref={thinkingView} onScroll={event => { const view = event.currentTarget; followThinking.current = view.scrollHeight - view.scrollTop - view.clientHeight < 24; }}>{thinking}</pre></details> : busy && report ? <p className="gitapp-review-note">{label('等待模型返回思考内容或评审问题；部分模型仅提供思考摘要。', 'Waiting for model reasoning or findings. Some models provide reasoning summaries only.')}</p> : null}
       {report ? <div className="gitapp-review-report">
         {!busy && !completed ? <p className="gitapp-review-stale" role="status">{label('评审未完成，以下仅为已收到的部分结果。', 'Review incomplete. Only the received partial results are shown below.')}</p> : null}
-        <p className="gitapp-review-note">{report.model} · {new Date(report.reviewedAt).toLocaleTimeString()} · {report.fileCount} {label('个文件', 'files')}</p>
+        <div className="gitapp-review-report-toolbar"><p className="gitapp-review-note">{report.model} · {new Date(report.reviewedAt).toLocaleTimeString()} · {report.fileCount} {label('个文件', 'files')}</p><Button size="compact" disabled={busy} busy={copyStatus === 'copying'} onClick={() => { void copyMarkdown(); }} aria-label={label('复制 Markdown', 'Copy Markdown')} title={label('复制 Markdown', 'Copy Markdown')}><Copy size={14} aria-hidden="true" />{copyStatus === 'copied' ? label('已复制', 'Copied') : label('复制 Markdown', 'Copy Markdown')}</Button></div>
+        {copyStatus === 'copied' ? <p className="gitapp-review-note" role="status">{label('已复制评审结果 Markdown。', 'Review results copied as Markdown.')}</p> : copyStatus === 'error' ? <p className="gitapp-review-error" role="alert">{label('复制失败，请重试。', 'Copy failed. Please retry.')}</p> : null}
         {stale ? <p className="gitapp-review-stale" role="status">{label('代码已变化或暂时无法核对，以下为上次结果，请重新评审。', 'Code has changed or cannot be verified. Results below are from the previous review.')}</p> : null}
         {report.summary ? <section><h3>{label('改动概述', 'Summary')}</h3><p>{report.summary}</p></section> : null}
         {completed || report.impacts.length ? <section><h3>{label('修改影响', 'Impact')}</h3>{report.impacts.length ? <ul>{report.impacts.map((impact, index) => <li key={index}>{impact}</li>)}</ul> : <p>{label('未提供额外影响分析。', 'No additional impact analysis provided.')}</p>}</section> : null}
