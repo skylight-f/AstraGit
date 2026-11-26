@@ -785,6 +785,11 @@
   border-radius: 8px;
   padding: 4px;
 }
+.git-branch-choice-group > summary { padding: 5px 8px; cursor: pointer; background: var(--zeus-product-panel-muted); border-radius: 5px; }
+.git-branch-choice-group > summary > input { margin: 0 8px 0 3px; vertical-align: middle; }
+.git-branch-choice-group > summary > small { margin-inline-start: 8px; color: var(--zeus-product-muted); }
+.git-branch-choice-group > summary:focus-visible { outline: 2px solid var(--ag-focus); outline-offset: -2px; }
+.git-branch-choice-children { padding-inline-start: 16px; }
 .git-branch-delete-list .git-branch-choice {
   align-items: center;
   min-height: 30px;

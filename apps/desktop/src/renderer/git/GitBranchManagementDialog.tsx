@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { describeUserFacingError, userFacingErrorCause } from '@astragit/shared';
 import type { ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../apiClient.js';
 import { Button } from '../ui/Button.js';
 import { ModalPortal } from '../ui/ModalPortal.js';
 import { VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from './gitWorkbenchTypes.js';
+
+import { buildBranchTree, type BranchTreeNode } from './gitBranchTree.js';
 
 export type GitBranchManagementRequest =
   | { kind: 'delete-local'; repository: ProjectGitRepositoryWorkbenchItem; branchName?: string }
@@ -24,6 +26,26 @@ function reviewRemoteDeletion(snapshot: ProjectGitRepositoryWorkbenchItem['snaps
   if (!head || !target?.pushFingerprint || !target.pushUrls?.length) return null;
   const action: RemoteDeleteAction = { type: 'delete_remote_branch', remote, branchName, expectedTargetHeadSha: head, expectedRemotePushFingerprint: target.pushFingerprint };
   return { name, action, pushUrls: target.pushUrls };
+}
+
+function branchLeaves(node: BranchTreeNode): string[] {
+  return node.children.size ? [...node.children.values()].flatMap(branchLeaves) : [node.branch];
+}
+
+function BranchChoiceGroup(props: { name: string; path: string; branches: string[]; selected: Set<string>;
+  enabled: (branch: string) => boolean; onSelect: (branches: string[], checked: boolean) => void; zh: boolean; children: ReactNode }) {
+  const eligible = props.branches.filter(props.enabled);
+  const checked = eligible.filter(branch => props.selected.has(branch)).length;
+  return <details className="git-branch-choice-group" open>
+    <summary>
+      <input type="checkbox" aria-label={props.zh ? `选择分组 ${props.path}` : `Select group ${props.path}`}
+        disabled={!eligible.length} checked={eligible.length > 0 && checked === eligible.length}
+        ref={input => { if (input) input.indeterminate = checked > 0 && checked < eligible.length; }}
+        onChange={event => props.onSelect(eligible, event.currentTarget.checked)} />
+      <strong>{props.name}</strong><small>{props.branches.length}</small>
+    </summary>
+    <div className="git-branch-choice-children">{props.children}</div>
+  </details>;
 }
 
 export function branchActionNeedsReview(error: unknown): boolean {
@@ -49,6 +71,10 @@ export function GitBranchManagementDialog(props: {
   const unavailable = new Set(snapshot.checkedOutBranches ?? []);
   if (!snapshot.detached) unavailable.add(snapshot.branch);
   const [selected, setSelected] = useState(() => new Set(request.kind === 'delete-local' && request.branchName && !unavailable.has(request.branchName) ? [request.branchName] : []));
+  const tree = useMemo(() => buildBranchTree(request.kind === 'delete-local' ? snapshot.localBranches : []), [request, snapshot]);
+  const roots = [...tree.children.values()];
+  const folders = roots.filter(node => node.children.size);
+  const ungrouped = roots.filter(node => !node.children.size);
   const [force, setForce] = useState(false);
   const [deleteRemote, setDeleteRemote] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
@@ -126,40 +152,45 @@ export function GitBranchManagementDialog(props: {
     } catch (reason) { setError(reason); setReview(branchActionNeedsReview(reason)); }
     finally { gate.current = false; if (alive.current) setRunning(false); }
   };
+  const selectable = (branch: string) => !disabled && !review && !unavailable.has(branch) && !removedLocal.has(branch) && Boolean(snapshot.localBranchHeads?.[branch]);
+  const selectBranches = (branches: string[], checked: boolean) => {
+    setSelected(current => {
+      const next = new Set(current);
+      for (const branch of branches) {
+        if (checked) next.add(branch);
+        else next.delete(branch);
+      }
+      return next;
+    });
+  };
+  function renderBranch(node: BranchTreeNode): ReactNode {
+    const branch = node.branch;
+    if (node.children.size) return <BranchChoiceGroup key={branch} name={node.name} path={branch}
+      branches={branchLeaves(node)} selected={selected} enabled={selectable} onSelect={selectBranches} zh={props.zh}>
+      {[...node.children.values()].map(renderBranch)}
+    </BranchChoiceGroup>;
+    const head = snapshot.localBranchHeads?.[branch];
+    const status = removedLocal.has(branch) ? text('已删除', 'Deleted')
+      : unavailable.has(branch) ? text('工作区正在使用', 'Checked out in a worktree')
+      : !head ? text('请刷新后重开', 'Refresh and reopen') : null;
+    return <label key={branch} className="git-branch-choice">
+      <input type="checkbox" aria-label={branch} checked={selected.has(branch)} disabled={!selectable(branch)}
+        onChange={event => selectBranches([branch], event.currentTarget.checked)} />
+      <span className="git-branch-choice-name" title={branch}>{node.name}</span>
+      {status ? <small className="git-branch-choice-status">{status}</small> : <code>{head?.slice(0, 12)}</code>}
+    </label>;
+  }
   return <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" role="alertdialog" aria-label={title} onDismiss={props.onClose} dismissDisabled={disabled}>
     <section className="project-git-menu-action-dialog git-branch-management" data-modal-surface="alertdialog">
       <header><strong>{title}</strong><p>{repository.name}{request.kind === 'delete-local' ? '' : ` · ${request.kind === 'delete-remote' ? `${request.remote}/` : ''}${request.branchName}`}</p></header>
       {request.kind === 'delete-local' ? <>
         <p>{text('选择要删除的本地分支。Git 会检查合入情况；正在工作区使用的分支不能删除。', 'Select local branches to delete. Git checks merge status; checked-out branches cannot be deleted.')}</p>
         <div className="git-branch-delete-list">
-          {snapshot.localBranches.map(branch => {
-            const head = snapshot.localBranchHeads?.[branch];
-            const deleted = removedLocal.has(branch);
-            const inUse = unavailable.has(branch);
-            const status = deleted ? text('已删除', 'Deleted')
-              : inUse ? text('工作区正在使用', 'Checked out in a worktree')
-              : !head ? text('请刷新后重开', 'Refresh and reopen') : null;
-            return (
-              <label key={branch} className="git-branch-choice">
-                <input
-                  type="checkbox"
-                  checked={selected.has(branch)}
-                  disabled={disabled || deleted || inUse || !head}
-                  onChange={event => {
-                    const checked = event.currentTarget.checked;
-                    setSelected(current => {
-                      const next = new Set(current);
-                      if (checked) next.add(branch);
-                      else next.delete(branch);
-                      return next;
-                    });
-                  }}
-                />
-                <span className="git-branch-choice-name" title={branch}>{branch}</span>
-                {status ? <small className="git-branch-choice-status">{status}</small> : <code>{head?.slice(0, 12)}</code>}
-              </label>
-            );
-          })}
+          {folders.map(renderBranch)}
+          {ungrouped.length > 0 && <BranchChoiceGroup name={text('无前缀', 'No prefix')} path={text('无前缀', 'No prefix')}
+            branches={ungrouped.map(node => node.branch)} selected={selected} enabled={selectable} onSelect={selectBranches} zh={props.zh}>
+            {ungrouped.map(renderBranch)}
+          </BranchChoiceGroup>}
         </div>
         <label className="git-branch-choice"><input type="checkbox" checked={force} disabled={disabled || review} onChange={event => setForce(event.target.checked)} /><span>{text('强制删除（允许删除尚未合入的分支）', 'Force delete regardless of merge status')}</span></label>
         {force ? <p role="note">{text('强制删除会移除所选本地分支引用。仅由这些分支保留的提交可能无法再访问，请先核对需要保留的提交。', 'Force deletion removes the selected local branch refs. Commits reachable only from those branches may become unavailable. Review any commits you need to keep first.')}</p> : null}
