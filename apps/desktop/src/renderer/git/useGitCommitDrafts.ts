@@ -27,6 +27,31 @@ export function batchDraftScope(units: SourceCommitUnit[]) {
   return JSON.stringify(units.map(unit => batchScopeEntry(unit.repository.id, repositoryDraftScope(unit.repository.snapshot), unit.gitlinks)));
 }
 
+export function sourceReviewMessages(units: SourceCommitUnit[], drafts: Drafts, editorId: string) {
+  const batch = editorId === batchSummaryId;
+  const editorUnit = units.find(unit => unit.repository.id === editorId);
+  const activeDraft = batch || editorUnit ? drafts[editorId] : undefined;
+  const writtenMessages = new Set(units.map(({ repository }) => drafts[repository.id]?.message ?? '').filter(message => message.trim()));
+  let fallbackMessage = '';
+  if (activeDraft?.message.trim()) fallbackMessage = activeDraft.message;
+  else if (writtenMessages.size === 1) fallbackMessage = writtenMessages.values().next().value ?? '';
+  const messages = new Map<string, string>();
+  let preferredRepositoryId = editorUnit?.repository.id;
+  let stale = false;
+  for (const { repository, gitlinks } of units) {
+    const draft = drafts[repository.id];
+    if (draft?.message.trim()) {
+      messages.set(repository.id, draft.message);
+      stale ||= Boolean(draft.scope && draft.scope !== repositoryDraftScope(repository.snapshot, gitlinks));
+    } else {
+      messages.set(repository.id, fallbackMessage);
+      if (batch && fallbackMessage) preferredRepositoryId ??= repository.id;
+    }
+  }
+  if (batch && preferredRepositoryId && activeDraft?.message.trim() && activeDraft.scope) stale ||= activeDraft.scope !== batchDraftScope(units);
+  return { messages, preferredRepositoryId, stale };
+}
+
 function stored(key: string): Record<string, unknown> {
   try {
     const data = JSON.parse(localStorage.getItem(key) ?? 'null');

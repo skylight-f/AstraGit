@@ -1,4 +1,5 @@
-import type { GitModelTextTask } from './gitModelTextGeneration.js';
+import type { CommitGenerationUsage } from '@astragit/shared';
+import { reportedGenerationTokens, type GitModelTextTask } from './gitModelTextGeneration.js';
 import { createCodexAppServerManager, type CodexAppServerManager } from '@astragit/ai-runtime';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -122,6 +123,7 @@ export async function generateCodexCommitMessage(
     onText?: (text: string) => void;
     onTextDelta?: (text: string) => void;
     onThinking?: (text: string) => void;
+    onGenerated?: (usage: CommitGenerationUsage) => void;
     onProgress?: (stage: string, elapsedMs: number) => void;
   },
 ): Promise<{ message: string; model: string }> {
@@ -187,6 +189,7 @@ export async function generateCodexCommitMessage(
       });
       threadId = thread.id;
       if (cancelled) throw new Error(`${subject}已取消。`);
+      let totalTokens: number | null = null;
       const messages = new Map<string, string>();
       const streamed = new Map<string, string>();
       const commentary = new Set<string>();
@@ -198,6 +201,10 @@ export async function generateCodexCommitMessage(
             return;
           }
           if (params.threadId !== threadId) return;
+          if (event.method === 'thread/tokenUsage/updated') {
+            const total = reportedGenerationTokens(asRecord(params.tokenUsage).total, 'codex');
+            if (total !== null) totalTokens = total;
+          }
           if (options.task) armTimeout(options.timeoutMs ?? 80_000);
           const item = asRecord(params.item);
           if (event.method === 'item/reasoning/summaryTextDelta' && typeof params.delta === 'string') options.onThinking?.(params.delta);
@@ -247,6 +254,8 @@ export async function generateCodexCommitMessage(
       const message = text.replace(/^```[^\n]*\n([\s\S]*?)\n```$/u, '$1').trim();
       if (!message || message.length > outputLimit) throw new Error(`Codex 未返回有效的${subject}结果，请重试。`);
       if (options.onTextDelta && streamed.size === 0) options.onTextDelta(message);
+      options.onGenerated?.({ providerId: 'codex', providerName: 'Codex', modelId: model.model,
+        modelName: model.displayName || model.model, totalTokens });
       return { message, model: `Codex · ${model.displayName || model.model}` };
     };
     const result = await Promise.race([run(), timeout]);

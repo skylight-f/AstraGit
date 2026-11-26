@@ -97,7 +97,9 @@ function SourceChangeTree(props: Props & { conflictPaths: ReadonlySet<string>; p
       const submodule = props.repository.snapshot.submodules?.some(module => module.path === file.path);
       return <div key={file.path} className={`source-git-file${props.focusedPath === file.path ? ' is-active' : ''}`}>
         {!conflicted ? <SourceCheckbox label={`${action} ${props.repository.name}/${file.path}`} checked={staging === 'staged'} mixed={staging === 'partial'} disabled={props.disabled} onChange={checked => props.onToggle([file.path], checked)} /> : null}
-        <button type="button" onClick={() => props.onFocus(file.path)} title={`${file.originalPath ? `${file.originalPath} → ` : ''}${file.path} · ${gitFileStatusLabel(category, props.zh)}`}>
+        <button type="button" data-git-file-select aria-current={props.focusedPath === file.path || undefined}
+          onClick={event => { event.currentTarget.focus({ preventScroll: true }); props.onFocus(file.path); }}
+          title={`${file.originalPath ? `${file.originalPath} → ` : ''}${file.path} · ${gitFileStatusLabel(category, props.zh)}`}>
           {submodule && !conflicted ? <Folder aria-hidden="true" /> : <GitFileStatusIcon category={category} zh={props.zh} />}
           <span className="source-git-file-name">{props.view === 'flat' ? file.path.slice(file.path.lastIndexOf('/') + 1) : file.path.slice(props.prefix.length)}</span>
           {props.view === 'flat' && file.path.includes('/') ? <span className="source-git-file-directory">{file.path.slice(0, file.path.lastIndexOf('/'))}</span> : null}

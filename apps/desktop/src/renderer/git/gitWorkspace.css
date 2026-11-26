@@ -427,7 +427,7 @@
     'sidebar navigation horizontal horizontal horizontal'
     'sidebar navigation filters inspector details'
     'sidebar navigation graph inspector details';
-  grid-template-columns: clamp(min(140px, 25%), var(--git-navigation, 20%), 40%) 6px minmax(0, 1fr) 6px calc(100% - var(--git-history-inspector, 74%));
+  grid-template-columns: max(min(140px, 25%), var(--git-navigation, 20%)) 6px minmax(0, 1fr) 6px calc(100% - var(--git-history-inspector, 74%));
   grid-template-rows: minmax(100px, var(--git-history-preview, 44%)) 6px auto minmax(0, 1fr);
 
   & > .project-git-browser-content,
@@ -482,7 +482,7 @@
   }
   & .project-git-commit-rows { min-width: 0; }
   & :is(.project-git-list-header, .project-git-commit-row) {
-    grid-template-columns: minmax(0, 1fr) 58px minmax(0, 12%) 70px;
+    grid-template-columns: minmax(0, 1fr) 58px minmax(0, 12%) 112px;
     min-width: 0;
     gap: 6px;
     padding-inline-end: 8px;
@@ -557,10 +557,10 @@
 }
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-list-header,
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-commit-row {
-  grid-template-columns: minmax(160px, 1fr) 72px minmax(90px, 16%) 96px;
+  grid-template-columns: minmax(160px, 1fr) 72px minmax(90px, 16%) 112px;
   gap: 10px;
   padding: 0 10px 0 118px;
-  min-width: 570px;
+  min-width: 592px;
 }
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-list-header {
   position: relative;
@@ -580,6 +580,12 @@
   font-size: 11px;
   line-height: 1.3;
   flex-shrink: 0;
+}
+.project-git-commit-row > time {
+  white-space: nowrap;
+}
+.macos-ai-app .project-git-commit-row:focus-visible {
+  outline-offset: -2px;
 }
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-commit-subject {
   display: flex;

@@ -45,6 +45,9 @@
   color: var(--ag-brand-ink);
   font-weight: 650;
 }
+.source-git-tabs > button[aria-selected='true']:focus-visible {
+  border-color: transparent;
+}
 .source-git-tabs small {
   color: var(--zeus-product-muted);
   margin-left: 6px;
@@ -91,7 +94,7 @@
 .source-git-sidebar button:focus-visible,
 .source-git-sidebar summary:focus-visible,
 .source-git-sidebar input:focus-visible {
-  outline: 2px solid var(--zeus-control-focus);
+  outline: 2px solid var(--zeus-product-accent, var(--zeus-brand-primary));
   outline-offset: -2px;
 }
 .source-git-file-tools {

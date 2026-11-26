@@ -7,7 +7,7 @@ import type { GitStagePreview } from '../apiClient.js';
 import { GitExternalToolDialog, type GitExternalToolRequest } from './GitExternalToolDialog.js';
 import { GitSubmoduleManagementDialog } from './GitSubmoduleManagementDialog.js';
 import { GitFileStatusIcon, gitFileStatusCategory, gitFileStatusLabel } from './GitFileStatusIcon.js';
-import { pruneGitFileSelection, selectGitFilePaths, type GitFileSelection } from './gitFileSelection.js';
+import { navigateGitFileRows, pruneGitFileSelection, selectGitFilePaths, type GitFileSelection } from './gitFileSelection.js';
 import { gitFileStagePaths } from './gitFileStages.js';
 import { DotsThreeIcon as DotsThree } from '@phosphor-icons/react/dist/csr/DotsThree';
 import { GitCommitIcon as GitCommit } from '@phosphor-icons/react/dist/csr/GitCommit';
@@ -1506,7 +1506,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
             </div>
           </section>
         </aside>
-        <GitPaneSeparator name="navigation" label={zh ? '调整 Git 导航宽度' : 'Resize Git navigation'} initial={20} min={12} max={40} />
+        <GitPaneSeparator name="navigation" trailingMin={240} label={zh ? '调整 Git 导航宽度' : 'Resize Git navigation'} initial={20} min={12} max={40} />
         <div className="project-git-browser-content">
           <div className={`git-content-toolbar${tab === 'log' ? ' is-history-toolbar' : ''}`}>
             <strong>{tab === 'changes' || tab === 'ignored' ? (zh ? '文件状态' : 'File Status') : tab === 'log' ? (zh ? '提交历史' : 'Commit history') : tab === 'stash' ? (zh ? '贮藏' : 'Stashes') : zh ? '操作记录' : 'Operation history'}</strong>
@@ -1943,7 +1943,7 @@ function GitLogSurface(props: {
                   <code title={commit.hash}>{commit.shortHash}</code>
                   <span title={commit.author}>{commit.author}</span>
                   <time dateTime={commit.authoredAt} title={new Date(commit.authoredAt).toLocaleString()}>
-                    {formatRelativeTime(commit.authoredAt, props.zh)}
+                    {formatCommitHistoryTime(commit.authoredAt, props.zh)}
                   </time>
                 </button>
               );
@@ -1978,7 +1978,7 @@ function GitLogSurface(props: {
         </div>
       </main>
       <GitPaneSeparator name="history-preview" label={props.zh ? '调整代码差异与历史高度' : 'Resize diff and history'} target=".project-git-browser-layout" axis="y" initial={44} min={24} max={60} />
-      <GitPaneSeparator name="history-inspector" label={props.zh ? '调整图谱与提交详情宽度' : 'Resize graph and commit details'} target=".project-git-browser-layout" initial={74} min={62} max={82} />
+      <GitPaneSeparator name="history-inspector" trailingMin={175} label={props.zh ? '调整图谱与提交详情宽度' : 'Resize graph and commit details'} target=".project-git-browser-layout" initial={74} min={62} max={82} />
       {selectedHashes.length === 2 && props.selectedRepository ? <GitHistoryComparisonInspector key={JSON.stringify([props.selectionScope, ...selectedHashes])} projectId={props.projectId} client={props.client} repository={props.selectedRepository} revisions={[selectedHashes[1]!, selectedHashes[0]!]} zh={props.zh} onOpenDiff={props.onOpenDiff} onExport={props.onExportComparison} onExternal={props.onExternalTool} onHistory={props.onFileHistory} /> : selectedHashes.length > 0 && !props.commitLoading && detail ? (
           <GitHistoryPanels zh={props.zh} info={(
             <section className="project-git-commit-detail">
@@ -2495,23 +2495,6 @@ function LocalChangesSurface(props: {
     props.onSelectRepository(repository.id);
     props.onSelectFile(path, stage);
   }
-  function navigateFileRows(event: ReactKeyboardEvent<HTMLElement>): void {
-    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const button = event.target;
-    if (!(button instanceof HTMLButtonElement) || !button.hasAttribute('data-git-file-select')) return;
-    event.preventDefault();
-    const rows = visibleChangeFileRows(event.currentTarget);
-    const currentRow = button.closest<HTMLElement>('[data-git-file-path]');
-    const index = currentRow ? rows.indexOf(currentRow) : -1;
-    if (index < 0) return;
-    const nextRow = rows[index + (event.key === 'ArrowUp' ? -1 : 1)];
-    const nextButton = nextRow?.querySelector<HTMLButtonElement>('[data-git-file-select]');
-    if (!nextButton) return;
-    nextButton.focus({ preventScroll: true });
-    nextButton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    nextButton.click();
-  }
   function showFileMenu(event: GitContextEvent, path: string, stage: ChangeStage, orderedPaths: string[], position: { x: number; y: number }): void {
     if (!repository || !orderedPaths.includes(path)) {
       event.preventDefault();
@@ -2537,7 +2520,7 @@ function LocalChangesSurface(props: {
   const selectedDiff = stageDiff?.fileDiffs.find((file) => (file.newPath === props.selectedFilePath || file.oldPath === props.selectedFilePath) && matchesSubtree(file.newPath || file.oldPath)) ?? null;
   return (
     <div className="project-git-changes-layout project-git-navigator-layout" data-commit-active={commitActive}>
-      <aside className="project-git-change-tree" data-empty={emptyVisibleChanges || undefined} onKeyDown={navigateFileRows}>
+      <aside className="project-git-change-tree" data-empty={emptyVisibleChanges || undefined} onKeyDown={navigateGitFileRows}>
         <header>
           <strong>{props.zh ? '变更文件' : 'Changed files'}</strong>
           <span className="project-git-file-view-control" title={fileView === 'flat' ? (props.zh ? '平铺结构' : 'Flat view') : props.zh ? '树状结构' : 'Tree view'}>
@@ -2641,7 +2624,7 @@ function LocalChangesSurface(props: {
           </div>
         )}
       </aside>
-      <GitPaneSeparator name="files" label={props.zh ? '调整文件列表宽度' : 'Resize file list'} initial={30} min={15} max={65} />
+      <GitPaneSeparator name="files" trailingMin={240} label={props.zh ? '调整文件列表宽度' : 'Resize file list'} initial={30} min={15} max={65} />
       <main className="project-git-change-diff">
         {repository && selectedConflict ? (
           <GitConflictEditor client={props.client} projectId={props.projectId} repositoryId={repository.id} filePath={props.selectedFilePath} zh={props.zh} disabled={props.busy !== null} revision={props.previewRevision}
@@ -2981,7 +2964,7 @@ function StashSurface(props: {
             </header>
             <CommitFileDirectoryTree zh={props.zh} files={props.detail.files} selectedPath={props.selectedFilePath} onSelect={props.onSelectFile} onOpen={(path) => props.onOpenDiff(repository, path, { commitHash: stash.ref })} />
           </aside>
-          <GitPaneSeparator name="stash-files" label={props.zh ? '调整贮藏文件列表宽度' : 'Resize stash file list'} initial={28} min={16} max={55} />
+          <GitPaneSeparator name="stash-files" trailingMin={240} label={props.zh ? '调整贮藏文件列表宽度' : 'Resize stash file list'} initial={28} min={16} max={55} />
           <SideBySideDiff
             previewRequest={props.selectedFilePath ? { kind: 'project-git', projectId: props.projectId, repositoryId: props.repository.id, path: props.selectedFilePath, commitHash: props.stash.ref } : undefined}
             diff={selectedDiff || props.detail.diff.unavailableReason ? { ...props.detail.diff, files: props.selectedFilePath ? [props.selectedFilePath] : props.detail.diff.files, fileDiffs: selectedDiff ? [selectedDiff] : [] } : null}
@@ -3346,6 +3329,19 @@ function displayStashSubject(subject: string, zh: boolean): string {
 
 function errorMessage(error: unknown, zh: boolean, options: ApplicationErrorOptions = {}): string {
   return reportApplicationError(error, { language: zh ? 'zh-CN' : 'en', ...options });
+}
+
+const commitHistoryDateOptions = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' } as const;
+const commitHistoryDates = {
+  zh: new Intl.DateTimeFormat('zh-CN', commitHistoryDateOptions),
+  en: new Intl.DateTimeFormat('en-US', commitHistoryDateOptions),
+};
+
+function formatCommitHistoryTime(value: string, zh: boolean): string {
+  const timestamp = Date.parse(value);
+  const week = 7 * 24 * 60 * 60 * 1000;
+  if (Date.now() - timestamp >= week) return commitHistoryDates[zh ? 'zh' : 'en'].format(timestamp);
+  return formatRelativeTime(value, zh);
 }
 
 function formatRelativeTime(value: string, zh: boolean): string {

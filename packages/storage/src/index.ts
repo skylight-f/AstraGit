@@ -4,3 +4,4 @@ export * from './settingsStore.js';
 export * from './auditStore.js';
 export * from './artifactStore.js';
 export * from './commandDeliveryStore.js';
+export { CommitUsageStore } from './commitUsageStore.js';

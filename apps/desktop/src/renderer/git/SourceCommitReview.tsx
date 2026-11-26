@@ -14,6 +14,7 @@ export interface SourceReviewDraft extends Omit<SourceReviewRow, 'remote' | 'tar
 
 export function SourceCommitReview(props: {
   rows: SourceReviewDraft[];
+  preferredRepositoryId?: string;
   push: boolean;
   zh: boolean;
   busy: boolean;
@@ -33,7 +34,11 @@ export function SourceCommitReview(props: {
     });
     return [...groups.values()];
   });
-  const [selectedGroup, setSelectedGroup] = useState(0);
+  const [selectedGroup, setSelectedGroup] = useState(() => {
+    const selected = props.rows.findIndex(row => row.repositoryId === props.preferredRepositoryId && row.message.trim());
+    const firstFilled = selected >= 0 ? selected : props.rows.findIndex(row => row.message.trim());
+    return Math.max(0, messageGroups.findIndex(group => group.includes(firstFilled)));
+  });
   const messageRows = messageGroups[selectedGroup].map(index => props.rows[index]);
   useEffect(() => { const element = dialog.current!; element.showModal(); return () => element.close(); }, []);
   const label = (cn: string, en: string) => props.zh ? cn : en;

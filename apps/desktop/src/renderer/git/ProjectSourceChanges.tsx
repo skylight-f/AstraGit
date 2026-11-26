@@ -17,13 +17,14 @@ import { notifyProjectGitChanged, projectGitWorkbenchCacheEntry, requestProjectG
 import { SourceRepositoryLabel, SourceRepositoryTree } from './SourceFileTree.js';
 import { stagedCommitUnits, type SourceCommitUnit, readSourceGitState, sourceRepositoryFiles, writeSourceGitState, type SourceGitState } from './sourceGitState.js';
 import { previewForUnit, pushSourceResult, runSourceBatch, validateSourceReview, type SourceReviewRow } from './sourceGitBatch.js';
-import { batchDraftScope, batchSummaryId, clearDraftsOnBatchCommit, repositoryDraftScope, type GitCommitDrafts } from './useGitCommitDrafts.js';
+import { batchDraftScope, batchSummaryId, clearDraftsOnBatchCommit, repositoryDraftScope, sourceReviewMessages, type GitCommitDrafts } from './useGitCommitDrafts.js';
+import { navigateGitFileRows } from './gitFileSelection.js';
 import { fileStagingState } from './gitFileStages.js';
 import { createPushDraft } from './pushTarget.js';
 import { SourceCommitReview, type SourceReviewDraft } from './SourceCommitReview.js';
 import { SourceCommitOptions } from './SourceCommitOptions.js';
 import { SourceRepositoryControls } from './SourceRepositoryControls.js';
-import { GitPaneSeparator } from './GitPaneSeparator.js';
+import { GitPaneSeparator, workspacePaneReferenceWidth } from './GitPaneSeparator.js';
 import type { BusyState, ExecutionOutcome } from './gitWorkbenchTypes.js';
 import { reportApplicationError, VisibleApplicationError } from '../ui/ApplicationErrorDialog.js';
 import { gitConflictMessage, gitFailureText, gitFailureTitle, gitPostActionRefreshError } from './gitOperationFeedback.js';
@@ -102,7 +103,7 @@ export function ProjectSourceChanges(props: {
   const generating = props.generatingFor !== null;
   const updateParents = state.updateParents;
   const [summary, setEditingSummary] = useState(false);
-  const [review, setReview] = useState<{ rows: SourceReviewDraft[]; units: SourceCommitUnit[]; push: boolean } | null>(null);
+  const [review, setReview] = useState<{ rows: SourceReviewDraft[]; units: SourceCommitUnit[]; push: boolean; preferredRepositoryId?: string } | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewError, setReviewError] = useState('');
   const [diff, setDiff] = useState<GitDiffSummary | null>(null);
@@ -156,7 +157,7 @@ export function ProjectSourceChanges(props: {
     const right = detail.current;
     if (!root || !right) return;
     const measure = () => {
-      const width = root.getBoundingClientRect().width;
+      const width = workspacePaneReferenceWidth(root);
       if (width > 0) {
         const min = Math.min(45, 270 / width * 100);
         const max = Math.max(min, Math.min(70, (width - 280 - 6) / width * 100));
@@ -222,6 +223,7 @@ export function ProjectSourceChanges(props: {
       const currentUnits = stagedCommitUnits(fresh.repositories, updateParents);
       const targets = currentUnits.filter(unit => unit.ordinaryPaths.length).map(unit => ({ repositoryId: unit.repository.id, relativePath: unit.repository.relativePath, paths: unit.ordinaryPaths }));
       const preview = targets.length ? await client.previewGitCommitSelection(project.id, targets, 'staged') : null;
+      const { messages, preferredRepositoryId, stale } = sourceReviewMessages(currentUnits, commitMessages.drafts, editorId);
       const rows: SourceReviewDraft[] = currentUnits.map(unit => {
         const value = previewForUnit(unit, preview);
         const { repository } = unit;
@@ -241,15 +243,15 @@ export function ProjectSourceChanges(props: {
           ordinaryPaths: unit.ordinaryPaths,
           gitlinks: unit.gitlinks,
           dependsOn: unit.dependsOn,
-          message: commitMessages.drafts[repository.id]?.message ?? '',
+          message: messages.get(repository.id) ?? '',
           snapshot: repository.snapshot,
           pushDraft: createPushDraft(repository.snapshot),
           status: 'queued',
         };
       });
       if (!rows.length) throw new Error(label('所选文件已无更改，请重新选择。', 'Selected files have no remaining changes.'));
-      if (rows.some(row => { const saved = commitMessages.drafts[row.repositoryId]; return saved?.scope && saved.scope !== repositoryDraftScope(row.snapshot, row.gitlinks); })) setReviewError(label('填写说明后暂存内容已变化，请检查本次说明与文件列表后再确认。', 'Staged content changed after this message was written. Review the message and file list.'));
-      setReview({ rows, units: currentUnits, push });
+      if (stale) setReviewError(label('填写说明后暂存内容已变化，请检查本次说明与文件列表后再确认。', 'Staged content changed after this message was written. Review the message and file list.'));
+      setReview({ rows, units: currentUnits, push, preferredRepositoryId });
     } catch (reason) { setError(gitFailureText(reason)); }
     finally { setReviewBusy(false); }
   }
@@ -259,6 +261,11 @@ export function ProjectSourceChanges(props: {
     let batchStarted = false;
     try {
       await validateSourceReview(client, project.id, rows, review.push);
+      // Keep approved shared messages available if the batch only commits some repositories.
+      for (const row of review.rows) {
+        const saved = commitMessages.drafts[row.repositoryId]?.message ?? '';
+        if (!saved.trim()) commitMessages.write(row.repositoryId, row.message, repositoryDraftScope(row.snapshot, row.gitlinks), saved);
+      }
       busyRef.current = true; setBusy(true); onBusyChange(true); stopped.current = false; setReview(null);
       batchStarted = true;
       await runSourceBatch({ client, projectId: project.id, rows, push: review.push, stopped: () => stopped.current,
@@ -457,7 +464,7 @@ export function ProjectSourceChanges(props: {
           {state.stagedOnly ? <small className="source-git-scope-badge" title={label('仅显示已暂存文件', 'Showing staged files only')}>{label('仅已暂存', 'Staged only')}</small> : null}
         </div>
         <div ref={commitLayout} className="source-git-commit-layout">
-        <div className="source-git-files" aria-busy={loading}>
+        <div className="source-git-files" aria-busy={loading} onKeyDown={navigateGitFileRows}>
           {visibleRepositories.map(({ repository, files }) => (
             <SourceRepositoryTree
               key={repository.id}
@@ -547,7 +554,7 @@ export function ProjectSourceChanges(props: {
       </div>}
       {error ? <p className="source-git-error" role="alert"><VisibleApplicationError error={error} language={zh ? 'zh-CN' : 'en'} /></p> : null}
     </aside>
-    <GitPaneSeparator name="source-sidebar" label={label('调整项目更改列表宽度', 'Resize project changes sidebar')} initial={32} min={sidebarBounds.min} max={sidebarBounds.max} />
+    <GitPaneSeparator name="source-sidebar" trailingMin={280} label={label('调整项目更改列表宽度', 'Resize project changes sidebar')} initial={32} min={sidebarBounds.min} max={sidebarBounds.max} />
     <section ref={detail} className={`source-git-detail${state.lastResults.length ? ' has-results' : ''}`}>
       <div className="source-git-diff" hidden={tab !== 'commit'}>
         {focusedConflict && focusedId && focusedPath ? <GitConflictEditor client={client} projectId={project.id} repositoryId={focusedId} filePath={focusedPath} zh={zh} disabled={locked} onSaved={result => conflictSaved(focusedId, focusedPath, result)} /> : focusedPath && (diffTarget !== currentDiffTarget || (diffLoading && !diff)) ? <p className="source-git-empty">{label('正在读取实际提交差异…', 'Loading selected commit diff…')}</p> : diffError && diffTarget === currentDiffTarget ? <p className="source-git-error" role="alert"><VisibleApplicationError error={diffError} language={zh ? 'zh-CN' : 'en'} /></p> : focusedPath && diff && diffTarget === currentDiffTarget ? <SideBySideDiff diff={diff} zh={zh} title={`${focusedRepository?.name ?? ''} / ${focusedPath}`} fill /> : <div className="source-git-empty"><h3>{label('选择文件查看差异', 'Select a file to see its diff')}</h3><p>{label('左侧按仓库分组勾选，查看文件不会改变勾选范围。', 'Select files by repository. Previewing a file preserves your selection.')}</p></div>}
@@ -578,7 +585,7 @@ export function ProjectSourceChanges(props: {
         items={stashMenuItems(stashMenuRepository, stashMenu.stash)} onClose={() => setStashMenu(null)} onError={reason => setError(gitFailureText(reason))} />
     ) : null}
     {stashConfirmation ? <GitMenuActionDialog value={stashConfirmation} zh={zh} onClose={() => setStashConfirmation(null)} /> : null}
-    {review ? <SourceCommitReview rows={review.rows} push={review.push} zh={zh} busy={reviewBusy} error={reviewError} onChange={(edited, patch) => {
+    {review ? <SourceCommitReview rows={review.rows} preferredRepositoryId={review.preferredRepositoryId} push={review.push} zh={zh} busy={reviewBusy} error={reviewError} onChange={(edited, patch) => {
       if (patch.message !== undefined) {
         for (const row of edited) commitMessages.write(row.repositoryId, patch.message, repositoryDraftScope(row.snapshot, row.gitlinks));
       }

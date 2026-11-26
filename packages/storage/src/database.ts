@@ -4,6 +4,7 @@ import { chmod, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { AstraGitDatabasePort, AstraGitDatabaseWriteFaultReporter, SqlValue } from './databasePort.js';
+import { migrateCommitUsage } from './commitUsageStore.js';
 import { migrateArtifactStoreSchema } from './artifactStore.js';
 import { migrateCommandDeliverySchema } from './commandDeliveryStore.js';
 
@@ -275,6 +276,7 @@ export async function createAstraGitDatabase(filePath: string): Promise<AstraGit
         id TEXT PRIMARY KEY, actor_type TEXT NOT NULL, actor_ref TEXT, action TEXT NOT NULL,
         resource_type TEXT NOT NULL, resource_id TEXT, payload_json TEXT NOT NULL, created_at TEXT NOT NULL
       )`);
+      migrateCommitUsage(db);
       migrateArtifactStoreSchema(db);
       migrateCommandDeliverySchema(db);
     });

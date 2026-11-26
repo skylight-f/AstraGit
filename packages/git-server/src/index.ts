@@ -7,6 +7,7 @@ import { getGitDiff, getGitStatus } from '@astragit/git-core';
 import {
   ArtifactStore,
   AuditLogRepository,
+  CommitUsageStore,
   CommandDeliveryRepository,
   SettingRepository,
   createAstraGitDatabase,
@@ -64,6 +65,7 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
   const projects = new ProjectStore(dataDirectory);
   const repositorySetup = new RepositorySetupService(dataDirectory, projects);
   const db = await createAstraGitDatabase(join(dataDirectory, 'git-app.db'));
+  const commitUsage = new CommitUsageStore(db);
   const settings = new SettingRepository(db);
   const auditLogs = new AuditLogRepository(db);
   const deliveries = new CommandDeliveryRepository(db);
@@ -835,10 +837,11 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
               codexHome,
               ...(options.codexExternalAgentHome ? { externalAgentHome: options.codexExternalAgentHome } : {}),
               signal: controller.signal,
+              onGenerated: usage => commitUsage.record(project, usage),
               onText: (text) => emit({ type: 'text', text }),
             });
           }
-          return await generateGitCommitMessage(modelConnections, project.id, input, controller.signal, options.fetch);
+          return await generateGitCommitMessage(modelConnections, project.id, input, controller.signal, options.fetch, usage => commitUsage.record(project, usage));
         };
         const result = await run();
         const fingerprints = await Promise.all(contexts.map(({ repository, paths }) => readCommitFingerprint(repository.localPath, paths, selectionMode)));
@@ -885,6 +888,7 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     },
   });
 
+  server.get('/api/usage/commit-messages', async () => commitUsage.list());
   server.get('/api/health', async () => ({ ok: true, service: 'astragit' }));
 
   const host = options.host ?? '127.0.0.1';

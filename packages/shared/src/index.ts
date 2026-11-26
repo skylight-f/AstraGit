@@ -10,3 +10,4 @@ export * from './gitConflictMarkers.js';
 export * from './repositorySetup.js';
 export * from './projectImport.js';
 export * from './gitRemoteBranch.js';
+export { commitUsageDay, type CommitGenerationUsage, type CommitUsageRow } from './commitUsage.js';

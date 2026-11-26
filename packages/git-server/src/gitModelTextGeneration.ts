@@ -1,3 +1,4 @@
+import type { CommitGenerationUsage } from '@astragit/shared';
 import { modelConnectionRequestEndpoint, modelRef } from '@astragit/ai-runtime';
 import type { ModelConnectionService } from './modelConnectionService.js';
 import { readGitModelStream } from './gitModelTextStream.js';
@@ -18,7 +19,23 @@ export interface GitModelTextEvents {
   onThinking: (delta: string) => void;
 }
 
-export async function generateGitModelText(service: ModelConnectionService, task: GitModelTextTask, signal?: AbortSignal, fetcher: typeof fetch = fetch, events?: GitModelTextEvents): Promise<{ message: string; model: string }> {
+function tokenCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+export function reportedGenerationTokens(raw: unknown, protocol: string): number | null {
+  const usage = record(raw);
+  const total = tokenCount(usage.total_tokens ?? usage.totalTokens);
+  if (total !== null) return total;
+  const input = tokenCount(usage.input_tokens ?? usage.prompt_tokens ?? usage.inputTokens);
+  const output = tokenCount(usage.output_tokens ?? usage.completion_tokens ?? usage.outputTokens);
+  if (input === null || output === null) return null;
+  const cache = protocol === 'anthropic_messages'
+    ? (tokenCount(usage.cache_read_input_tokens) ?? 0) + (tokenCount(usage.cache_creation_input_tokens) ?? 0) : 0;
+  return input + output + cache;
+}
+
+export async function generateGitModelText(service: ModelConnectionService, task: GitModelTextTask, signal?: AbortSignal, fetcher: typeof fetch = fetch, events?: GitModelTextEvents, onGenerated?: (usage: CommitGenerationUsage) => void): Promise<{ message: string; model: string }> {
   const connections = await service.loadRuntimeConnections();
   const available = connections
     .filter((connection) => connection.enabled && connection.apiKey)
@@ -85,6 +102,8 @@ export async function generateGitModelText(service: ModelConnectionService, task
       if (typeof thinking === 'string') events.onThinking(thinking);
       events.onText(message);
     }
+    onGenerated?.({ providerId: connection.id, providerName: connection.name, modelId: model.id,
+      modelName: model.displayName || model.id, totalTokens: reportedGenerationTokens(value.usage, protocol) });
     return { message, model: model.displayName || model.id };
   } catch (error) {
     const timedOut = controller.signal.aborted;

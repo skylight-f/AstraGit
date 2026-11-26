@@ -60,7 +60,7 @@ test('AI drafts use the selected mode across project repositories and reject con
       assert.equal(new URL(url).origin, 'https://model.astragit.invalid');
       const body = JSON.parse(init.body); requests.push(body);
       if (mutate) await writeFile(join(repositories[0].path, 'selected.txt'), 'changed during AI request\n');
-      return Response.json({ choices: [{ message: { content: 'feat: selected project changes' }, finish_reason: 'stop' }] });
+      return Response.json({ ...(requests.length === 2 ? {} : { usage: { prompt_tokens: 70, completion_tokens: 9 } }), choices: [{ message: { content: 'feat: selected project changes' }, finish_reason: 'stop' }] });
     },
   });
   const client = createDashboardClientLike({ baseUrl: server.baseUrl, apiToken: server.apiToken });
@@ -82,6 +82,10 @@ test('AI drafts use the selected mode across project repositories and reject con
   assert.doesNotMatch(worktreePrompt.stagedDiff, /excluded staged/u);
   mutate = true;
   await assert.rejects(() => generate('worktree'), /生成期间所选内容已变化/u);
+  const usage = (await client.loadCommitUsage()).filter(row => row.projectId === project.id && row.providerId === connection.id && row.modelId === 'fixture-model');
+  assert.equal(usage.reduce((sum, row) => sum + row.generations, 0), 3);
+  assert.equal(usage.reduce((sum, row) => sum + row.reportedGenerations, 0), 2);
+  assert.equal(usage.reduce((sum, row) => sum + row.totalTokens, 0), 158);
   for (const repo of repositories) {
     assert.equal(await repo.git('rev-parse', 'HEAD'), repo.head);
     assert.deepEqual(await readFile(join(repo.path, '.git/index')), repo.index, 'AI must not stage or commit any file.');
@@ -127,4 +131,41 @@ test('a parent draft records planned submodule updates in both generation modes'
     assert.equal(draft.scope, repositoryDraftScope(snapshot, gitlinks));
     assert.notEqual(draft.scope, ordinaryScope);
   }
+});
+
+test('daily commit usage keeps reported zero distinct from unknown and includes Anthropic cache tokens', async () => {
+  const { reportedGenerationTokens } = await import('../packages/git-server/dist/gitModelTextGeneration.js');
+  assert.equal(reportedGenerationTokens({ input_tokens: 70, output_tokens: 8, cache_read_input_tokens: 20, cache_creation_input_tokens: 10 }, 'anthropic_messages'), 108);
+  assert.equal(reportedGenerationTokens({ totalTokens: 0, inputTokens: 2, outputTokens: 1 }, 'codex'), 0);
+  assert.equal(reportedGenerationTokens({ prompt_tokens: 200 }, 'openai_completions'), null);
+  const { usageCalendarDays } = await import('../apps/desktop/src/renderer/CommitUsageCalendar.tsx');
+  const year = usageCalendarDays(new Date(2024, 11, 1));
+  assert.equal(year[0].day, '2023-12-02');
+  assert.equal(year.at(-1).day, '2024-12-01');
+  assert.equal(year.length, 366);
+  assert.equal(year.find(day => day.day === '2024-02-29').weekday, 3);
+});
+
+test('daily commit usage persists independent dimension totals and usage coverage', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const { AstraGitDatabase, CommitUsageStore } = await import('../packages/storage/dist/index.js');
+  const { migrateCommitUsage } = await import('../packages/storage/dist/commitUsageStore.js');
+  const db = new AstraGitDatabase(new DatabaseSync(':memory:'));
+  try {
+    db.durableTransactionSync(() => migrateCommitUsage(db));
+    const store = new CommitUsageStore(db);
+    const project = { id: 'app', name: 'App' };
+    const usage = { providerId: 'provider', providerName: 'First', modelId: 'm', modelName: 'Model', totalTokens: 42 };
+    const date = new Date(2024, 1, 29, 23, 59);
+    store.record(project, usage, date);
+    store.record(project, { ...usage, totalTokens: null }, date);
+    store.record(project, { ...usage, providerId: 'second' }, date);
+    store.record(project, { ...usage, modelId: 'second' }, date);
+    store.record({ ...project, id: 'second' }, usage, date);
+    store.record(project, usage, new Date(2024, 2, 1));
+    const rows = new CommitUsageStore(db).list();
+    assert.equal(rows.length, 5);
+    const row = rows.find(row => row.day === '2024-02-29' && row.projectId === 'app' && row.providerId === 'provider' && row.modelId === 'm');
+    assert.deepEqual([row.generations, row.reportedGenerations, row.totalTokens], [2, 1, 42]);
+  } finally { await db.close(); }
 });

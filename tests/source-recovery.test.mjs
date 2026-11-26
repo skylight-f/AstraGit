@@ -1,8 +1,41 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { batchDraftScope, batchSummaryId, clearDraftsOnBatchCommit, loadCommitDrafts } from '../apps/desktop/src/renderer/git/useGitCommitDrafts.ts';
+import { batchDraftScope, batchSummaryId, clearDraftsOnBatchCommit, loadCommitDrafts, repositoryDraftScope, sourceReviewMessages } from '../apps/desktop/src/renderer/git/useGitCommitDrafts.ts';
 import { readSourceGitState } from '../apps/desktop/src/renderer/git/sourceGitState.ts';
 import { runSourceBatch } from '../apps/desktop/src/renderer/git/sourceGitBatch.ts';
+
+test('project review reuses the active draft for blank repositories and keeps independent drafts', () => {
+  const units = ['child', 'design', 'root'].map(id => ({
+    repository: { id, snapshot: { branch: 'main', headSha: 'before', indexFingerprint: id } }, gitlinks: [],
+  }));
+  const drafts = {
+    child: { message: '  ' },
+    design: { message: 'fix(design): adjust spacing' },
+    root: { message: 'fix(app): improve rendering', scope: repositoryDraftScope(units[2].repository.snapshot) },
+  };
+  const review = sourceReviewMessages(units, drafts, 'root');
+  assert.deepEqual([...review.messages.values()], [drafts.root.message, drafts.design.message, drafts.root.message]);
+  assert.equal(review.preferredRepositoryId, 'root');
+  assert.equal(review.stale, false);
+  assert.equal(drafts.child.message, '  ');
+
+  assert.equal(sourceReviewMessages(units, drafts, 'child').messages.get('child'), '');
+  assert.equal(sourceReviewMessages(units, { root: drafts.root }, 'child').messages.get('child'), drafts.root.message);
+  assert.equal(sourceReviewMessages(units, { other: drafts.root }, 'other').messages.get('child'), '');
+});
+
+test('review can use an active batch summary and flags a changed staged scope', () => {
+  const units = ['child', 'root'].map(id => ({
+    repository: { id, snapshot: { branch: 'main', headSha: 'before', indexFingerprint: id } }, gitlinks: [],
+  }));
+  const summary = { message: 'fix: update components', scope: batchDraftScope(units) };
+  const drafts = { [batchSummaryId]: summary, root: { message: 'fix(app): update layout' } };
+  const review = sourceReviewMessages(units, drafts, batchSummaryId);
+  assert.deepEqual([...review.messages.values()], [summary.message, drafts.root.message]);
+  assert.equal(review.preferredRepositoryId, 'child');
+  assert.equal(review.stale, false);
+  assert.equal(sourceReviewMessages(units.slice(0, 1), drafts, batchSummaryId).stale, true);
+});
 
 test('interrupted pushes retain committed SHAs and can resume without repeating commits', t => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');

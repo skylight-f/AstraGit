@@ -1,7 +1,15 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent } from 'react';
 
+// Measure a workspace column against the same width with the review dock closed.
+export function workspacePaneReferenceWidth(container: HTMLElement) {
+  const workspace = container.closest<HTMLElement>('.gitapp-shell');
+  const dock = workspace?.closest<HTMLElement>('.gitapp-content-layout');
+  const width = container.getBoundingClientRect().width;
+  return workspace && dock && width ? width + dock.getBoundingClientRect().width - workspace.getBoundingClientRect().width : width;
+}
+
 /** 尺寸按比例保存；窗口缩放后仍保留可用的内容区域。 */
-export function GitPaneSeparator(props: { name: string; label: string; axis?: 'x' | 'y'; initial: number; min?: number; max?: number; target?: string }) {
+export function GitPaneSeparator(props: { name: string; label: string; axis?: 'x' | 'y'; initial: number; min?: number; max?: number; target?: string; trailingMin?: number }) {
   const element = useRef<HTMLDivElement>(null);
   const value = useRef(props.initial);
   const preferred = useRef(props.initial);
@@ -12,10 +20,30 @@ export function GitPaneSeparator(props: { name: string; label: string; axis?: 'x
   const maximum = props.max ?? 65;
   const storageKey = `astragit.git.panes.v1.${props.name}`;
   const container = () => (props.target ? element.current?.closest<HTMLElement>(props.target) : element.current?.parentElement);
+  const paint = (percent: number) => {
+    const host = container();
+    if (!host) return;
+    const property = `--git-${props.name}`;
+    if (!props.trailingMin) {
+      host.style.setProperty(property, `${percent}%`);
+      return;
+    }
+    const dock = host.closest<HTMLElement>('.gitapp-content-layout');
+    const minimum = `--review-room-${props.name}`;
+    const rect = host.getBoundingClientRect();
+    if (!rect.width || !dock) {
+      dock?.style.removeProperty(minimum);
+      return;
+    }
+    const intended = workspacePaneReferenceWidth(host) * percent / 100;
+    const remaining = Math.min(props.trailingMin, rect.width / 2);
+    host.style.setProperty(property, `${Math.min(intended, rect.width - remaining)}px`);
+    dock.style.setProperty(minimum, `${rect.left - dock.getBoundingClientRect().left + intended + props.trailingMin + 8}px`);
+  };
   const apply = (next: number, save = false, preservePreference = false) => {
     value.current = Math.max(minimum, Math.min(maximum, next));
     if (!preservePreference) preferred.current = value.current;
-    container()?.style.setProperty(`--git-${props.name}`, `${value.current}%`);
+    paint(value.current);
     setDisplayedValue(value.current);
     if (save) {
       try {
@@ -41,6 +69,19 @@ export function GitPaneSeparator(props: { name: string; label: string; axis?: 'x
     // current preference instead of restoring the previous saved drag position.
     apply(preferred.current, false, true);
   }, [minimum, maximum]);
+  useLayoutEffect(() => {
+    const host = container();
+    const dock = host?.closest<HTMLElement>('.gitapp-content-layout');
+    if (!props.trailingMin || !host || !dock) return;
+    const observer = new ResizeObserver(() => paint(value.current));
+    paint(value.current);
+    observer.observe(host);
+    observer.observe(dock);
+    return () => {
+      observer.disconnect();
+      dock.style.removeProperty(`--review-room-${props.name}`);
+    };
+  }, [props.name, props.target, props.trailingMin]);
   const end = (event: PointerEvent<HTMLDivElement>) => {
     if (!start.current || event.pointerId !== start.current.pointerId) return;
     const { pointerId, value: initialValue, preferred: initialPreference, moved } = start.current;
@@ -94,7 +135,7 @@ export function GitPaneSeparator(props: { name: string; label: string; axis?: 'x
         event.currentTarget.focus({ preventScroll: true });
         event.currentTarget.setPointerCapture(event.pointerId);
         element.current?.setAttribute('data-dragging', 'true');
-        start.current = { pointerId: event.pointerId, coordinate: axis === 'x' ? event.clientX : event.clientY, value: value.current, preferred: preferred.current, size: axis === 'x' ? bounds.width : bounds.height, moved: false };
+        start.current = { pointerId: event.pointerId, coordinate: axis === 'x' ? event.clientX : event.clientY, value: value.current, preferred: preferred.current, size: props.trailingMin ? workspacePaneReferenceWidth(container()!) : axis === 'x' ? bounds.width : bounds.height, moved: false };
       }}
       onPointerMove={(event) => {
         if (!start.current || event.pointerId !== start.current.pointerId) return;

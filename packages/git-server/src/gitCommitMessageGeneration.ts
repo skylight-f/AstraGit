@@ -1,3 +1,4 @@
+import type { CommitGenerationUsage } from '@astragit/shared';
 import { generateGitModelText } from './gitModelTextGeneration.js';
 import type { ModelConnectionService } from './modelConnectionService.js';
 
@@ -15,9 +16,9 @@ export interface GitCommitMessageInput {
 }
 
 /** 仅生成可编辑的文本草稿；不创建会话、不调用工具、不执行 Git 写操作。 */
-export async function generateGitCommitMessage(service: ModelConnectionService, projectId: string, input: GitCommitMessageInput, signal?: AbortSignal, fetcher: typeof fetch = fetch): Promise<{ message: string; model: string }> {
+export async function generateGitCommitMessage(service: ModelConnectionService, projectId: string, input: GitCommitMessageInput, signal?: AbortSignal, fetcher: typeof fetch = fetch, onGenerated?: (usage: CommitGenerationUsage) => void): Promise<{ message: string; model: string }> {
   if (!input.files.length || !input.stagedDiff.trim()) throw failure(input.scope === 'selection' ? '请先勾选需要提交的文件。' : '请先暂存需要提交的改动。', 400);
-  return generateGitModelText(service, { ...buildGitCommitPrompt(input), modelRef: input.modelRef }, signal, fetcher);
+  return generateGitModelText(service, { ...buildGitCommitPrompt(input), modelRef: input.modelRef }, signal, fetcher, undefined, onGenerated);
 }
 
 function failure(message: string, statusCode: number): Error & { statusCode: number; code: string } {

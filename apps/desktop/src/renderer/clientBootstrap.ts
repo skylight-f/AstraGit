@@ -13,6 +13,7 @@ export function createDashboardClientLike(options: { baseUrl: string; apiToken: 
     loadRepositorySetup: id => transport.request(`/api/repository-setup/${encodeURIComponent(id)}`),
     loadRepositorySetups: () => transport.request('/api/repository-setup'),
     cancelRepositorySetup: id => transport.request(`/api/repository-setup/${encodeURIComponent(id)}/cancel`, jsonRequest('POST', {})),
+    loadCommitUsage: () => transport.request('/api/usage/commit-messages'),
     loadProjects: () => transport.request<GitAppProject[]>('/api/projects'),
     createProject: (input) => transport.request<GitAppProject>('/api/projects', jsonRequest('POST', input)),
     scanProjectDirectory: (root, signal) => transport.request('/api/projects/scan', { ...jsonRequest('POST', { root }), signal }, { readOnly: true }),

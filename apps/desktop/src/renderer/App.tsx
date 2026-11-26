@@ -11,7 +11,7 @@ import { GitBranch } from '@phosphor-icons/react/dist/csr/GitBranch';
 import { GitCommit } from '@phosphor-icons/react/dist/csr/GitCommit';
 import { Plus } from '@phosphor-icons/react/dist/csr/Plus';
 import { X } from '@phosphor-icons/react/dist/csr/X';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardClient, GitAppProject, ProjectRecord } from './apiClient.js';
 import { ProjectGitWorkbench } from './git/ProjectGitWorkbench.js';
 import { useGitCommitModels } from './git/useGitCommitModels.js';
@@ -77,6 +77,9 @@ export function App(props: AppProps) {
   const [projects, setProjects] = useState<GitAppProject[] | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewVisited, setReviewVisited] = useState(false);
+  const contentLayout = useRef<HTMLDivElement>(null);
+  const [reviewBounds, setReviewBounds] = useState({ min: 40, max: 78 });
+  const tabList = useRef<HTMLElement>(null);
   const reviewButton = useRef<HTMLButtonElement>(null);
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null);
   const [projectGitTabs, setProjectGitTabs] = useState<Partial<Record<string, ProjectGitTab>>>({});
@@ -337,7 +340,37 @@ export function App(props: AppProps) {
   const inWorkbench = Boolean(activeProject) && !showList;
   const commitView = activeView === 'source' ? 'source' : activeGitTab === 'changes' || activeGitTab === 'ignored' ? 'staging' : null;
   const viewSwitchDisabled = !activeProject || sourceBatchBusy || repositorySetup.busy;
+  useEffect(() => {
+    const list = tabList.current;
+    if (!list || !inWorkbench || settingsOpen) return;
+    const reveal = () => list.querySelector('.gitapp-tab.is-active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const observer = new ResizeObserver(reveal);
+    observer.observe(list);
+    reveal();
+    return () => observer.disconnect();
+  }, [activeProjectId, inWorkbench, settingsOpen]);
   const reviewVisible = !settingsOpen && reviewOpen && Boolean(activeProject);
+  useLayoutEffect(() => {
+    const layout = contentLayout.current;
+    if (!reviewVisible || !layout) return;
+    const measure = () => {
+      const width = layout.clientWidth;
+      if (!width) return;
+      const required = Array.from(layout.style)
+        .filter(key => key.startsWith('--review-room-'))
+        .map(key => parseFloat(layout.style.getPropertyValue(key)));
+      const available = Math.max(0, 100 * (width - 286) / width);
+      const min = Math.min(available, Math.max(40, 100 * Math.max(0, ...required) / width));
+      const max = Math.max(min, Math.min(available, 78));
+      setReviewBounds(previous => previous.min === min && previous.max === max ? previous : { min, max });
+    };
+    const resize = new ResizeObserver(measure);
+    const columns = new MutationObserver(measure);
+    resize.observe(layout);
+    columns.observe(layout, { attributes: true, attributeFilter: ['style'] });
+    measure();
+    return () => { resize.disconnect(); columns.disconnect(); };
+  }, [reviewVisible]);
   const showProjectView = (view: 'workbench' | 'source' | 'staging') => {
     if (viewSwitchDisabled) return;
     setSearchNavigation(null);
@@ -387,13 +420,13 @@ export function App(props: AppProps) {
             <GearSix size={18} aria-hidden="true" />
           </button>
         </nav>
-      <div className={`gitapp-content-layout${reviewVisible ? ' has-review' : ''}`}>
+      <div ref={contentLayout} className={`gitapp-content-layout${reviewVisible ? ' has-review' : ''}`}>
       <div className="gitapp-workspace-pane" hidden={settingsOpen}>
       {inWorkbench && activeProject ? (
         <div className="gitapp-shell gitapp-shell--workbench macos-ai-app zeus-shell theme-light">
           <div className="gitapp-workbench-header">
             <header className="gitapp-tabbar" aria-label={zh ? '项目页签' : 'Project tabs'}>
-              <nav className="gitapp-tabbar-slots" aria-label={zh ? '已打开的项目' : 'Open projects'}>
+              <nav ref={tabList} className="gitapp-tabbar-slots" aria-label={zh ? '已打开的项目' : 'Open projects'}>
                 {slotProjects.map(({ slot, project }, position) => {
                   const active = project.id === activeProject.id;
                   const dragging = draggingSlotId === slot.id;
@@ -607,7 +640,7 @@ export function App(props: AppProps) {
         </div>
       )}
       </div>
-      {reviewVisible ? <GitPaneSeparator name="review-main" label={zh ? '调整代码评审宽度' : 'Resize code review'} initial={68} min={40} max={78} /> : null}
+      {reviewVisible ? <GitPaneSeparator name="review-main" label={zh ? '调整代码评审宽度' : 'Resize code review'} initial={68} min={reviewBounds.min} max={reviewBounds.max} /> : null}
       {reviewVisited && activeProject ? <CodeReviewPanel key={activeProject.id} client={props.client} project={activeProject} zh={zh} active={reviewVisible} modelSettingsRevision={modelSettingsRevision} onSettings={() => openSettings('models')} onClose={() => { setReviewOpen(false); reviewButton.current?.focus(); }} onNavigate={navigateSearch} /> : null}
       {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} autoFetchEnabled={autoFetchEnabled} onAutoFetchChange={changeAutoFetch} onModelsChanged={modelSettingsChanged} section={settingsSection} onSectionChange={setSettingsSection} update={applicationUpdates} updateDisabled={sourceBatchBusy || repositorySetup.busy} /> : null}
       </div>

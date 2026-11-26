@@ -74,6 +74,7 @@ export interface DashboardClient extends GitApiClient {
   loadRepositorySetup(id: string): Promise<import('@astragit/shared').RepositorySetupJob>;
   loadRepositorySetups(): Promise<import('@astragit/shared').RepositorySetupJob[]>;
   cancelRepositorySetup(id: string): Promise<import('@astragit/shared').RepositorySetupJob>;
+  loadCommitUsage(): Promise<import('@astragit/shared').CommitUsageRow[]>;
   loadProjects(): Promise<GitAppProject[]>;
   createProject(input: { name?: string; localPath: string }): Promise<GitAppProject>;
   scanProjectDirectory(root: string, signal: AbortSignal): Promise<ProjectDirectoryScan>;

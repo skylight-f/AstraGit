@@ -1,3 +1,23 @@
+import type { KeyboardEvent } from 'react';
+
+/** Navigate file preview buttons in their rendered order. */
+export function navigateGitFileRows(event: KeyboardEvent<HTMLElement>): void {
+  if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  const button = event.target;
+  if (!(button instanceof HTMLButtonElement) || !button.hasAttribute('data-git-file-select')) return;
+  event.preventDefault();
+  const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-git-file-select]')]
+    .filter(row => !row.closest('details:not([open])') && row.checkVisibility());
+  const index = buttons.indexOf(button);
+  if (index < 0) return;
+  const next = buttons[index + (event.key === 'ArrowUp' ? -1 : 1)];
+  if (!next) return;
+  next.focus({ preventScroll: true });
+  next.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  next.click();
+}
+
 export interface GitFileSelection {
   selectedPaths: string[];
   anchor: string | null;
