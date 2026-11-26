@@ -7,8 +7,6 @@
   grid-template-columns: minmax(0, var(--git-diff-columns, 50%)) 6px minmax(0, 1fr);
   background: var(--zeus-product-line);
   color: var(--zeus-product-text);
-  --diff-addition: var(--zeus-code-addition-text, #369766);
-  --diff-deletion: #d14b4b;
 }
 .astragit-text-diff > .astragit-diff-pane.is-right {
   grid-column: 3;
@@ -86,16 +84,16 @@
   white-space: pre;
 }
 .astragit-diff-line.is-addition {
-  background: color-mix(in srgb, var(--diff-addition) 14%, var(--zeus-product-panel));
+  background: color-mix(in srgb, var(--git-addition) 14%, var(--zeus-product-panel));
 }
 .astragit-diff-line.is-deletion {
-  background: color-mix(in srgb, var(--diff-deletion) 14%, var(--zeus-product-panel));
+  background: color-mix(in srgb, var(--git-deletion) 14%, var(--zeus-product-panel));
 }
 .astragit-diff-line.is-addition .astragit-diff-line-sign {
-  color: var(--diff-addition);
+  color: var(--git-addition);
 }
 .astragit-diff-line.is-deletion .astragit-diff-line-sign {
-  color: var(--diff-deletion);
+  color: var(--git-deletion);
 }
 .astragit-diff-line mark {
   padding: 0;
@@ -104,10 +102,10 @@
   background: transparent;
 }
 .astragit-diff-line.is-addition mark {
-  background: color-mix(in srgb, var(--diff-addition) 30%, transparent);
+  background: color-mix(in srgb, var(--git-addition) 30%, transparent);
 }
 .astragit-diff-line.is-deletion mark {
-  background: color-mix(in srgb, var(--diff-deletion) 30%, transparent);
+  background: color-mix(in srgb, var(--git-deletion) 30%, transparent);
 }
 .astragit-diff-line.is-empty,
 .astragit-diff-line.is-metadata {

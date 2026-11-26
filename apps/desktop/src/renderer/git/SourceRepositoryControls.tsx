@@ -4,6 +4,7 @@ import type { BusyState, ExecutionOutcome, OperationTone } from './gitWorkbenchT
 import { BranchSwitcher, CheckoutRevisionDialog, NewBranchDialog, PushDialog, UpdateProjectDialog } from './GitRepositoryControls.js';
 import { ProjectGitDiffWindow } from './ProjectGitDiffViewer.js';
 import { ModalPortal } from '../ui/ModalPortal.js';
+import { reportApplicationError } from '../ui/ApplicationErrorDialog.js';
 import { MotionPresence } from '../ui/MotionPresence.js';
 
 /** 与 Zeus 源码工具窗口共用仓库级联菜单及操作对话框，宿主使用 AstraGit API。 */
@@ -37,7 +38,9 @@ export function SourceRepositoryControls(props: {
       {dialog === 'branch' ? <NewBranchDialog open zh={zh} repositories={repositories} selectedRepository={repository} baseRef={baseRef} busy={busy} onClose={() => setDialog(null)} onExecute={execute} /> : null}
       {dialog === 'revision' ? <CheckoutRevisionDialog open zh={zh} repositories={repositories} selectedRepository={repository} busy={busy} onClose={() => setDialog(null)} onExecute={execute} /> : null}
       {dialog === 'update' ? <UpdateProjectDialog open projectId={props.projectId} zh={zh} repositories={repositories} busy={busy} errorsByRepository={props.errorsByRepository ?? {}} onClose={() => setDialog(null)} onExecute={execute} /> : null}
-      {dialog === 'push' ? <PushDialog open zh={zh} repositories={repositories} selectedRepository={repository} busy={busy} results={results} onClose={() => setDialog(null)} onPush={async (selections, forceWithLease, pushTags) => {
+      {dialog === 'push' ? <PushDialog open zh={zh} repositories={repositories} selectedRepository={repository} busy={busy} onStop={id => {
+        void props.client.cancelProjectGitAction(props.projectId, id).catch(error => reportApplicationError(error, { language: zh ? 'zh-CN' : 'en' }));
+      }} results={results} onClose={() => setDialog(null)} onPush={async (selections, forceWithLease, pushTags) => {
         const next: typeof results = [];
         for (const selection of selections) {
           const target = repositories.find(item => item.id === selection.repositoryId);

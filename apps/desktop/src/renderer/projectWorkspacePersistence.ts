@@ -1,5 +1,52 @@
 const projectWorkspaceTabsStorageKey = 'astragit.workspace.project-tabs.v1';
 const projectNavigationStoragePrefix = 'astragit.project-navigation.v1:';
+const projectGroupsStorageKey = 'astragit.workspace.project-groups.v1';
+
+export interface ProjectGroup {
+  id: string;
+  name: string;
+  projectIds: string[];
+}
+
+export function readProjectGroups(storage = browserProjectWorkspaceStorage()): ProjectGroup[] {
+  try {
+    const saved: unknown = JSON.parse(storage?.getItem(projectGroupsStorageKey) ?? '[]');
+    if (!Array.isArray(saved)) return [];
+    const groups: ProjectGroup[] = [];
+    const groupIds = new Set<string>();
+    const assigned = new Set<string>();
+    for (const group of saved) {
+      if (!group || typeof group.id !== 'string' || !group.id || groupIds.has(group.id)
+        || typeof group.name !== 'string' || !group.name.trim() || !Array.isArray(group.projectIds)) continue;
+      groupIds.add(group.id);
+      const projectIds: string[] = [];
+      for (const id of group.projectIds) {
+        if (typeof id === 'string' && id && !assigned.has(id)) {
+          assigned.add(id);
+          projectIds.push(id);
+        }
+      }
+      groups.push({ id: group.id, name: group.name.trim(), projectIds });
+    }
+    return groups;
+  } catch {
+    return [];
+  }
+}
+
+export function writeProjectGroups(groups: ProjectGroup[], storage: Pick<Storage, 'setItem'> = window.localStorage): void {
+  storage.setItem(projectGroupsStorageKey, JSON.stringify(groups));
+}
+
+/** Editing one group also moves its selected projects out of their previous groups. */
+export function updateProjectGroup(groups: ProjectGroup[], edited: ProjectGroup): ProjectGroup[] {
+  const selected = new Set(edited.projectIds);
+  const next = groups.map(group => group.id === edited.id
+    ? edited
+    : { ...group, projectIds: group.projectIds.filter(id => !selected.has(id)) });
+  if (!groups.some(group => group.id === edited.id)) next.push(edited);
+  return next;
+}
 
 type BranchTab = 'log' | 'stash' | 'console';
 type StagingTab = 'changes' | 'ignored';

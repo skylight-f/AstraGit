@@ -15,6 +15,7 @@ import { ZeusSelect } from '../ZeusSelect.js';
 import { ModalPortal } from '../ui/ModalPortal.js';
 import type { ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../apiClient.js';
 import type { BusyState, OperationTone, BranchKind, ExecutionOutcome, ProjectGitUpdateStrategy, PushSelection } from './gitWorkbenchTypes.js';
+import { CircleNotch } from '@phosphor-icons/react/dist/csr/CircleNotch';
 import { ArrowRightIcon as ArrowRight } from '@phosphor-icons/react/dist/csr/ArrowRight';
 import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { CaretRightIcon as CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
@@ -1246,10 +1247,28 @@ export function StashDialog(props: {
   );
 }
 
+function SyncOperationNotice({ busy, repository, zh, onStop }: {
+  busy: NonNullable<BusyState>;
+  repository?: ProjectGitRepositoryWorkbenchItem;
+  zh: boolean;
+  onStop?: (repositoryId: string) => void;
+}) {
+  const labels = { push: ['推送', 'Push'], pull: ['拉取', 'Pull'], fetch: ['抓取', 'Fetch'] } as const;
+  if (busy.action !== 'push' && busy.action !== 'pull' && busy.action !== 'fetch') return null;
+  return <aside className="git-sync-operation-notice" aria-label={zh ? 'Git 操作状态' : 'Git operation status'}>
+    <span className="git-operation-notice-status" role="status">
+      <CircleNotch aria-hidden="true" className="project-git-spinner" />
+      <span><strong>{repository?.name}</strong><span>{labels[busy.action][zh ? 0 : 1]}…</span></span>
+    </span>
+    {onStop && <Button variant="secondary" size="compact" onClick={() => onStop(busy.repositoryId)}>{zh ? '中止操作' : 'Stop operation'}</Button>}
+  </aside>;
+}
+
 export function PullDialog(props: {
   repository: ProjectGitRepositoryWorkbenchItem;
   zh: boolean;
   busy: BusyState;
+  onStop?: (repositoryId: string) => void;
   onClose: () => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
 }) {
@@ -1351,6 +1370,7 @@ export function PullDialog(props: {
           </fieldset>
         </main>
         <footer>
+          {props.busy && <SyncOperationNotice busy={props.busy} repository={props.repository} zh={props.zh} onStop={props.onStop} />}
           <Button variant="secondary" disabled={locked} onClick={props.onClose}>
             {props.zh ? '取消' : 'Cancel'}
           </Button>
@@ -1384,6 +1404,7 @@ export function PushDialog(props: {
   repositories: ProjectGitRepositoryWorkbenchItem[];
   selectedRepository: ProjectGitRepositoryWorkbenchItem | null;
   busy: BusyState;
+  onStop?: (repositoryId: string) => void;
   results: Array<{ repositoryId: string; repositoryName: string; tone: OperationTone; message: string }>;
   onClose: () => void;
   onPush: (selections: PushSelection[], forceWithLease: boolean, pushTags: boolean) => Promise<void>;
@@ -1481,6 +1502,7 @@ export function PushDialog(props: {
           ) : null}
         </main>
         <footer>
+          {props.busy && <SyncOperationNotice busy={props.busy} repository={props.repositories.find(item => item.id === props.busy?.repositoryId)} zh={props.zh} onStop={props.onStop} />}
           <Button variant="secondary" disabled={locked} onClick={props.onClose}>
             {resultMode ? (props.zh ? '关闭' : 'Close') : props.zh ? '取消' : 'Cancel'}
           </Button>

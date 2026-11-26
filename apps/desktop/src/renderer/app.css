@@ -219,17 +219,29 @@ body {
 }
 
 .gitapp-list-page {
-  overflow: auto;
+  overflow: hidden;
   padding: 16px 22px 28px;
   background: var(--ag-bg);
 }
 
 .gitapp-project-page-content {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
+  height: 100%;
+  min-height: 0;
   width: 100%;
   max-width: 1120px;
   margin-inline: auto;
+}
+
+.gitapp-project-scroll {
+  display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .gitapp-project-toolbar,
@@ -309,6 +321,61 @@ body {
 .gitapp-projects {
   overflow: hidden;
 }
+
+.gitapp-group-heading,
+.gitapp-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gitapp-group-heading {
+  padding-inline-end: 8px;
+  background: var(--ag-control);
+}
+
+.gitapp-group-toggle {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ag-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.gitapp-group-toggle strong,
+.gitapp-group-members :is(strong, small) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gitapp-group-toggle[aria-expanded='true'] svg { transform: rotate(90deg); }
+.gitapp-group-toggle span { color: var(--ag-muted); font-size: 12px; }
+.gitapp-group-toggle:focus-visible { outline: 2px solid var(--ag-focus); outline-offset: -2px; }
+
+.gitapp-group-members {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.gitapp-group-members legend { margin-block-end: 6px; }
+.gitapp-group-editor .gitapp-group-members label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) fit-content(30%);
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  cursor: pointer;
+}
+.gitapp-group-members label + label { border-top: 1px solid var(--ag-line); }
+.gitapp-group-members label > span { display: grid; }
+.gitapp-group-members small { color: var(--ag-muted); }
+.gitapp-group-editor .zeus-form-fields > button { justify-self: start; }
 
 .gitapp-projects ul {
   list-style: none;

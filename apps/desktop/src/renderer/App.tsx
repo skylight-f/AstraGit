@@ -2,7 +2,7 @@ import { ShieldCheck } from '@phosphor-icons/react/dist/csr/ShieldCheck';
 import { ArrowClockwise } from '@phosphor-icons/react/dist/csr/ArrowClockwise';
 import { ArrowLeft } from '@phosphor-icons/react/dist/csr/ArrowLeft';
 import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
-import { CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
+import { ProjectList } from './ProjectList.js';
 import { CodeReviewPanel } from './CodeReviewPanel.js';
 import { GitPaneSeparator } from './git/GitPaneSeparator.js';
 import { FolderOpen } from '@phosphor-icons/react/dist/csr/FolderOpen';
@@ -555,81 +555,56 @@ export function App(props: AppProps) {
           </div>
         </div>
       ) : (
-        <div className="gitapp-shell gitapp-list-page macos-ai-app theme-light">
-          <div className="gitapp-project-page-content">
-            <header className="gitapp-project-toolbar">
-              <h1>{zh ? '项目' : 'Projects'}</h1>
-              <div className="gitapp-project-actions">
-                {activeProject ? (
-                  <Button size="compact" onClick={() => { setProjectAddMenuOpen(false); setShowList(false); }}>
-                    <ArrowLeft size={15} aria-hidden="true" />
-                    {zh ? '返回工作台' : 'Back to workbench'}
-                  </Button>
-                ) : null}
-                {projectAddMode !== repositorySetupKind && (repositorySetup.busy || repositorySetup.job || repositorySetup.error) ? (
-                  <Button size="compact" onClick={() => setProjectAddMode(repositorySetupKind)}>
-                    {repositorySetup.busy ? (zh ? '查看创建进度' : 'View setup progress') : zh ? '查看创建结果' : 'View setup result'}
-                  </Button>
-                ) : null}
-                <Button size="compact" aria-label={zh ? '刷新项目' : 'Refresh projects'} title={zh ? '刷新项目' : 'Refresh projects'} onClick={() => void refresh()}>
-                  <ArrowClockwise size={15} aria-hidden="true" />
-                </Button>
-                <ProjectFolderImport client={props.client} zh={zh} disabled={openingLocalProject} onImported={refresh} />
-                <Button ref={projectAddButton} size="compact" variant="primary" busy={openingLocalProject} aria-haspopup="menu" aria-expanded={projectAddMenuOpen} onClick={() => setProjectAddMenuOpen(value => !value)}>
-                  <Plus size={15} aria-hidden="true" />
-                  {zh ? '添加项目' : 'Add project'}
-                  <CaretDown size={12} aria-hidden="true" />
-                </Button>
-                {projectAddMenuOpen ? (
-                  <MenuSurface className="gitapp-project-add-menu" aria-label={zh ? '添加项目' : 'Add project'} anchor={projectAddButton.current ?? undefined} onClose={() => setProjectAddMenuOpen(false)}>
-                    <button type="button" role="menuitem" disabled={!window.astraGit?.chooseDirectory} onClick={() => { setProjectAddMenuOpen(false); void openLocalProject(); }}>
-                      {zh ? '打开本地项目' : 'Open local project'}
-                    </button>
-                    {([
-                      ['clone', zh ? '克隆仓库' : 'Clone repository'],
-                      ['init', zh ? '初始化仓库' : 'Initialize repository'],
-                    ] as const).map(([mode, label]) => (
-                      <button type="button" role="menuitem" key={mode} onClick={() => { setProjectAddMode(mode); setProjectAddMenuOpen(false); }}>{label}</button>
-                    ))}
-                  </MenuSurface>
-                ) : null}
-              </div>
-            </header>
-            {projectAddMode ? (
-              <div className="gitapp-project-editor">
-                <button type="button" className="gitapp-project-icon-button gitapp-project-editor-close" aria-label={zh ? '收起表单' : 'Hide form'} title={zh ? '收起表单' : 'Hide form'} onClick={() => { setProjectAddMode(null); projectAddButton.current?.focus(); }}>
-                  <X size={16} aria-hidden="true" />
-                </button>
-                <RepositorySetupForm key={projectAddMode} kind={projectAddMode} zh={zh} setup={repositorySetup} />
-              </div>
+        <ProjectList
+          projects={projects === null ? null : sortedProjects}
+          zh={zh}
+          onOpen={openProject}
+          onRemove={removeProject}
+          actions={<>
+            {activeProject ? (
+              <Button size="compact" onClick={() => { setProjectAddMenuOpen(false); setShowList(false); }}>
+                <ArrowLeft size={15} aria-hidden="true" />
+                {zh ? '返回工作台' : 'Back to workbench'}
+              </Button>
             ) : null}
-            <section className="gitapp-projects" aria-label={zh ? '项目列表' : 'Project list'}>
-              {sortedProjects.length === 0 ? (
-                <p className="gitapp-project-list-status" role="status">
-                  {projects === null ? (zh ? '正在加载项目…' : 'Loading projects…') : zh ? '还没有项目' : 'No projects yet'}
-                </p>
-              ) : (
-                <ul>
-                  {sortedProjects.map(project => (
-                    <li key={project.id}>
-                      <button type="button" className="gitapp-project-row" onClick={() => void openProject(project)}>
-                        <span className="gitapp-project-row-icon" aria-hidden="true"><FolderOpen size={16} /></span>
-                        <span className="gitapp-project-row-details">
-                          <strong title={project.name}>{project.name}</strong>
-                          <span title={project.localPath}>{project.localPath}</span>
-                        </span>
-                        <CaretRight size={14} aria-hidden="true" />
-                      </button>
-                      <button type="button" className="gitapp-project-icon-button gitapp-remove" onClick={() => void removeProject(project)} aria-label={zh ? `从列表移除 ${project.name}` : `Remove ${project.name} from list`} title={zh ? '从列表移除' : 'Remove from list'}>
-                        <X size={15} aria-hidden="true" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </div>
-        </div>
+            {projectAddMode !== repositorySetupKind && (repositorySetup.busy || repositorySetup.job || repositorySetup.error) ? (
+              <Button size="compact" onClick={() => setProjectAddMode(repositorySetupKind)}>
+                {repositorySetup.busy ? (zh ? '查看创建进度' : 'View setup progress') : zh ? '查看创建结果' : 'View setup result'}
+              </Button>
+            ) : null}
+            <Button size="compact" aria-label={zh ? '刷新项目' : 'Refresh projects'} title={zh ? '刷新项目' : 'Refresh projects'} onClick={() => void refresh()}>
+              <ArrowClockwise size={15} aria-hidden="true" />
+            </Button>
+            <ProjectFolderImport client={props.client} zh={zh} disabled={openingLocalProject} onImported={refresh} />
+            <Button ref={projectAddButton} size="compact" variant="primary" busy={openingLocalProject} aria-haspopup="menu" aria-expanded={projectAddMenuOpen} onClick={() => setProjectAddMenuOpen(value => !value)}>
+              <Plus size={15} aria-hidden="true" />
+              {zh ? '添加项目' : 'Add project'}
+              <CaretDown size={12} aria-hidden="true" />
+            </Button>
+            {projectAddMenuOpen ? (
+              <MenuSurface className="gitapp-project-add-menu" aria-label={zh ? '添加项目' : 'Add project'} anchor={projectAddButton.current ?? undefined} onClose={() => setProjectAddMenuOpen(false)}>
+                <button type="button" role="menuitem" disabled={!window.astraGit?.chooseDirectory} onClick={() => { setProjectAddMenuOpen(false); void openLocalProject(); }}>
+                  {zh ? '打开本地项目' : 'Open local project'}
+                </button>
+                {([
+                  ['clone', zh ? '克隆仓库' : 'Clone repository'],
+                  ['init', zh ? '初始化仓库' : 'Initialize repository'],
+                ] as const).map(([mode, label]) => (
+                  <button type="button" role="menuitem" key={mode} onClick={() => { setProjectAddMode(mode); setProjectAddMenuOpen(false); }}>{label}</button>
+                ))}
+              </MenuSurface>
+            ) : null}
+          </>}
+        >
+          {projectAddMode ? (
+            <div className="gitapp-project-editor">
+              <button type="button" className="gitapp-project-icon-button gitapp-project-editor-close" aria-label={zh ? '收起表单' : 'Hide form'} title={zh ? '收起表单' : 'Hide form'} onClick={() => { setProjectAddMode(null); projectAddButton.current?.focus(); }}>
+                <X size={16} aria-hidden="true" />
+              </button>
+              <RepositorySetupForm key={projectAddMode} kind={projectAddMode} zh={zh} setup={repositorySetup} />
+            </div>
+          ) : null}
+        </ProjectList>
       )}
       </div>
       {reviewVisible ? <GitPaneSeparator name="review-main" label={zh ? '调整代码评审宽度' : 'Resize code review'} initial={68} min={reviewBounds.min} max={reviewBounds.max} /> : null}

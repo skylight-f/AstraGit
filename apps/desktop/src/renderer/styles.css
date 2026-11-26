@@ -3648,6 +3648,10 @@ a {
   font-size: 11px;
   margin: 0;
 }
+:root {
+  --git-addition: light-dark(#14783e, #67d896);
+  --git-deletion: light-dark(#be3041, #ff8991);
+}
 .project-git-changed-files {
   border-bottom: 0;
   padding: 8px;
@@ -3665,28 +3669,41 @@ a {
   font: inherit;
   font-size: 11px;
   gap: 6px;
-  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
   min-height: 25px;
   text-align: left;
   width: 100%;
 }
-.project-git-changed-files button:hover:not(:disabled):not([aria-disabled='true']),
-.project-git-changed-files button.is-current {
+.project-git-changed-files button:hover:not(.is-current):not(:disabled):not([aria-disabled='true']) {
   background: var(--zeus-source-list-hover);
 }
-.project-git-changed-files button span {
+.project-git-changed-files button.is-current {
+  background: var(--zeus-source-list-selected);
+  box-shadow: inset 2px 0 var(--zeus-brand-primary);
+}
+.git-commit-file-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.project-git-changed-files em {
-  color: var(--zeus-code-addition-text);
-  font-style: normal;
+.git-commit-file-counts {
+  display: inline-flex;
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
 }
-.project-git-changed-files i {
-  color: var(--zeus-control-danger-text);
-  font-style: normal;
+.git-commit-file-counts > span,
+.git-commit-file-kind {
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 17px;
+  white-space: nowrap;
+  background: color-mix(in srgb, currentColor 10%, transparent);
 }
+.git-commit-file-counts > .is-addition { color: var(--git-addition); }
+.git-commit-file-counts > .is-deletion { color: var(--git-deletion); }
+.git-commit-file-kind { color: var(--zeus-product-muted); }
 .project-git-commit-file-tree {
   display: flex;
   flex-direction: column;
@@ -3719,6 +3736,9 @@ a {
 .project-git-commit-file-folder[open] > summary > svg:first-child {
   transform: rotate(90deg);
 }
+.project-git-commit-file-folder > summary > svg:nth-child(2) {
+  color: var(--zeus-brand-text);
+}
 .project-git-commit-file-folder > summary span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3747,10 +3767,10 @@ a {
   white-space: nowrap;
 }
 .project-git-diff-preview > header span {
-  color: var(--zeus-code-addition-text);
+  color: var(--git-addition);
 }
 .project-git-diff-preview > header em {
-  color: var(--zeus-control-danger-text);
+  color: var(--git-deletion);
   font-style: normal;
 }
 .project-git-diff-preview > div {
@@ -4248,8 +4268,9 @@ a {
   margin: 0;
 }
 .project-git-sync-table-scroll {
-  overflow: auto;
-  max-block-size: 280px;
+  /* Let the dialog body scroll vertically and keep wide branch tables reachable. */
+  min-inline-size: 0;
+  overflow-x: auto;
 }
 .project-git-sync-table {
   inline-size: 100%;
@@ -5310,10 +5331,10 @@ body[data-surface='project-git-diff'] .macos-ai-app.zeus-shell.project-git-diff-
   font-style: normal;
 }
 .project-git-diff-window-files button em {
-  color: var(--zeus-code-addition-text);
+  color: var(--git-addition);
 }
 .project-git-diff-window-files button i {
-  color: var(--zeus-control-danger-text);
+  color: var(--git-deletion);
 }
 .project-git-diff-window-layout > .project-git-diff-preview {
   height: 100%;

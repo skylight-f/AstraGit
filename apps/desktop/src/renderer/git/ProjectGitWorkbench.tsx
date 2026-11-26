@@ -42,6 +42,7 @@ import type { GitCommitModelState } from './useGitCommitModels.js';
 import { useGitOperationHistory } from './useGitOperationHistory.js';
 import { GitContextMenu, GitMenuActionDialog, type GitMenuItem, type GitMenuConfirmation } from './GitContextMenu.js';
 import { createApplyStashConfirmation } from './applyStashConfirmation.js';
+import { GitHistoryTable } from './GitHistoryTable.js';
 import { GitPaneSeparator } from './GitPaneSeparator.js';
 import { generateStagedCommitDrafts } from './generateStagedCommitDrafts.js';
 import { stagedCommitUnits, type SourceCommitUnit } from './sourceGitState.js';
@@ -54,7 +55,6 @@ import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/dist/csr/Caret
 import { CaretRightIcon as CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/dist/csr/CheckCircle';
 import { CircleNotchIcon as CircleNotch } from '@phosphor-icons/react/dist/csr/CircleNotch';
-import { FileIcon as File } from '@phosphor-icons/react/dist/csr/File';
 import { FolderIcon as Folder } from '@phosphor-icons/react/dist/csr/Folder';
 import { GitBranchIcon as GitBranch } from '@phosphor-icons/react/dist/csr/GitBranch';
 import { TagIcon as Tag } from '@phosphor-icons/react/dist/csr/Tag';
@@ -1172,6 +1172,10 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     </header>
   );
 
+  function stopSyncOperation(repositoryId: string) {
+    void props.client.cancelProjectGitAction(props.project.id, repositoryId).catch(reason => setError(errorMessage(reason, zh)));
+  }
+
   return (
     <section
       className="project-git-workbench"
@@ -1183,7 +1187,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       aria-label={zh ? '仓库管理' : 'Repository management'}
     >
       {stagePreferenceNotice && !busy && !selectedRepository?.snapshot.integrationState && !checkoutNotice ? <aside className="git-operation-notice"><span role="status">{stagePreferenceNotice}</span><Button variant="secondary" size="compact" onClick={() => setStagePreferenceNotice('')}>{zh ? '关闭' : 'Close'}</Button></aside> : null}
-      {busy || selectedRepository?.snapshot.integrationState || checkoutNotice ? (
+      {!(busy && (pushOpen || pullOpen)) && (busy || selectedRepository?.snapshot.integrationState || checkoutNotice) ? (
         <aside className="git-operation-notice" aria-label={zh ? 'Git 操作状态' : 'Git operation status'}>
           <span className="git-operation-notice-status" role="status">
             {busy ? <CircleNotch aria-hidden="true" className="project-git-spinner" /> : selectedRepository?.snapshot.integrationState ? <WarningCircle aria-hidden="true" /> : <CheckCircle aria-hidden="true" />}
@@ -1729,7 +1733,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       <MotionPresence>
         {revisionOpen ? <CheckoutRevisionDialog open={revisionOpen} zh={zh} repositories={repositories} selectedRepository={selectedRepository} busy={busy} onClose={() => setRevisionOpen(false)} onExecute={execute} /> : null}
       </MotionPresence>
-      <MotionPresence>{pullOpen && selectedRepository ? <PullDialog key={selectedRepository.id} repository={selectedRepository} zh={zh} busy={busy} onClose={() => setPullOpen(false)} onExecute={execute} /> : null}</MotionPresence>
+      <MotionPresence>{pullOpen && selectedRepository ? <PullDialog key={selectedRepository.id} repository={selectedRepository} zh={zh} busy={busy} onStop={props.conversationScope ? undefined : stopSyncOperation} onClose={() => setPullOpen(false)} onExecute={execute} /> : null}</MotionPresence>
       <MotionPresence>
         {pushOpen ? (
           <PushDialog
@@ -1738,6 +1742,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
             repositories={repositories}
             selectedRepository={selectedRepository}
             busy={busy}
+            onStop={props.conversationScope ? undefined : stopSyncOperation}
             results={pushResults}
             onClose={() => {
               setPushOpen(false);
@@ -1885,14 +1890,7 @@ function GitLogSurface(props: {
   }, [props.historyLoading, props.historyError, props.historyHasMore, props.onLoadMore]);
   return (
     <div className="project-git-log-layout" style={{ '--git-history-row-height': `${gitHistoryRowHeight}px` } as React.CSSProperties}>
-      <main className="project-git-commit-list">
-        <header className="project-git-list-header">
-          <span className="git-history-graph-heading">{props.zh ? '图表' : 'Graph'}</span>
-          <span>{props.zh ? '描述' : 'Description'}</span>
-          <span>{props.zh ? '提交' : 'Commit'}</span>
-          <span>{props.zh ? '作者' : 'Author'}</span>
-          <span>{props.zh ? '日期' : 'Date'}</span>
-        </header>
+      <GitHistoryTable zh={props.zh} scrollRef={historyScroll} pinned={<>
         <div className="git-history-selection-tools"><span>{props.zh ? `已选 ${selectedHashes.length} 个提交 · Shift 连选，Ctrl/⌘ 多选` : `${selectedHashes.length} commits selected · Shift for ranges, Ctrl/⌘ to add`}</span><Button size="compact" variant="secondary" disabled={!props.selectedRepository || !selectedHashes.length || props.busy !== null} onClick={() => props.selectedRepository && props.onExportSeries(props.selectedRepository, selectedHashes)}>{props.zh ? '导出所选提交序列…' : 'Export selected series…'}</Button></div>
         {props.selectedRepository && props.selectedRepository.snapshot.fileStatuses.length > 0 ? (
           <button type="button" className="project-git-commit-row git-working-copy-row" onClick={props.onOpenChanges}>
@@ -1905,78 +1903,75 @@ function GitLogSurface(props: {
             <span />
           </button>
         ) : null}
-        <div className="project-git-commit-scroll" ref={historyScroll}>
-          <CommitGraph commits={props.commits.map(({ commit }) => commit)} />
-          <div className="project-git-commit-rows">
-            {props.commits.length === 0 && !props.historyLoading && !props.historyError ? <p role="status">{props.zh ? '所选历史范围没有匹配的提交，请调整条件或刷新范围。' : 'No commits match in this history scope. Adjust the search or refresh the scope.'}</p> : null}
-            {props.commits.map(({ repository, commit }) => {
-              const selected = repository.id === props.selectedRepository?.id && selectedHashes.includes(commit.hash);
-              const focused = selected && commit.hash === props.selectedCommitHash;
-              return (
-                <button
-                  key={`${repository.id}:${commit.hash}`}
-                  data-git-context={JSON.stringify({ kind: 'commit', repositoryId: repository.id, ref: commit.hash })}
-                  type="button"
-                  className={`project-git-commit-row${selected ? ' is-selected' : ''}${focused ? ' is-current' : ''}`}
-                  aria-pressed={selected}
-                  onClick={event => selectRows(event, repository, commit.hash)}
-                  onContextMenu={event => commitMenuFor(event, repository, commit.hash)}
-                  onKeyDown={event => {
-                    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') { event.preventDefault(); setSelection({ scope: props.selectionScope, selectedPaths: ordered, anchor: selection.anchor ?? commit.hash }); return; }
-                    if (event.key === 'Escape') { event.preventDefault(); setSelection({ scope: props.selectionScope, selectedPaths: [], anchor: null }); return; }
-                    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { const bounds = event.currentTarget.getBoundingClientRect(); commitMenuFor(event, repository, commit.hash, { x: bounds.left, y: bounds.bottom }); return; }
-                    const index = ordered.indexOf(commit.hash); const next = event.key === 'ArrowDown' ? Math.min(ordered.length - 1, index + 1) : event.key === 'ArrowUp' ? Math.max(0, index - 1) : event.key === 'Home' ? 0 : event.key === 'End' ? ordered.length - 1 : null;
-                    if (next === null || !props.commits[next]) return;
-                    event.preventDefault(); selectRows(event, props.commits[next]!.repository, ordered[next]!);
-                    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('.project-git-commit-row')[next]?.focus();
-                  }}
-                >
-                  <span className="project-git-commit-subject" title={commit.searchMatch ? `${commit.subject}\n${commit.searchMatch.excerpt}` : commit.subject}>
-                    {repository.snapshot.headSha === commit.hash ? (
-                      <span className="git-history-ref" title={repository.snapshot.detached ? 'HEAD' : `HEAD → ${repository.snapshot.branch}`}>
-                        <GitBranch aria-hidden="true" />
-                        {repository.snapshot.detached ? 'HEAD' : repository.snapshot.branch}
-                      </span>
-                    ) : null}
-                    <strong>{commit.subject}</strong>
+      </>}>
+        <CommitGraph commits={props.commits.map(({ commit }) => commit)} />
+        {props.commits.length === 0 && !props.historyLoading && !props.historyError ? <p role="status">{props.zh ? '所选历史范围没有匹配的提交，请调整条件或刷新范围。' : 'No commits match in this history scope. Adjust the search or refresh the scope.'}</p> : null}
+        {props.commits.map(({ repository, commit }) => {
+          const selected = repository.id === props.selectedRepository?.id && selectedHashes.includes(commit.hash);
+          const focused = selected && commit.hash === props.selectedCommitHash;
+          return (
+            <button
+              key={`${repository.id}:${commit.hash}`}
+              data-git-context={JSON.stringify({ kind: 'commit', repositoryId: repository.id, ref: commit.hash })}
+              type="button"
+              className={`project-git-commit-row${selected ? ' is-selected' : ''}${focused ? ' is-current' : ''}`}
+              aria-pressed={selected}
+              onClick={event => selectRows(event, repository, commit.hash)}
+              onContextMenu={event => commitMenuFor(event, repository, commit.hash)}
+              onKeyDown={event => {
+                if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') { event.preventDefault(); setSelection({ scope: props.selectionScope, selectedPaths: ordered, anchor: selection.anchor ?? commit.hash }); return; }
+                if (event.key === 'Escape') { event.preventDefault(); setSelection({ scope: props.selectionScope, selectedPaths: [], anchor: null }); return; }
+                if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { const bounds = event.currentTarget.getBoundingClientRect(); commitMenuFor(event, repository, commit.hash, { x: bounds.left, y: bounds.bottom }); return; }
+                const index = ordered.indexOf(commit.hash); const next = event.key === 'ArrowDown' ? Math.min(ordered.length - 1, index + 1) : event.key === 'ArrowUp' ? Math.max(0, index - 1) : event.key === 'Home' ? 0 : event.key === 'End' ? ordered.length - 1 : null;
+                if (next === null || !props.commits[next]) return;
+                event.preventDefault(); selectRows(event, props.commits[next]!.repository, ordered[next]!);
+                event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('.project-git-commit-row')[next]?.focus();
+              }}
+            >
+              <span className="project-git-commit-subject" title={commit.searchMatch ? `${commit.subject}\n${commit.searchMatch.excerpt}` : commit.subject}>
+                {repository.snapshot.headSha === commit.hash ? (
+                  <span className="git-history-ref" title={repository.snapshot.detached ? 'HEAD' : `HEAD → ${repository.snapshot.branch}`}>
+                    <GitBranch aria-hidden="true" />
+                    {repository.snapshot.detached ? 'HEAD' : repository.snapshot.branch}
                   </span>
-                  <code title={commit.hash}>{commit.shortHash}</code>
-                  <span title={commit.author}>{commit.author}</span>
-                  <time dateTime={commit.authoredAt} title={new Date(commit.authoredAt).toLocaleString()}>
-                    {formatCommitHistoryTime(commit.authoredAt, props.zh)}
-                  </time>
-                </button>
-              );
-            })}
-            <div ref={historySentinel} role="status" className="project-git-history-status">
-              {props.historyError ? (
-                <>
-                  <span>{props.historyError}</span>
-                  <Button variant="secondary" size="compact" onClick={props.onReloadHistory}>
-                    {props.zh ? '重新载入历史' : 'Reload history'}
-                  </Button>
-                </>
-              ) : props.historyLoading ? (
-                props.zh ? (
-                  '正在加载提交…'
-                ) : (
-                  'Loading commits…'
-                )
-              ) : props.historyHasMore ? (
-                props.zh ? (
-                  '向下滚动加载更多提交'
-                ) : (
-                  'Scroll for more commits'
-                )
-              ) : props.zh ? (
-                '已加载此范围全部匹配记录；刷新可获取新提交'
-              ) : (
-                'All matching entries loaded for this scope. Refresh for new commits'
-              )}
-            </div>
-          </div>
+                ) : null}
+                <strong>{commit.subject}</strong>
+              </span>
+              <code title={commit.hash}>{commit.shortHash}</code>
+              <span title={commit.author}>{commit.author}</span>
+              <time dateTime={commit.authoredAt} title={new Date(commit.authoredAt).toLocaleString()}>
+                {formatCommitHistoryTime(commit.authoredAt, props.zh)}
+              </time>
+            </button>
+          );
+        })}
+        <div ref={historySentinel} role="status" className="project-git-history-status">
+          {props.historyError ? (
+            <>
+              <span>{props.historyError}</span>
+              <Button variant="secondary" size="compact" onClick={props.onReloadHistory}>
+                {props.zh ? '重新载入历史' : 'Reload history'}
+              </Button>
+            </>
+          ) : props.historyLoading ? (
+            props.zh ? (
+              '正在加载提交…'
+            ) : (
+              'Loading commits…'
+            )
+          ) : props.historyHasMore ? (
+            props.zh ? (
+              '向下滚动加载更多提交'
+            ) : (
+              'Scroll for more commits'
+            )
+          ) : props.zh ? (
+            '已加载此范围全部匹配记录；刷新可获取新提交'
+          ) : (
+            'All matching entries loaded for this scope. Refresh for new commits'
+          )}
         </div>
-      </main>
+      </GitHistoryTable>
       <GitPaneSeparator name="history-preview" label={props.zh ? '调整代码差异与历史高度' : 'Resize diff and history'} target=".project-git-browser-layout" axis="y" initial={44} min={24} max={60} />
       <GitPaneSeparator name="history-inspector" trailingMin={175} label={props.zh ? '调整图谱与提交详情宽度' : 'Resize graph and commit details'} target=".project-git-browser-layout" initial={74} min={62} max={82} />
       {selectedHashes.length === 2 && props.selectedRepository ? <GitHistoryComparisonInspector key={JSON.stringify([props.selectionScope, ...selectedHashes])} projectId={props.projectId} client={props.client} repository={props.selectedRepository} revisions={[selectedHashes[1]!, selectedHashes[0]!]} zh={props.zh} onOpenDiff={props.onOpenDiff} onExport={props.onExportComparison} onExternal={props.onExternalTool} onHistory={props.onFileHistory} /> : selectedHashes.length > 0 && !props.commitLoading && detail ? (
@@ -2064,6 +2059,7 @@ function GitLogSurface(props: {
               <CommitFileDirectoryTree
                 zh={props.zh}
                 files={detail.files}
+                fileDiffs={detail.diff.fileDiffs}
                 selectedPath={selectedFilePath}
                 onSelect={props.onSelectFile}
                 onExport={props.selectedRepository ? path => exportCommit(path) : undefined}
@@ -2153,7 +2149,7 @@ function GitHistoryComparisonInspector(props: {
   )} files={(
     <section className="project-git-changed-files">
       <header><strong>{text(`变更文件 (${comparison?.files.length ?? '…'})`, `Changed files (${comparison?.files.length ?? '…'})`)}</strong></header>
-      {comparison ? <CommitFileDirectoryTree zh={props.zh} files={comparison.files} selectedPath={path} onSelect={setSelectedPath}
+      {comparison ? <CommitFileDirectoryTree zh={props.zh} files={comparison.files} fileDiffs={comparison.diff.fileDiffs} selectedPath={path} onSelect={setSelectedPath}
         onOpen={path => props.onOpenDiff(props.repository, path, { revisions: comparison.revisions })}
         onExport={path => props.onExport(props.repository, comparison.revisions, path)}
         onExternal={path => props.onExternal({ repository: props.repository, input: { mode: 'diff', paths: [path], revisions: comparison.revisions } })}
@@ -2168,12 +2164,13 @@ interface CommitFileTreeNode {
   name: string;
   path: string;
   children: Map<string, CommitFileTreeNode>;
-  stats?: { additions: number; deletions: number };
+  stats?: ProjectGitCommitDetail['files'][number];
+  diff?: ProjectGitCommitDetail['diff']['fileDiffs'][number];
 }
 
-function CommitFileDirectoryTree(props: { zh: boolean; files: Array<{ path: string; additions: number; deletions: number }>; selectedPath: string; onSelect: (path: string) => void; onOpen: (path: string) => void; onHistory?: (path: string, view: 'history' | 'blame') => void; onExport?: (path: string) => void; onExternal?: (path: string) => void }) {
+function CommitFileDirectoryTree(props: { zh: boolean; files: ProjectGitCommitDetail['files']; fileDiffs: ProjectGitCommitDetail['diff']['fileDiffs']; selectedPath: string; onSelect: (path: string) => void; onOpen: (path: string) => void; onHistory?: (path: string, view: 'history' | 'blame') => void; onExport?: (path: string) => void; onExternal?: (path: string) => void }) {
   const [menu, setMenu] = useState<{ path: string; x: number; y: number; open: (path: string, view: 'history' | 'blame') => void; export?: () => void; external?: () => void } | null>(null);
-  const tree = useMemo(() => buildCommitFileTree(props.files), [props.files.map((file) => `${file.path}:${file.additions}:${file.deletions}`).join('\0')]);
+  const tree = useMemo(() => buildCommitFileTree(props.files, props.fileDiffs), [props.files, props.fileDiffs]);
   return (
     <div className="project-git-commit-file-tree">
       {menu ? <GitContextMenu {...menu} title={menu.path} onClose={() => setMenu(null)} onError={reason => reportApplicationError(reason, { language: props.zh ? 'zh-CN' : 'en' })} items={[...(menu.external ? [{ label: props.zh ? '使用外部工具比较…' : 'Compare with external tool…', run: menu.external }] : []), { label: props.zh ? '文件历史…' : 'File history…', run: () => menu.open(menu.path, 'history') }, { label: props.zh ? '代码归属…' : 'Blame…', run: () => menu.open(menu.path, 'blame') }, ...(menu.export ? [{ label: props.zh ? '导出此文件补丁…' : 'Export file as patch…', run: menu.export }] : [])]} /> : null}
@@ -2190,7 +2187,7 @@ function CommitFileTreeEntry(props: Parameters<typeof CommitFileDirectoryTree>[0
       <details className="project-git-commit-file-folder" open>
         <summary style={{ paddingLeft: `${props.depth * 12 + 5}px` }}>
           <CaretRight aria-hidden="true" />
-          <Folder aria-hidden="true" />
+          <Folder weight="duotone" aria-hidden="true" />
           <span>{props.node.name}</span>
         </summary>
         {Array.from(props.node.children.values()).map((child) => (
@@ -2199,35 +2196,49 @@ function CommitFileTreeEntry(props: Parameters<typeof CommitFileDirectoryTree>[0
       </details>
     );
   }
+  const { stats, diff, name, path } = props.node;
+  const category = diff?.changeType ?? 'other';
+  const selected = path === props.selectedPath;
+  const displayPath = stats.originalPath ? `${stats.originalPath} → ${path}` : path;
+  const fileKind = diff?.isSubmodule ? (props.zh ? '子模块' : 'Submodule') : diff?.isBinary ? (props.zh ? '二进制' : 'Binary') : null;
   return (
     <div className="git-commit-file-row" onContextMenu={props.onHistory ? event => props.onMenu(props.node.path, event) : undefined}>
     <button
       type="button"
       onKeyDown={event => { if (props.onHistory && (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) props.onMenu(props.node.path, event); }}
-      className={props.node.path === props.selectedPath ? 'is-current' : ''}
+      className={selected ? 'is-current' : ''}
+      aria-pressed={selected}
+      title={`${displayPath} · ${gitFileStatusLabel(category, props.zh)}`}
       style={{ paddingLeft: `${props.depth * 12 + 7}px` }}
       onClick={() => props.onSelect(props.node.path)}
       onDoubleClick={() => props.onOpen(props.node.path)}
     >
-      <File aria-hidden="true" />
-      <span title={props.node.path}>{props.node.name}</span>
-      <em>+{props.node.stats.additions}</em>
-      <i>-{props.node.stats.deletions}</i>
+      <GitFileStatusIcon category={category} zh={props.zh} />
+      <span className="git-commit-file-name">{name}</span>
+      <span className="git-commit-file-counts">
+        {fileKind && <small className="git-commit-file-kind">{fileKind}</small>}
+        {stats.additions > 0 && <span className="is-addition">+{stats.additions}</span>}
+        {stats.deletions > 0 && <span className="is-deletion">−{stats.deletions}</span>}
+      </span>
     </button>
     {props.onHistory ? <button type="button" className="git-commit-file-menu" aria-label={`${props.zh ? '文件操作' : 'File actions'} · ${props.node.path}`} aria-haspopup="menu" onClick={event => props.onMenu(props.node.path, event)}><DotsThree aria-hidden="true" /></button> : null}
     </div>
   );
 }
 
-function buildCommitFileTree(files: Array<{ path: string; additions: number; deletions: number }>): CommitFileTreeNode {
+function buildCommitFileTree(files: ProjectGitCommitDetail['files'], fileDiffs: ProjectGitCommitDetail['diff']['fileDiffs']): CommitFileTreeNode {
   const root: CommitFileTreeNode = { name: '', path: '', children: new Map() };
+  const diffByPath = new Map(fileDiffs.map(diff => [diff.changeType === 'deleted' ? diff.oldPath : diff.newPath, diff]));
   for (const file of [...files].sort((left, right) => left.path.localeCompare(right.path))) {
     let current = root;
     const parts = file.path.split('/').filter(Boolean);
     parts.forEach((part, index) => {
       const path = parts.slice(0, index + 1).join('/');
-      const next = current.children.get(part) ?? { name: part, path, children: new Map<string, CommitFileTreeNode>() };
-      if (index === parts.length - 1) next.stats = { additions: file.additions, deletions: file.deletions };
+      const next: CommitFileTreeNode = current.children.get(part) ?? { name: part, path, children: new Map() };
+      if (index === parts.length - 1) {
+        next.stats = file;
+        next.diff = diffByPath.get(file.path);
+      }
       current.children.set(part, next);
       current = next;
     });
@@ -2235,78 +2246,88 @@ function buildCommitFileTree(files: Array<{ path: string; additions: number; del
   return root;
 }
 
-function CommitGraph(props: { commits: ProjectGitRepositoryWorkbenchItem['snapshot']['recentCommits'] }) {
+type GraphCommits = ProjectGitRepositoryWorkbenchItem['snapshot']['recentCommits'];
+
+function CommitGraph({ commits }: { commits: GraphCommits }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const width = 112;
-    const rowHeight = gitHistoryRowHeight;
-    const height = Math.max(1, props.commits.length * rowHeight);
-    const scale = window.devicePixelRatio || 1;
-    canvas.width = width * scale;
-    canvas.height = height * scale;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    const context = canvas.getContext('2d');
-    if (!context) return;
-    context.scale(scale, scale);
-    context.lineWidth = 1.5;
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
-    const colors = ['#4f67d8', '#29a98b', '#7957d5', '#76a93c', '#c27a34', '#3293ba', '#d45f86'];
-    const lanes: string[] = [];
-    props.commits.forEach((commit, row) => {
-      let lane = lanes.indexOf(commit.hash);
-      if (lane < 0) {
-        lane = lanes.length;
-        lanes[lane] = commit.hash;
-      }
-      const parents = commit.parentHashes.filter((parent, index, values) => values.indexOf(parent) === index);
-      const destinations = parents.map((parent, index) => {
-        const existing = lanes.indexOf(parent);
-        if (existing >= 0) return existing;
-        if (index === 0) return lane;
-        lanes.push(parent);
-        return lanes.length - 1;
-      });
-      const nextLanes = [...lanes];
-      nextLanes[lane] = parents[0] ?? '';
-      parents.slice(1).forEach((parent, index) => {
-        const destination = destinations[index + 1]!;
-        nextLanes[destination] = parent;
-      });
-      const y = row * rowHeight + rowHeight / 2;
-      const nextY = y + rowHeight;
-      lanes.forEach((value, fromLane) => {
-        if (!value) return;
-        const destination = value === commit.hash ? (destinations[0] ?? -1) : nextLanes.indexOf(value);
-        if (destination < 0 || row === props.commits.length - 1) return;
-        context.strokeStyle = colors[fromLane % colors.length]!;
-        context.beginPath();
-        context.moveTo(12 + fromLane * 14, y);
-        context.bezierCurveTo(12 + fromLane * 14, y + rowHeight / 2, 12 + destination * 14, nextY - rowHeight / 2, 12 + destination * 14, nextY);
-        context.stroke();
-      });
-      for (const destination of destinations.slice(1)) {
-        context.strokeStyle = colors[destination % colors.length]!;
-        context.beginPath();
-        context.moveTo(12 + lane * 14, y);
-        context.bezierCurveTo(12 + lane * 14, y + rowHeight / 2, 12 + destination * 14, nextY - rowHeight / 2, 12 + destination * 14, nextY);
-        context.stroke();
-      }
-      context.fillStyle = colors[lane % colors.length]!;
-      context.beginPath();
-      context.arc(12 + lane * 14, y, 3.5, 0, Math.PI * 2);
-      context.fill();
-      for (let index = 0; index < nextLanes.length; index += 1) {
-        if (nextLanes[index] && nextLanes.indexOf(nextLanes[index]!) !== index) nextLanes[index] = '';
-      }
-      while (nextLanes.at(-1) === '') nextLanes.pop();
-      lanes.splice(0, lanes.length, ...nextLanes);
-    });
-  }, [props.commits]);
+    const column = canvas?.closest('.git-history-table')?.querySelector('.git-history-column');
+    if (!canvas || !column) return;
+    const draw = () => drawCommitGraph(canvas, commits, column.getBoundingClientRect().width);
+    draw();
+    const observer = new ResizeObserver(draw);
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [commits]);
   return <canvas ref={canvasRef} className="project-git-graph-canvas" aria-hidden="true" />;
+}
+
+function drawCommitGraph(canvas: HTMLCanvasElement, commits: GraphCommits, width: number) {
+  const rowHeight = gitHistoryRowHeight;
+  const height = Math.max(1, commits.length * rowHeight);
+  const scale = window.devicePixelRatio || 1;
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  const context = canvas.getContext('2d');
+  if (!context) return;
+  context.scale(scale, scale);
+  context.lineWidth = 1.5;
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  const colors = ['#4f67d8', '#29a98b', '#7957d5', '#76a93c', '#c27a34', '#3293ba', '#d45f86'];
+  const lanes: string[] = [];
+  commits.forEach((commit, row) => {
+    let lane = lanes.indexOf(commit.hash);
+    if (lane < 0) {
+      lane = lanes.length;
+      lanes[lane] = commit.hash;
+    }
+    const parents = commit.parentHashes.filter((parent, index, values) => values.indexOf(parent) === index);
+    const destinations = parents.map((parent, index) => {
+      const existing = lanes.indexOf(parent);
+      if (existing >= 0) return existing;
+      if (index === 0) return lane;
+      lanes.push(parent);
+      return lanes.length - 1;
+    });
+    const nextLanes = [...lanes];
+    nextLanes[lane] = parents[0] ?? '';
+    parents.slice(1).forEach((parent, index) => {
+      const destination = destinations[index + 1]!;
+      nextLanes[destination] = parent;
+    });
+    const y = row * rowHeight + rowHeight / 2;
+    const nextY = y + rowHeight;
+    lanes.forEach((value, fromLane) => {
+      if (!value) return;
+      const destination = value === commit.hash ? (destinations[0] ?? -1) : nextLanes.indexOf(value);
+      if (destination < 0 || row === commits.length - 1) return;
+      context.strokeStyle = colors[fromLane % colors.length]!;
+      context.beginPath();
+      context.moveTo(12 + fromLane * 14, y);
+      context.bezierCurveTo(12 + fromLane * 14, y + rowHeight / 2, 12 + destination * 14, nextY - rowHeight / 2, 12 + destination * 14, nextY);
+      context.stroke();
+    });
+    for (const destination of destinations.slice(1)) {
+      context.strokeStyle = colors[destination % colors.length]!;
+      context.beginPath();
+      context.moveTo(12 + lane * 14, y);
+      context.bezierCurveTo(12 + lane * 14, y + rowHeight / 2, 12 + destination * 14, nextY - rowHeight / 2, 12 + destination * 14, nextY);
+      context.stroke();
+    }
+    context.fillStyle = colors[lane % colors.length]!;
+    context.beginPath();
+    context.arc(12 + lane * 14, y, 3.5, 0, Math.PI * 2);
+    context.fill();
+    for (let index = 0; index < nextLanes.length; index += 1) {
+      if (nextLanes[index] && nextLanes.indexOf(nextLanes[index]!) !== index) nextLanes[index] = '';
+    }
+    while (nextLanes.at(-1) === '') nextLanes.pop();
+    lanes.splice(0, lanes.length, ...nextLanes);
+  });
 }
 
 // 子模块按仓库相对路径组织，目录节点只负责展开，不改变仓库选择。
@@ -2962,7 +2983,7 @@ function StashSurface(props: {
             <header>
               <strong>{props.zh ? `变更文件 (${props.detail.files.length})` : `Changed files (${props.detail.files.length})`}</strong>
             </header>
-            <CommitFileDirectoryTree zh={props.zh} files={props.detail.files} selectedPath={props.selectedFilePath} onSelect={props.onSelectFile} onOpen={(path) => props.onOpenDiff(repository, path, { commitHash: stash.ref })} />
+            <CommitFileDirectoryTree zh={props.zh} files={props.detail.files} fileDiffs={props.detail.diff.fileDiffs} selectedPath={props.selectedFilePath} onSelect={props.onSelectFile} onOpen={(path) => props.onOpenDiff(repository, path, { commitHash: stash.ref })} />
           </aside>
           <GitPaneSeparator name="stash-files" trailingMin={240} label={props.zh ? '调整贮藏文件列表宽度' : 'Resize stash file list'} initial={28} min={16} max={55} />
           <SideBySideDiff
