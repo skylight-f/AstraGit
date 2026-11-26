@@ -1,7 +1,16 @@
 const projectWorkspaceTabsStorageKey = 'astragit.workspace.project-tabs.v1';
-const projectGitTabStoragePrefix = 'astragit.project-git-tab-v2:';
+const projectNavigationStoragePrefix = 'astragit.project-navigation.v1:';
 
-export type ProjectGitTab = 'changes' | 'ignored' | 'stash' | 'log' | 'console';
+type BranchTab = 'log' | 'stash' | 'console';
+type StagingTab = 'changes' | 'ignored';
+export type ProjectGitTab = BranchTab | StagingTab;
+export interface ProjectNavigation {
+  section: 'branch' | 'commit';
+  branchTab: BranchTab;
+  commitTab: 'source' | StagingTab;
+}
+
+const defaultNavigation: ProjectNavigation = { section: 'branch', branchTab: 'log', commitTab: 'source' };
 
 export interface ProjectWorkspaceTabsState {
   projectIds: string[];
@@ -17,18 +26,34 @@ function browserProjectWorkspaceStorage(): Pick<Storage, 'getItem' | 'setItem'> 
   }
 }
 
-export function readProjectGitTab(projectId: string, storage = browserProjectWorkspaceStorage()): ProjectGitTab {
+export function selectProjectTab(current: ProjectNavigation, tab: ProjectGitTab | 'source'): ProjectNavigation {
+  if (tab === 'source' || tab === 'changes' || tab === 'ignored') return { ...current, section: 'commit', commitTab: tab };
+  return { ...current, section: 'branch', branchTab: tab };
+}
+
+export function readProjectNavigation(projectId?: string, storage = browserProjectWorkspaceStorage()): ProjectNavigation {
+  if (!projectId || !storage) return defaultNavigation;
   try {
-    const value = storage?.getItem(projectGitTabStoragePrefix + projectId);
-    return value === 'changes' || value === 'ignored' || value === 'stash' || value === 'console' ? value : 'log';
+    const saved = JSON.parse(storage.getItem(projectNavigationStoragePrefix + projectId) ?? 'null');
+    if (saved?.section === 'commit' || saved?.section === 'branch') {
+      return {
+        section: saved.section,
+        branchTab: saved.branchTab === 'stash' || saved.branchTab === 'console' ? saved.branchTab : 'log',
+        commitTab: saved.commitTab === 'changes' || saved.commitTab === 'ignored' ? saved.commitTab : 'source',
+      };
+    }
+    const tab = storage.getItem('astragit.project-git-tab-v2:' + projectId);
+    const previous = selectProjectTab(defaultNavigation, tab === 'changes' || tab === 'ignored' || tab === 'stash' || tab === 'console' ? tab : 'log');
+    const views = JSON.parse(storage.getItem('astragit.project-views.v1') ?? 'null');
+    return views?.[projectId] === 'source' ? selectProjectTab(previous, 'source') : previous;
   } catch {
-    return 'log';
+    return defaultNavigation;
   }
 }
 
-export function writeProjectGitTab(projectId: string, tab: ProjectGitTab, storage = browserProjectWorkspaceStorage()): void {
+export function writeProjectNavigation(projectId: string, navigation: ProjectNavigation, storage = browserProjectWorkspaceStorage()): void {
   try {
-    storage?.setItem(projectGitTabStoragePrefix + projectId, tab);
+    storage?.setItem(projectNavigationStoragePrefix + projectId, JSON.stringify(navigation));
   } catch {
     return;
   }

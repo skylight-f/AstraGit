@@ -22,7 +22,7 @@ import { ReleaseUpdateButton } from './ReleaseUpdateButton.js';
 import { Button } from './ui/Button.js';
 import { MenuSurface } from './ui/MenuSurface.js';
 import { ApplicationErrorDialogHost, reportApplicationError, useApplicationErrorDialog } from './ui/ApplicationErrorDialog.js';
-import { readProjectGitTab, resolveProjectWorkspaceTabs, writeProjectGitTab, writeProjectWorkspaceTabs, type ProjectGitTab } from './projectWorkspacePersistence.js';
+import { readProjectNavigation, resolveProjectWorkspaceTabs, selectProjectTab, writeProjectNavigation, writeProjectWorkspaceTabs, type ProjectGitTab, type ProjectNavigation } from './projectWorkspacePersistence.js';
 import { useRepositorySetup } from './useRepositorySetup.js';
 import { RepositorySetupForm } from './RepositorySetupForm.js';
 import { ProjectFolderImport } from './ProjectFolderImport.js';
@@ -82,7 +82,7 @@ export function App(props: AppProps) {
   const tabList = useRef<HTMLElement>(null);
   const reviewButton = useRef<HTMLButtonElement>(null);
   const [activeProject, setActiveProject] = useState<ProjectRecord | null>(null);
-  const [projectGitTabs, setProjectGitTabs] = useState<Partial<Record<string, ProjectGitTab>>>({});
+  const [projectNavigation, setProjectNavigation] = useState<Partial<Record<string, ProjectNavigation>>>({});
   const [slots, setSlots] = useState<ProjectSlot[]>([]);
   const [gitCommandHost, setGitCommandHost] = useState<HTMLDivElement | null>(null);
   const [showList, setShowList] = useState(false);
@@ -101,9 +101,6 @@ export function App(props: AppProps) {
     setSettingsOpen(true);
   };
   const [modelSettingsRevision, setModelSettingsRevision] = useState(0);
-  const [projectViews, setProjectViews] = useState<Record<string, 'workbench' | 'source'>>(() => {
-    try { const value: unknown = JSON.parse(localStorage.getItem('astragit.project-views.v1') ?? '{}'); return value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).filter(([, view]) => view === 'source' || view === 'workbench')) : {}; } catch { return {}; }
-  });
   const [sourceVisited, setSourceVisited] = useState<Record<string, boolean>>({});
   const [sourceChangesBusy, setSourceChangesBusy] = useState(false);
   const [sourceToolbarBusy, setSourceToolbarBusy] = useState(false);
@@ -118,23 +115,23 @@ export function App(props: AppProps) {
   const pendingProjectId = useRef<string | null>(null);
   const activeProjectId = activeProject?.id;
   const commitModels = useGitCommitModels(props.client, showList ? undefined : activeProjectId, modelSettingsRevision);
-  const rememberedGitTab = useMemo(() => activeProjectId ? readProjectGitTab(activeProjectId) : 'log', [activeProjectId]);
-  const activeGitTab = activeProjectId ? projectGitTabs[activeProjectId] ?? rememberedGitTab : 'log';
-  const changeGitTab = useCallback((tab: ProjectGitTab) => {
+  const savedNavigation = useMemo(() => readProjectNavigation(activeProjectId), [activeProjectId]);
+  const navigation = (activeProjectId && projectNavigation[activeProjectId]) || savedNavigation;
+  const activeTab = navigation.section === 'branch' ? navigation.branchTab : navigation.commitTab;
+  const sourceVisible = activeTab === 'source';
+  const changeGitTab = useCallback((tab: ProjectGitTab | 'source') => {
     if (!activeProjectId) return;
-    setProjectGitTabs(current => current[activeProjectId] === tab ? current : { ...current, [activeProjectId]: tab });
-    writeProjectGitTab(activeProjectId, tab);
-  }, [activeProjectId]);
-  const activeView = activeProject ? projectViews[activeProject.id] ?? 'workbench' : 'workbench';
-  const switchProjectView = (view: 'workbench' | 'source') => {
-    if (!activeProject || sourceChangesBusy) return;
-    if (view === 'source') setSourceVisited(current => ({ ...current, [activeProject.id]: true }));
-    setProjectViews(current => {
-      const next = { ...current, [activeProject.id]: view };
-      try { localStorage.setItem('astragit.project-views.v1', JSON.stringify(next)); } catch { /* 当前视图仍可切换。 */ }
-      return next;
-    });
-  };
+    setProjectNavigation(current => ({
+      ...current,
+      [activeProjectId]: selectProjectTab(current[activeProjectId] ?? savedNavigation, tab),
+    }));
+  }, [activeProjectId, savedNavigation]);
+  useEffect(() => {
+    if (activeProjectId) writeProjectNavigation(activeProjectId, navigation);
+  }, [activeProjectId, navigation]);
+  useEffect(() => {
+    if (activeProjectId && sourceVisible) setSourceVisited(current => current[activeProjectId] ? current : { ...current, [activeProjectId]: true });
+  }, [activeProjectId, sourceVisible]);
   const modelSettingsChanged = useCallback(() => setModelSettingsRevision((revision) => revision + 1), []);
   useApplicationErrorDialog(error, { language: zh ? 'zh-CN' : 'en' });
 
@@ -338,7 +335,7 @@ export function App(props: AppProps) {
     : null;
 
   const inWorkbench = Boolean(activeProject) && !showList;
-  const commitView = activeView === 'source' ? 'source' : activeGitTab === 'changes' || activeGitTab === 'ignored' ? 'staging' : null;
+  const commitView = navigation.section === 'commit';
   const viewSwitchDisabled = !activeProject || sourceBatchBusy || repositorySetup.busy;
   useEffect(() => {
     const list = tabList.current;
@@ -371,11 +368,10 @@ export function App(props: AppProps) {
     measure();
     return () => { resize.disconnect(); columns.disconnect(); };
   }, [reviewVisible]);
-  const showProjectView = (view: 'workbench' | 'source' | 'staging') => {
+  const showProjectTab = (tab: ProjectGitTab | 'source') => {
     if (viewSwitchDisabled) return;
     setSearchNavigation(null);
-    switchProjectView(view === 'source' ? 'source' : 'workbench');
-    if (view !== 'source') changeGitTab(view === 'staging' ? 'changes' : 'log');
+    changeGitTab(tab);
     setShowList(false);
     setSettingsOpen(false);
   };
@@ -387,7 +383,6 @@ export function App(props: AppProps) {
       await applyWorkbench(project);
     } else {
       if (destination.projectId !== activeProject?.id) throw new Error('Project changed during search');
-      switchProjectView('workbench');
       setShowList(false);
       setSearchNavigation({ ...destination, requestId: ++searchRequestId.current });
     }
@@ -410,10 +405,10 @@ export function App(props: AppProps) {
         </header>
       <div className="gitapp-layout">
         <nav className="gitapp-activity-rail" aria-label={zh ? '应用操作栏' : 'Application actions'}>
-          <button type="button" aria-label={zh ? '项目提交视图' : 'Project commits view'} title={zh ? '提交' : 'Commit'} aria-current={!settingsOpen && inWorkbench && commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectView('source')}>
+          <button type="button" aria-label={zh ? '项目提交视图' : 'Project commits view'} title={zh ? '提交' : 'Commit'} aria-current={!settingsOpen && inWorkbench && commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectTab(navigation.commitTab)}>
             <GitCommit size={18} aria-hidden="true" />
           </button>
-          <button type="button" aria-label={zh ? '分支视图' : 'Branch view'} title={zh ? '分支' : 'Branch'} aria-current={!settingsOpen && inWorkbench && !commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectView('workbench')}>
+          <button type="button" aria-label={zh ? '分支视图' : 'Branch view'} title={zh ? '分支' : 'Branch'} aria-current={!settingsOpen && inWorkbench && !commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectTab(navigation.branchTab)}>
             <GitBranch size={18} aria-hidden="true" />
           </button>
           <button type="button" className="gitapp-rail-settings" aria-label={zh ? '设置' : 'Settings'} title={zh ? '设置' : 'Settings'} aria-current={settingsOpen ? 'page' : undefined} onClick={() => { if (settingsOpen) setSettingsOpen(false); else openSettings(); }}>
@@ -537,11 +532,8 @@ export function App(props: AppProps) {
               autoFetchEnabled={autoFetchEnabled && !settingsOpen}
               client={props.client}
               language={language}
-              tab={activeGitTab}
-              onTabChange={tab => {
-                if (activeView === 'source') switchProjectView('workbench');
-                changeGitTab(tab);
-              }}
+              tab={activeTab === 'source' ? navigation.branchTab : activeTab}
+              onTabChange={changeGitTab}
               commitModels={commitModels}
               onOpenModelSettings={() => openSettings('models')}
               navigationRequest={searchNavigation}
@@ -549,13 +541,13 @@ export function App(props: AppProps) {
               commandHost={gitCommandHost}
               commitViewNavigation={commitView ? (
                 <nav className="gitapp-commit-viewbar" aria-label={zh ? '提交视图' : 'Commit views'}>
-                  <button type="button" aria-pressed={commitView === 'source'} disabled={viewSwitchDisabled} onClick={() => showProjectView('source')}>{zh ? '项目提交' : 'Project commits'}</button>
-                  <button type="button" aria-pressed={commitView === 'staging'} disabled={viewSwitchDisabled} onClick={() => showProjectView('staging')}>{zh ? '暂存与未暂存' : 'Staged and unstaged'}</button>
+                  <button type="button" aria-pressed={sourceVisible} disabled={viewSwitchDisabled} onClick={() => showProjectTab('source')}>{zh ? '项目提交' : 'Project commits'}</button>
+                  <button type="button" aria-pressed={!sourceVisible} disabled={viewSwitchDisabled} onClick={() => showProjectTab('changes')}>{zh ? '暂存与未暂存' : 'Staged and unstaged'}</button>
                 </nav>
               ) : undefined}
-              sourceView={sourceVisited[activeProject.id] || activeView === 'source' ? {
-                visible: activeView === 'source',
-                active: !settingsOpen && activeView === 'source',
+              sourceView={sourceVisited[activeProject.id] || sourceVisible ? {
+                visible: sourceVisible,
+                active: !settingsOpen && sourceVisible,
                 onBusyChange: setSourceChangesBusy,
                 onToolbarBusyChange: setSourceToolbarBusy,
               } : undefined}

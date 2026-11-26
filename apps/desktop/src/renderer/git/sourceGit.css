@@ -193,9 +193,6 @@
   content: '';
   flex: 0 0 12px;
 }
-.source-git-file.is-active {
-  background: var(--zeus-source-list-selected);
-}
 .source-git-file > button {
   display: flex;
   gap: 5px;

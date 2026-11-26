@@ -23,7 +23,6 @@ export function CodeReviewPanel({ client, project, zh, active, modelSettingsRevi
   const [models, setModels] = useState<GitCommitModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelRef, setModelRef] = useState('');
-  const [modelWarning, setModelWarning] = useState('');
   const [repositoryOptions, setRepositoryOptions] = useState<GitCodeReviewScope['repositories']>([]);
   const [scope, setScope] = useState<GitCodeReviewScope | null>(null);
   const [scopeError, setScopeError] = useState('');
@@ -63,11 +62,11 @@ export function CodeReviewPanel({ client, project, zh, active, modelSettingsRevi
     setModelsLoading(true);
     void loadGitCommitModelOptions(client, project.id).then(value => {
       if (!alive) return;
-      setModels(value.items); setModelWarning(value.warning);
+      setModels(value.items);
       setModelRef(current => value.items.some(item => item.id === current) ? current : value.modelRef);
-    }).catch(() => { if (alive) { setModels([]); setModelRef(''); setModelWarning(label('无法加载模型，请检查 AI 设置。', 'Unable to load models. Check AI settings.')); } }).finally(() => { if (alive) setModelsLoading(false); });
+    }).catch(() => { if (alive) { setModels([]); setModelRef(''); } }).finally(() => { if (alive) setModelsLoading(false); });
     return () => { alive = false; };
-  }, [client, project.id, modelSettingsRevision, modelRevision, zh]);
+  }, [client, project.id, modelSettingsRevision, modelRevision]);
   useEffect(() => {
     if (!active || busy) return;
     let alive = true;
@@ -153,7 +152,6 @@ export function CodeReviewPanel({ client, project, zh, active, modelSettingsRevi
         <label><span>{label('评审仓库', 'Repositories')}</span><ZeusSelect size="compact" ariaLabel={label('评审仓库', 'Review repositories')} value={repositoryId} disabled={busy} onChange={value => changeScope(value, mode)} options={[{ value: '', label: label('当前项目全部仓库', 'All repositories in project') }, ...repositoryOptions.map(repo => ({ value: repo.id, label: repo.relativePath === '.' ? repo.name : repo.relativePath }))]} /></label>
         <label><span>{label('改动范围', 'Changes')}</span><ZeusSelect size="compact" ariaLabel={label('评审改动范围', 'Review change scope')} value={mode} disabled={busy} onChange={value => changeScope(repositoryId, value as 'worktree' | 'staged')} options={[{ value: 'worktree', label: label('全部工作区改动', 'All working tree changes') }, { value: 'staged', label: label('仅已暂存改动', 'Staged changes only') }]} /></label>
         <label><span>{label('AI 模型', 'AI model')}</span><ModelSelect ariaLabel={label('评审 AI 模型', 'Review AI model')} zh={zh} items={models} value={modelRef} disabled={busy} loading={modelsLoading} onChange={setModelRef} onRefresh={() => setModelRevision(value => value + 1)} onOpenSettings={onSettings} /></label>
-        {modelWarning ? <p className="gitapp-review-note">{modelWarning}</p> : null}
         <p className="gitapp-review-note">{label('将所选范围的差异发送至所选模型，只读分析代码；不会执行测试。', 'Sends the selected diff to your model for read-only analysis. Tests are not executed.')}</p>
         <div className="gitapp-review-run"><span>{scopeLoading ? label('读取改动中…', 'Reading changes…') : scope ? label(`${scope.fileCount} 个文件 · ${scope.repositories.filter(repo => repo.fileCount).length} 个仓库`, `${scope.fileCount} files · ${scope.repositories.filter(repo => repo.fileCount).length} repositories`) : ''}</span>{busy ? <button type="button" onClick={() => { request.current?.abort(); setNotice(label('评审已取消。', 'Review cancelled.')); }}>{label('取消评审', 'Cancel review')}</button> : <button type="button" className="is-primary" disabled={!modelRef || scopeLoading || !scope?.fileCount || Boolean(scopeError)} onClick={() => { void start(); }}>{report ? label('重新评审', 'Review again') : label('开始评审', 'Start review')}</button>}</div>
       </div>

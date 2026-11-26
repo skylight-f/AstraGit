@@ -50,9 +50,6 @@
   padding: 2px 5px;
   border-radius: 5px;
 }
-.git-ignored-row.is-selected {
-  background: var(--zeus-source-list-selected, #eee7ff);
-}
 .git-ignored-row > button {
   display: inline-flex;
   align-items: center;

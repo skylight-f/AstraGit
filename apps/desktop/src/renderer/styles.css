@@ -4929,13 +4929,6 @@ a {
   min-height: 25px;
   padding-right: 5px;
 }
-.project-git-change-file-row:hover:not(:disabled):not([aria-disabled='true']),
-.project-git-change-file-row.is-current {
-  background: var(--zeus-source-list-hover);
-}
-.project-git-change-file-row.is-current {
-  background: var(--zeus-source-list-selected);
-}
 .project-git-change-file-row input {
   flex-shrink: 0;
   height: 13px;
