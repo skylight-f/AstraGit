@@ -82,12 +82,47 @@ function homebrewGit(root, execute = execFileSync) {
       return execute('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 }).trim();
     } catch (error) {
       const output = String(error.stderr || error.message).trim();
-      const permission = /(?:403|permission.*denied|write access.*not granted|authentication failed)/iu.test(output)
-        ? ' HOMEBREW_TAP_TOKEN 无法写入 skylight-f/homebrew-tap；请授予目标仓库 Contents: Read and write 权限后重试。'
-        : '';
-      throw new Error(`Homebrew Git ${args[0]} 失败（exit=${error.status ?? 'unknown'}）：${output}${permission}`);
+      const failure = new Error(`Homebrew Git ${args[0]} 失败（exit=${error.status ?? 'unknown'}）：${output}`);
+      if (args[0] === 'push' && /(?:403|permission.*denied|write access.*not granted|authentication failed)/iu.test(output)) failure.code = 'TAP_PUSH_DENIED';
+      throw failure;
     }
   };
+}
+
+// generate-notes 需要目标仓库的 Contents 写权限，仅生成预览，不保存 release 或 tag。
+export async function diagnoseHomebrewTapAccess(token, request = fetch) {
+  const options = {
+    redirect: 'error',
+    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'user-agent': 'AstraGit-Homebrew-Sync', 'x-github-api-version': '2022-11-28' },
+  };
+  const user = await request('https://api.github.com/user', { ...options, signal: AbortSignal.timeout(15_000) });
+  const details = [`Tap 凭据身份核对 HTTP ${user.status}`];
+  const fineGrained = token.startsWith('github_pat_');
+  if (fineGrained) details.push('凭据类型：fine-grained PAT');
+  if (user.ok) {
+    const { login } = await user.json();
+    details.push(`GitHub 账号 ${login}`);
+    const scopes = user.headers.get('x-oauth-scopes');
+    if (scopes !== null && !fineGrained) details.push(`传统 OAuth scope 涵盖公开仓库写入：${scopes.split(',').some(scope => ['repo', 'public_repo'].includes(scope.trim())) ? '是' : '否'}`);
+  }
+  const preview = await request(`https://api.github.com/repos/${homebrewRepository}/releases/generate-notes`, {
+    ...options, method: 'POST', headers: { ...options.headers, 'content-type': 'application/json' }, signal: AbortSignal.timeout(15_000),
+    body: JSON.stringify({ tag_name: 'astragit-permission-check', target_commitish: 'main' }),
+  });
+  details.push(`${homebrewRepository} 的 Contents 写权限核对（发行说明预览）HTTP ${preview.status}`);
+  if (!preview.ok) {
+    const id = preview.headers.get('x-github-request-id');
+    if (id) details.push(`GitHub request ID ${id}`);
+    if (preview.headers.get('x-ratelimit-remaining') === '0') details.push('GitHub API 配额已耗尽');
+    const { message } = await preview.json().catch(() => ({}));
+    if (['Resource not accessible by personal access token', 'Resource not accessible by integration', 'Bad credentials'].includes(message)) details.push(message);
+    if (fineGrained && preview.status === 403 && user.ok) {
+      const owner = homebrewRepository.split('/')[0];
+      const access = await request(`https://api.github.com/repos/${homebrewRepository}/collaborators/${owner}`, { ...options, signal: AbortSignal.timeout(15_000) });
+      details.push(`同一凭据核对 Tap 所有者的协作者身份（Metadata 读权限）HTTP ${access.status}`);
+    }
+  }
+  return details.join('\n');
 }
 
 /** 检出成功只证明可读；通过 receive-pack 校验当前凭据的推送权限，不移动远端引用。 */
@@ -117,8 +152,16 @@ export async function syncHomebrewTap(directory) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const checkAccess = process.argv[2] === '--check-access';
   const directory = process.argv[checkAccess ? 3 : 2]; if (!directory) throw new Error('需要 Homebrew Tap 检出目录。');
-  if (checkAccess) {
-    checkHomebrewTapAccess(directory);
-    console.info('Homebrew Tap 来源、工作区和推送权限校验通过（dry-run，未修改远端引用）。');
-  } else await syncHomebrewTap(directory);
+  try {
+    if (checkAccess) {
+      checkHomebrewTapAccess(directory);
+      console.info('Homebrew Tap 来源、工作区和推送权限校验通过（dry-run，未修改远端引用）。');
+    } else await syncHomebrewTap(directory);
+  } catch (error) {
+    if (error.code === 'TAP_PUSH_DENIED' && process.env.HOMEBREW_TAP_TOKEN) {
+      try { console.error(await diagnoseHomebrewTapAccess(process.env.HOMEBREW_TAP_TOKEN)); }
+      catch { console.error('GitHub API 权限核对未完成。'); }
+    }
+    throw error;
+  }
 }

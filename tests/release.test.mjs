@@ -9,7 +9,7 @@ import { createReleaseUpdateService, downloadVerifiedArtifact } from '../apps/de
 import { readApplicationReleaseNotes } from '../apps/desktop/src/main/applicationReleaseNotes.ts';
 import { formatReleaseChanges, selectAutomaticVersion } from '../scripts/prepare-automatic-release.mjs';
 import { renderHomebrewCask } from '../scripts/homebrew-cask.mjs';
-import { checkHomebrewTapAccess, loadHomebrewRelease, verifyHomebrewRelease } from '../scripts/sync-homebrew-tap.mjs';
+import { checkHomebrewTapAccess, diagnoseHomebrewTapAccess, loadHomebrewRelease, verifyHomebrewRelease } from '../scripts/sync-homebrew-tap.mjs';
 
 test('Homebrew preflight verifies push access without updating a remote ref', () => {
   const calls = [];
@@ -26,15 +26,36 @@ test('Homebrew preflight verifies push access without updating a remote ref', ()
   ]);
 });
 
-test('Homebrew preflight rejects readable taps with no push permission and explains the required credential', () => {
+test('Homebrew preflight keeps the GitHub rejection available for diagnosis', () => {
   assert.throws(() => checkHomebrewTapAccess('.tmp/homebrew-tap', (_command, args) => {
     if (args[0] === 'remote') return 'https://github.com/skylight-f/homebrew-tap';
     if (args[0] === 'status') return '';
     throw Object.assign(new Error('push failed'), { status: 128, stderr: 'remote: Permission to skylight-f/homebrew-tap.git denied to skylight-f. HTTP 403' });
   }), error => {
-    for (const text of ['push', '403', 'HOMEBREW_TAP_TOKEN', 'Contents: Read and write']) assert.ok(error.message.includes(text), text);
+    assert.equal(error.code, 'TAP_PUSH_DENIED');
+    assert.match(error.message, /Permission to skylight-f\/homebrew-tap.git denied to skylight-f\. HTTP 403/u);
     return true;
   });
+});
+
+test('Homebrew diagnostics distinguish identity, repository access and content write access without logging credentials', async () => {
+  const token = 'github_pat_test-fixture';
+  const urls = [];
+  const details = await diagnoseHomebrewTapAccess(token, async (url, options) => {
+    urls.push(url);
+    assert.equal(options.headers.authorization, `Bearer ${token}`);
+    assert.equal(options.redirect, 'error');
+    if (url.endsWith('/user')) return Response.json({ login: 'skylight-f' });
+    if (url.endsWith('/releases/generate-notes')) {
+      assert.equal(options.method, 'POST');
+      assert.equal(JSON.parse(options.body).target_commitish, 'main');
+      return Response.json({ message: 'Resource not accessible by personal access token' }, { status: 403, headers: { 'x-github-request-id': 'REQUEST-ID' } });
+    }
+    return new Response(null, { status: 204 });
+  });
+  assert.deepEqual(urls, ['https://api.github.com/user', 'https://api.github.com/repos/skylight-f/homebrew-tap/releases/generate-notes', 'https://api.github.com/repos/skylight-f/homebrew-tap/collaborators/skylight-f']);
+  for (const value of ['skylight-f', 'HTTP 403', 'REQUEST-ID', 'HTTP 204']) assert.ok(details.includes(value), value);
+  assert.equal(details.includes(token), false);
 });
 
 test('Homebrew preflight rejects foreign origins or dirty checkouts before attempting push access', () => {
