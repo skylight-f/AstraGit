@@ -3678,12 +3678,6 @@ a {
   text-align: left;
   width: 100%;
 }
-.project-git-changed-files button:hover:not(.is-current):not(:disabled):not([aria-disabled='true']) {
-  background: var(--zeus-source-list-hover);
-}
-.project-git-changed-files button.is-current {
-  background: var(--zeus-source-list-selected);
-}
 .git-commit-file-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4886,7 +4880,6 @@ a {
 .project-git-change-file-row {
   padding-left: 8px;
   align-items: center;
-  border-radius: 5px;
   display: flex;
   min-height: 25px;
   padding-right: 5px;

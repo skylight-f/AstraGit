@@ -335,6 +335,7 @@ html[data-zeus-theme='dark'] body > .macos-ai-app {
 .macos-ai-app :where(button, [role='button'], [role='tab'], [role='option']):where(:hover:not(:disabled):not([aria-disabled='true']):not([data-zeus-primitive='backdrop'])) {
   background-color: var(--zeus-interaction-hover);
 }
+
 .macos-ai-app :where(button, summary, [role='button'], [role='tab'], [role='option']):where(:active:not(:disabled):not([aria-disabled='true']):not([data-zeus-primitive='backdrop'])) {
   background-color: var(--zeus-interaction-pressed);
 }
@@ -718,6 +719,16 @@ html[data-zeus-theme='dark'] body > .macos-ai-app {
   box-shadow: var(--zeus-control-danger-focus);
   color: var(--zeus-control-danger-text);
   outline: 0;
+}
+
+.zeus-selectable-row {
+  border-radius: 5px;
+}
+.zeus-selectable-row:hover {
+  background-color: var(--zeus-source-list-hover);
+}
+.zeus-selectable-row[data-selected='true'] {
+  background-color: var(--zeus-source-list-selected);
 }
 
 /* SourceListRow：状态 token 统一，表面范围由 content / fill 显式变体决定。 */

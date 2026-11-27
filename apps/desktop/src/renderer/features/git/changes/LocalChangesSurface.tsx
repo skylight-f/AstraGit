@@ -21,6 +21,7 @@ import { ListBulletsIcon as ListBullets } from '@phosphor-icons/react/dist/csr/L
 import { TreeStructureIcon as TreeStructure } from '@phosphor-icons/react/dist/csr/TreeStructure';
 import type { DashboardClient, ProjectGitAction, ProjectGitRepositorySnapshot, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
+import { SelectableRow } from '../../../ui/SelectableRow.js';
 import { SideBySideDiff } from '../diff/ProjectGitDiffViewer.js';
 import { GitConflictEditor } from '../conflicts/GitConflictEditor.js';
 import type { ChangeStage, GitContextEvent, GitContextTarget, GitDiffOptions } from '../workbench/gitWorkbenchTypes.js';
@@ -247,9 +248,6 @@ export function LocalChangesSurface(props: {
                           files={files}
                           stage={stage}
                           repository={repository}
-                          selectedRepositoryId={repository.id}
-                          selectedFilePath={props.selectedFilePath}
-                          selectedFileStage={props.selectedFileStage}
                           busy={props.busy}
                           zh={props.zh}
                           selectedPaths={fileSelection?.stage === stage ? selectedRows : []}
@@ -418,9 +416,6 @@ function ChangeDirectoryTree(props: {
   files: string[];
   stage: ChangeStage;
   repository: ProjectGitRepositoryWorkbenchItem;
-  selectedRepositoryId?: string;
-  selectedFilePath: string;
-  selectedFileStage: ChangeStage;
   busy: BusyState;
   zh: boolean;
   selectedPaths: string[];
@@ -464,7 +459,6 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
       </details>
     );
   }
-  const current = props.repository.id === props.selectedRepositoryId && props.node.path === props.selectedFilePath && props.stage === props.selectedFileStage;
   const selected = props.selectedPaths.includes(props.node.path);
   const checked = props.stage === 'staged';
   const status = props.repository.snapshot.fileStatuses.find((file) => file.path === props.node.path);
@@ -474,7 +468,11 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
   const menuOpen = Boolean(props.activeFileMenu?.kind === 'file' && props.activeFileMenu.repositoryId === props.repository.id && props.activeFileMenu.ref === props.node.path && props.activeFileMenu.stage === props.stage);
   const menuLabel = props.zh ? `${props.node.path} · ${checked ? '已暂存' : '未暂存'}文件操作` : `${props.node.path} · ${checked ? 'Staged' : 'Unstaged'} file actions`;
   return (
-    <div data-git-file-path={props.node.path} data-git-context={JSON.stringify({ kind: 'file', repositoryId: props.repository.id, ref: props.node.path, stage: props.stage })} className={`project-git-change-file-row${selected ? ' is-selected' : ''}${current && selected ? ' is-current' : ''}`}
+    <SelectableRow
+      className="project-git-change-file-row"
+      selected={selected}
+      data-git-file-path={props.node.path}
+      data-git-context={JSON.stringify({ kind: 'file', repositoryId: props.repository.id, ref: props.node.path, stage: props.stage })}
       onContextMenu={(event) => {
         // macOS emits contextmenu instead of click for Control-click on a file name.
         if (event.ctrlKey && (event.target as Element).closest('[data-git-file-select]')) {
@@ -485,7 +483,8 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
         }
         const rect = event.currentTarget.getBoundingClientRect();
         props.onFileMenu(event, props.node.path, props.stage, props.visiblePaths(), { x: event.clientX || rect.left, y: event.clientY || rect.bottom + 4 });
-      }}>
+      }}
+    >
       <input
         type="checkbox"
         checked={checked}
@@ -531,7 +530,7 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
       >
         <DotsThree aria-hidden="true" />
       </button>
-    </div>
+    </SelectableRow>
   );
 }
 

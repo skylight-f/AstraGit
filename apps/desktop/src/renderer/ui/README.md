@@ -5,6 +5,7 @@
 | 需求 | 组件与用法 |
 | --- | --- |
 | 按钮与切换项 | `Button` 支持 `primary`、`secondary`、`danger`、`ghost`。工具栏、分类导航等使用 `ghost`，通过 `aria-current`、`aria-pressed` 或 `aria-expanded` 表达状态。异步操作传入 `busy`。[Button](./Button.tsx) |
+| 文件列表选中行 | `SelectableRow` 接收 `selected`，统一绘制浅蓝色圆角底色。行内按钮继续通过 `aria-pressed` 表达选中状态，并保留键盘焦点。贮藏、提交历史和本地变更共用此组件。[SelectableRow](./SelectableRow.tsx) |
 | 原生表单控件 | `TextInput`、`Select` 和 `CheckboxField` 透传相应原生控件属性。文本与选择控件配合 `label` 或可访问名称，校验错误通过 `aria-invalid` 和 `aria-describedby` 关联提示。`CheckboxField` 的子内容是复选框标签。[FormControls](./FormControls.tsx) |
 | 可搜索选择器 | 使用 `ZeusSelect` 提供搜索、分组、置顶等高级选择功能。[ZeusSelect](./ZeusSelect.tsx) |
 | 表单弹窗 | `FormDialog` 提供标题、可滚动字段区、取消与提交按钮。提交回调处理 `preventDefault()`，通过 `submitDisabled` 和 `busy` 表达可用状态。[FormDialog](./FormDialog.tsx) |

@@ -2403,7 +2403,6 @@ body:has(.macos-ai-app.zeus-shell) {
   min-block-size: 25px;
   margin-block: 1px;
   padding-block: 0;
-  border-radius: 5px;
 }
 .macos-ai-app.zeus-shell .project-git-change-file-row > button {
   min-height: 25px;
@@ -2422,14 +2421,16 @@ body:has(.macos-ai-app.zeus-shell) {
 .macos-ai-app.zeus-shell .project-git-change-file-row > button::after {
   display: none;
 }
-/* 文件预览按钮的悬停、选中和键盘焦点都绘制在整行上。 */
-.macos-ai-app.zeus-shell :is(.project-git-change-file-row, .source-git-file, .git-ignored-row) {
+.macos-ai-app.zeus-shell :is(.source-git-file, .git-ignored-row) {
   &:hover {
     background: var(--zeus-source-list-hover);
   }
   &:is(.is-active, .is-selected) {
     background: var(--zeus-source-list-selected);
   }
+}
+/* 文件预览按钮的键盘焦点绘制在整行上。 */
+.macos-ai-app.zeus-shell :is(.project-git-change-file-row, .source-git-file, .git-ignored-row) {
   &:has(> button:first-of-type:focus-visible) {
     outline: 2px solid var(--zeus-product-accent);
     outline-offset: -2px;

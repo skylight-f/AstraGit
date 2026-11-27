@@ -6,6 +6,7 @@ import { CaretRightIcon as CaretRight } from '@phosphor-icons/react/dist/csr/Car
 import { FolderIcon as Folder } from '@phosphor-icons/react/dist/csr/Folder';
 import type { ProjectGitCommitDetail } from '../../../api/apiClient.js';
 import { reportApplicationError } from '../../../ui/ApplicationErrorDialog.js';
+import { SelectableRow } from '../../../ui/SelectableRow.js';
 
 interface CommitFileTreeNode {
   name: string;
@@ -49,27 +50,30 @@ function CommitFileTreeEntry(props: Parameters<typeof CommitFileDirectoryTree>[0
   const displayPath = stats.originalPath ? `${stats.originalPath} → ${path}` : path;
   const fileKind = diff?.isSubmodule ? (props.zh ? '子模块' : 'Submodule') : diff?.isBinary ? (props.zh ? '二进制' : 'Binary') : null;
   return (
-    <div className="git-commit-file-row" onContextMenu={props.onHistory ? event => props.onMenu(props.node.path, event) : undefined}>
-    <button
-      type="button"
-      onKeyDown={event => { if (props.onHistory && (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) props.onMenu(props.node.path, event); }}
-      className={selected ? 'is-current' : ''}
-      aria-pressed={selected}
-      title={`${displayPath} · ${gitFileStatusLabel(category, props.zh)}`}
-      style={{ paddingLeft: `${props.depth * 12 + 7}px` }}
-      onClick={() => props.onSelect(props.node.path)}
-      onDoubleClick={() => props.onOpen(props.node.path)}
+    <SelectableRow
+      className="git-commit-file-row"
+      selected={selected}
+      onContextMenu={props.onHistory ? event => props.onMenu(path, event) : undefined}
     >
-      <GitFileStatusIcon category={category} zh={props.zh} />
-      <span className="git-commit-file-name">{name}</span>
-      <span className="git-commit-file-counts">
-        {fileKind && <small className="git-commit-file-kind">{fileKind}</small>}
-        {stats.additions > 0 && <span className="is-addition">+{stats.additions}</span>}
-        {stats.deletions > 0 && <span className="is-deletion">−{stats.deletions}</span>}
-      </span>
-    </button>
-    {props.onHistory ? <button type="button" className="git-commit-file-menu" aria-label={`${props.zh ? '文件操作' : 'File actions'} · ${props.node.path}`} aria-haspopup="menu" onClick={event => props.onMenu(props.node.path, event)}><DotsThree aria-hidden="true" /></button> : null}
-    </div>
+      <button
+        type="button"
+        onKeyDown={event => { if (props.onHistory && (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))) props.onMenu(path, event); }}
+        aria-pressed={selected}
+        title={`${displayPath} · ${gitFileStatusLabel(category, props.zh)}`}
+        style={{ paddingLeft: `${props.depth * 12 + 7}px` }}
+        onClick={() => props.onSelect(path)}
+        onDoubleClick={() => props.onOpen(path)}
+      >
+        <GitFileStatusIcon category={category} zh={props.zh} />
+        <span className="git-commit-file-name">{name}</span>
+        <span className="git-commit-file-counts">
+          {fileKind && <small className="git-commit-file-kind">{fileKind}</small>}
+          {stats.additions > 0 && <span className="is-addition">+{stats.additions}</span>}
+          {stats.deletions > 0 && <span className="is-deletion">−{stats.deletions}</span>}
+        </span>
+      </button>
+      {props.onHistory ? <button type="button" className="git-commit-file-menu" aria-label={`${props.zh ? '文件操作' : 'File actions'} · ${path}`} aria-haspopup="menu" onClick={event => props.onMenu(path, event)}><DotsThree aria-hidden="true" /></button> : null}
+    </SelectableRow>
   );
 }
 
