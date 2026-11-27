@@ -1,6 +1,7 @@
 import { lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { GitHistoryReader } from './gitFileHistory.js';
+import { readWorktreeStatus } from './gitRepositoryState.js';
 import { parseGitUnifiedDiff } from './gitUnifiedDiff.js';
 import { userFacingErrorCause } from '@astragit/shared';
 import type { GitDiffSummary, GitStatusSummary } from './index.js';
@@ -99,15 +100,19 @@ export async function readWorkspaceGitDiffs(cwd: string, parseStatus: (text: str
     throw failure('ASTRAGIT_GIT_DIFF_READ_FAILED', '无法读取仓库位置，请检查目录权限及 Git 详情。', error);
   }
   reader = gitDiffReader(root, runtime);
-  const [unstagedNames, stagedNames, porcelain] = await Promise.all([
+  const [porcelain, unstagedNames, stagedNames] = await Promise.allSettled([
+    readWorktreeStatus(reader),
     readGitDiffMetadata(reader, ['diff', ...gitDisplayDiffMetadataOptions, '--name-only', '-z', '--', '.']),
     readGitDiffMetadata(reader, ['diff', ...gitDisplayDiffMetadataOptions, '--cached', '--name-only', '-z', '--', '.']),
-    readGitDiffMetadata(reader, ['status', '--porcelain', '-z', '--untracked-files=all', '--ignore-submodules=none']),
   ]);
-  const status = parseStatus(porcelain);
+  // A failed status read carries the repository diagnosis even when diff fails first.
+  if (porcelain.status === 'rejected') throw porcelain.reason;
+  if (unstagedNames.status === 'rejected') throw unstagedNames.reason;
+  if (stagedNames.status === 'rejected') throw stagedNames.reason;
+  const status = parseStatus(porcelain.value);
   const untracked = status.fileStatuses.filter(file => file.indexStatus === '?').map(file => file.path);
-  const unstagedFiles = unstagedNames.split('\0').filter(Boolean);
-  const stagedFiles = stagedNames.split('\0').filter(Boolean);
+  const unstagedFiles = unstagedNames.value.split('\0').filter(Boolean);
+  const stagedFiles = stagedNames.value.split('\0').filter(Boolean);
   const files = [...new Set([...unstagedFiles, ...stagedFiles, ...untracked])];
   const [unstaged, staged] = await Promise.all([
     readGitDisplayDiff(reader, ['diff', ...gitDisplayDiffOptions, '--', '.'], unstagedFiles),

@@ -4,8 +4,10 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { setImmediate } from 'node:timers/promises';
 import test from 'node:test';
-import { executeProjectGitAction, getGitRepositoryContext, getGitStatus, getGitWorktreeClean } from '../packages/git-core/dist/index.js';
+import { executeProjectGitAction, getGitDiff, getGitRepositoryContext, getGitStatus, getGitWorktreeClean } from '../packages/git-core/dist/index.js';
+import { GitHistoryReader } from '../packages/git-core/dist/gitFileHistory.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
 import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
@@ -99,6 +101,23 @@ test('smart update stops restoration and preserves its stash when post-update st
 
 test('state cancellation is propagated rather than reported as a clean or missing repository', async t => {
   const f = await fixture(t); const controller = new AbortController(); controller.abort(); await assert.rejects(() => getGitStatus(f.cwd, controller.signal), error => error.name === 'AbortError'); await assert.rejects(() => getGitRepositoryContext(f.cwd, controller.signal), error => error.name === 'AbortError');
+});
+
+test('workspace diff preserves the index diagnosis when diff metadata fails before status', async t => {
+  const cwd = process.cwd();
+  const nativeError = Object.assign(new Error('Git status failed'), { stderr: 'fatal: index file smaller than expected' });
+  t.mock.method(GitHistoryReader.prototype, 'run', async args => {
+    if (args[0] === 'rev-parse') return Buffer.from(`${cwd}\n`);
+    if (args[0] === 'status') {
+      await setImmediate();
+      throw nativeError;
+    }
+    assert.ok(args.includes('diff'));
+    throw new Error('Metadata failed first');
+  });
+  await assert.rejects(() => getGitDiff(cwd), code('ASTRAGIT_GIT_INDEX_CORRUPT', error => {
+    assert.equal(error.cause, nativeError);
+  }));
 });
 
 test('HTTP state failures retain an index diagnosis and never return a clean success body', async t => {

@@ -36,6 +36,10 @@ async function text(reader: GitHistoryReader, args: string[], missingExit = fals
   }
 }
 
+export function readWorktreeStatus(reader: GitHistoryReader): Promise<string> {
+  return text(reader, worktreeStatusArgs);
+}
+
 /** False is reserved for an existing ordinary folder or a bare repository. */
 async function repositoryReader(cwd: string, runtime: Runtime) {
   runtime.signal?.throwIfAborted();
@@ -131,7 +135,7 @@ export async function readRepositoryStatus(cwd: string, runtime: Runtime) {
   if (!reader) return null;
   const current = await identity(reader);
   const [porcelain, remotes, recent] = await Promise.all([
-    text(reader, worktreeStatusArgs),
+    readWorktreeStatus(reader),
     text(reader, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes']),
     current.headSha ? text(reader, ['log', '-n', '5', '--pretty=format:%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%P', current.headSha]) : Promise.resolve(''),
   ]);
@@ -141,7 +145,7 @@ export async function readRepositoryStatus(cwd: string, runtime: Runtime) {
 export async function readRootWorktreeStatus(cwd: string, runtime: Runtime): Promise<string | null> {
   const reader = await repositoryReader(cwd, runtime);
   if (!reader || await realpath(reader.cwd) !== await realpath(cwd)) return null;
-  return text(reader, worktreeStatusArgs);
+  return readWorktreeStatus(reader);
 }
 
 export async function readRepositoryClean(cwd: string, ignoredPaths: string[], runtime: Runtime): Promise<boolean> {
