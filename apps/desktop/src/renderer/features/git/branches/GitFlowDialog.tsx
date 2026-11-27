@@ -2,6 +2,7 @@ import { Select, TextInput } from '../../../ui/FormControls.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardClient, GitFlowChange, GitFlowConfiguration, GitFlowKind, GitFlowPreview, GitFlowState, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
+import { GitOperationStopButton, type CancelGitAction } from '../components/GitOperationProgress.js';
 import { GitOperationDialog, GitOperationDialogHeader } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { GitPaneSeparator } from '../components/GitPaneSeparator.js';
@@ -13,7 +14,7 @@ const defaults: GitFlowConfiguration = { production: 'main', develop: 'develop',
 export function GitFlowDialog(props: {
   request: GitFlowRequest; projectId: string; zh: boolean; busy: boolean;
   client: Pick<DashboardClient, 'loadRepositoryGitFlow' | 'previewRepositoryGitFlow'>;
-  onClose(): void; onResolve(): void; onAbort(): Promise<void>;
+  onClose(): void; onResolve(): void; onAbort: CancelGitAction;
   onExecute(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string): Promise<{ outcome: ExecutionOutcome; error?: unknown }>;
 }) {
   const text = (cn: string, en: string) => props.zh ? cn : en;
@@ -147,10 +148,10 @@ export function GitFlowDialog(props: {
           </>}
           <Button variant="secondary" disabled={previewing || Boolean(state?.integration.length) || (operation !== 'init' && !name)} onClick={() => void prepare()}>{previewing ? text('正在核对…', 'Reviewing…') : text('预览操作范围', 'Review operation scope')}</Button>
         </fieldset>
-        {preview ? <section className="git-flow-preview"><strong>{text('确认 Git Flow 操作', 'Confirm Git Flow operation')}</strong><dl><dt>{text('分支', 'Branch')}</dt><dd>{preview.branch}</dd><dt>{text('涉及基础分支', 'Base branches')}</dt><dd>{preview.targets.join(' · ')}</dd>{preview.tag ? <><dt>{text('版本标签', 'Version tag')}</dt><dd>{preview.tag}</dd></> : null}</dl>{preview.createsInitialCommit ? <p>{text('将创建空初始提交。', 'An empty initial commit will be created.')}</p> : null}{preview.createsDevelop ? <p>{text('将创建开发分支。', 'The development branch will be created.')}</p> : null}{preview.fetchesBranch ? <p>{text('此工作分支已有远程跟踪记录，原生 Git Flow 完成时仍会抓取该远程分支进行核对。', 'This flow branch has a remote-tracking ref. Native Git Flow still fetches it during finish to check for remote changes.')}</p> : null}{preview.change.operation !== 'init' && (preview.change.fetch || preview.change.operation === 'finish' && preview.change.pushAfter || preview.fetchesBranch) ? <div><p>{text('远程', 'Remote')}：{preview.state.remote}</p>{preview.state.remoteUrls.map((url, index) => <p key={index}>{url}</p>)}</div> : null}<Button disabled={locked || loading} onClick={() => void perform()}>{text('确认执行', 'Confirm operation')}</Button></section> : null}
+        {preview ? <section className="git-flow-preview"><strong>{text('确认 Git Flow 操作', 'Confirm Git Flow operation')}</strong><dl><dt>{text('分支', 'Branch')}</dt><dd>{preview.branch}</dd><dt>{text('涉及基础分支', 'Base branches')}</dt><dd>{preview.targets.join(' · ')}</dd>{preview.tag ? <><dt>{text('版本标签', 'Version tag')}</dt><dd>{preview.tag}</dd></> : null}</dl>{preview.createsInitialCommit ? <p>{text('将创建空初始提交。', 'An empty initial commit will be created.')}</p> : null}{preview.createsDevelop ? <p>{text('将创建开发分支。', 'The development branch will be created.')}</p> : null}{preview.fetchesBranch ? <p>{text('此工作分支已有远程跟踪记录，原生 Git Flow 完成时仍会抓取该远程分支进行核对。', 'This flow branch has a remote-tracking ref. Native Git Flow still fetches it during finish to check for remote changes.')}</p> : null}{preview.change.operation !== 'init' && (preview.change.fetch || preview.change.operation === 'finish' && preview.change.pushAfter || preview.fetchesBranch) ? <div><p>{text('远程', 'Remote')}：{preview.state.remote}</p>{preview.state.remoteUrls.map((url, index) => <p key={index}>{url}</p>)}</div> : null}{saving ? <GitOperationStopButton zh={props.zh} onStop={props.onAbort} onStopError={setError} /> : <Button disabled={locked || loading} onClick={() => void perform()}>{text('确认执行', 'Confirm operation')}</Button>}</section> : null}
         {error ? <div role="alert"><VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /></div> : null}{feedback ? <p role="status">{feedback}</p> : null}
         </div>
       </div>
-      <footer className="git-operation-dialog-actions"><Button variant="secondary" disabled={locked || loading} onClick={() => void load(true)}>{text('重新读取', 'Reload')}</Button>{saving ? <Button variant="secondary" onClick={() => void props.onAbort().catch(setError)}>{text('中止并核对结果', 'Cancel and review outcome')}</Button> : null}</footer>
+      <footer className="git-operation-dialog-actions"><Button variant="secondary" disabled={locked || loading} onClick={() => void load(true)}>{text('重新读取', 'Reload')}</Button></footer>
     </GitOperationDialog>;
 }

@@ -2,6 +2,7 @@ import { Select, TextInput } from '../../../ui/FormControls.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardClient, GitLfsChange, GitLfsPreview, GitLfsState, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
+import { GitOperationStopButton, type CancelGitAction } from '../components/GitOperationProgress.js';
 import { GitOperationDialog, GitOperationDialogHeader } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { GitPaneSeparator } from '../components/GitPaneSeparator.js';
@@ -13,7 +14,7 @@ export interface GitLfsRequest { repository: ProjectGitRepositoryWorkbenchItem; 
 export function GitLfsDialog(props: {
   request: GitLfsRequest; projectId: string; zh: boolean; busy: boolean;
   client: Pick<DashboardClient, 'loadRepositoryGitLfs' | 'previewRepositoryGitLfs'>;
-  onClose(): void; onAbort(): Promise<void>;
+  onClose(): void; onAbort: CancelGitAction;
   onExecute(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string): Promise<{ outcome: ExecutionOutcome; error?: unknown }>;
 }) {
   const text = (cn: string, en: string) => props.zh ? cn : en;
@@ -116,10 +117,10 @@ export function GitLfsDialog(props: {
         </fieldset>
         <GitLargeFileWarningSettings zh={props.zh} disabled={locked} />
         {error ? <div role="alert"><VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /></div> : null}
-        {preview ? <section className="git-lfs-preview"><strong>{actions.find(([value]) => value === preview.change.operation)?.[1]}</strong><p>{preview.state.branch || text('分离 HEAD', 'Detached HEAD')} · {preview.state.headSha.slice(0, 12) || text('尚无提交', 'No commits')}</p>{props.zh ? <ul>{preview.effects.map((effect, index) => <li key={index}>{effect}</li>)}</ul> : null}<Button disabled={locked || loading} onClick={() => void perform()}>{text('确认执行', 'Confirm operation')}</Button></section> : null}
+        {preview ? <section className="git-lfs-preview"><strong>{actions.find(([value]) => value === preview.change.operation)?.[1]}</strong><p>{preview.state.branch || text('分离 HEAD', 'Detached HEAD')} · {preview.state.headSha.slice(0, 12) || text('尚无提交', 'No commits')}</p>{props.zh ? <ul>{preview.effects.map((effect, index) => <li key={index}>{effect}</li>)}</ul> : null}{saving ? <GitOperationStopButton zh={props.zh} onStop={props.onAbort} onStopError={setError} /> : <Button disabled={locked || loading} onClick={() => void perform()}>{text('确认执行', 'Confirm operation')}</Button>}</section> : null}
         {feedback ? <p role="status">{feedback}</p> : null}
         </div>
       </div>
-      <footer className="git-operation-dialog-actions"><Button variant="secondary" disabled={locked || loading} onClick={() => void load()}>{text('重新读取', 'Reload')}</Button>{saving ? <Button variant="secondary" onClick={() => void props.onAbort().catch(setError)}>{text('中止并核对结果', 'Cancel and review outcome')}</Button> : null}</footer>
+      <footer className="git-operation-dialog-actions"><Button variant="secondary" disabled={locked || loading} onClick={() => void load()}>{text('重新读取', 'Reload')}</Button></footer>
     </GitOperationDialog>;
 }

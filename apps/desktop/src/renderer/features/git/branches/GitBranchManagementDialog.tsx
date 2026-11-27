@@ -6,6 +6,7 @@ import { TrashIcon } from '@phosphor-icons/react/dist/csr/Trash';
 import type { ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
 import { GitOperationDialog } from '../components/GitOperationDialog.js';
+import { GitOperationStopButton, type CancelGitAction } from '../components/GitOperationProgress.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
 
@@ -55,7 +56,7 @@ export function GitBranchManagementDialog(props: {
   zh: boolean;
   busy: boolean;
   onClose: () => void;
-  onAbort: () => Promise<void>;
+  onAbort: CancelGitAction;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<{ outcome: ExecutionOutcome; error?: unknown }>;
 }) {
   const [request] = useState(props.request);
@@ -184,10 +185,9 @@ export function GitBranchManagementDialog(props: {
   async function stopDeletion() {
     stop.current = true;
     setStopped(true);
-    if (request.kind !== 'delete-remote') return;
+    if (request.kind !== 'delete-remote') return { cancelled: true };
     setAborting(true);
-    try { await props.onAbort(); }
-    catch (reason) { if (alive.current) setError(reason); }
+    try { return await props.onAbort(); }
     finally { if (alive.current) setAborting(false); }
   }
   return <GitOperationDialog className="project-git-menu-action-dialog git-branch-management" role="alertdialog" aria-label={title} onDismiss={props.onClose} dismissDisabled={disabled}>
@@ -254,13 +254,13 @@ export function GitBranchManagementDialog(props: {
           <span>{text('我确认从所有列出的推送目标删除所选分支。此操作会影响其他协作者。', 'I confirm deletion of the selected branches from every listed destination. This affects other collaborators.')}</span>
         </label>}
         <div className="git-branch-actions">
-          {running && request.kind !== 'upstream' && <Button disabled={stopped && (request.kind === 'delete-local' || aborting)} onClick={() => void stopDeletion()}>
-            {request.kind === 'delete-remote' ? text('中止删除', 'Abort deletion') : text('停止后续删除', 'Stop further deletions')}
-          </Button>}
           <Button data-modal-initial-focus disabled={disabled} onClick={props.onClose}>{review || completed.length ? text('关闭', 'Close') : text('取消', 'Cancel')}</Button>
-          <Button variant={request.kind === 'upstream' ? 'primary' : 'danger'} disabled={disabled || !ready} busy={running} onClick={() => void accept()}>
-            {request.kind === 'upstream' ? text('保存跟踪关系', 'Save tracking') : running ? text('正在删除…', 'Deleting…') : deleteLabel}
-          </Button>
+          {running && request.kind !== 'upstream' ? <GitOperationStopButton zh={props.zh} stopping={aborting}
+            onStop={stopDeletion} onStopError={reason => { if (alive.current) setError(reason); }}
+            title={request.kind === 'delete-local' ? text('当前分支处理完后，停止后续删除', 'Stop further deletions after the current branch') : undefined}
+          /> : <Button variant={request.kind === 'upstream' ? 'primary' : 'danger'} disabled={disabled || !ready} busy={running} onClick={() => void accept()}>
+            {request.kind === 'upstream' ? text('保存跟踪关系', 'Save tracking') : deleteLabel}
+          </Button>}
         </div>
       </footer>
     </GitOperationDialog>;

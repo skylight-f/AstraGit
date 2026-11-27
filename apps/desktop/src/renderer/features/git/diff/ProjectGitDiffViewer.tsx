@@ -166,7 +166,7 @@ export function ProjectGitDiffWindow(props: {
         <button type="button" disabled={loading || !selectedPath || externalBusy || externalLoading || Boolean(props.revisions && !comparedRevisions)} onClick={() => void openExternal()}>{zh ? '使用外部工具比较…' : 'Compare with external tool…'}</button>
       </div>
       {comparedRevisions ? <p className="project-git-diff-parent" title={comparedRevisions.join(' → ')}>{zh ? '所选提交总差异' : 'Selected commit comparison'} · {comparedRevisions[0].slice(0, 8)} → {comparedRevisions[1].slice(0, 8)}</p> : null}
-      {external ? <GitExternalToolDialog request={external} projectId={props.projectId} client={props.client} zh={zh} busy={externalBusy} onClose={() => setExternal(null)} onAbort={async () => { await props.client.cancelProjectGitAction(props.projectId, props.repositoryId); }} onExecute={async (repository, action) => {
+      {external ? <GitExternalToolDialog request={external} projectId={props.projectId} client={props.client} zh={zh} busy={externalBusy} onClose={() => setExternal(null)} onAbort={() => props.client.cancelProjectGitAction(props.projectId, external.repository.id)} onExecute={async (repository, action) => {
         setExternalBusy(true);
         try { const result = await props.client.executeProjectGitAction(props.projectId, repository.id, action); return { outcome: result.result.outcome }; }
         catch (error) { return { outcome: null, error }; }

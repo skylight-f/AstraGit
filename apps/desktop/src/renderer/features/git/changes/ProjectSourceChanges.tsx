@@ -22,6 +22,7 @@ import { createPushDraft } from '../repository/pushTarget.js';
 import { SourceCommitReview, type SourceReviewDraft } from './SourceCommitReview.js';
 import { SourceCommitOptions } from './SourceCommitOptions.js';
 import { SourceRepositoryControls } from './SourceRepositoryControls.js';
+import { GitOperationStopButton } from '../components/GitOperationProgress.js';
 import { GitPaneSeparator, workspacePaneReferenceWidth } from '../components/GitPaneSeparator.js';
 import type { BusyState, ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
 import { reportApplicationError, VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
@@ -95,7 +96,8 @@ export function ProjectSourceChanges(props: {
   const [error, setError] = useState<unknown>(null);
   const operationErrors = useRef<Record<string, string>>({});
   const [feedback, setFeedback] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [batchAction, setBatchAction] = useState<'commit' | 'commit-push' | 'retry-push' | null>(null);
+  const busy = batchAction !== null;
   const busyRef = useRef(false);
   const stopped = useRef(false);
   const activeRepository = useRef<string | null>(null);
@@ -265,7 +267,7 @@ export function ProjectSourceChanges(props: {
         const saved = commitMessages.drafts[row.repositoryId]?.message ?? '';
         if (!saved.trim()) commitMessages.write(row.repositoryId, row.message, repositoryDraftScope(row.snapshot, row.gitlinks), saved);
       }
-      busyRef.current = true; setBusy(true); onBusyChange(true); stopped.current = false; setReview(null);
+      busyRef.current = true; setBatchAction(review.push ? 'commit-push' : 'commit'); onBusyChange(true); stopped.current = false; setReview(null);
       batchStarted = true;
       await runSourceBatch({ client, projectId: project.id, rows, push: review.push, stopped: () => stopped.current,
         onActive: id => { activeRepository.current = id; }, onResults: lastResults => update({ lastResults }),
@@ -273,11 +275,11 @@ export function ProjectSourceChanges(props: {
       });
       notifyProjectGitChanged(project.id); await refresh();
     } catch (reason) { const message = gitFailureText(reason); if (batchStarted) setError(message); else setReviewError(message); }
-    finally { activeRepository.current = null; busyRef.current = false; setBusy(false); onBusyChange(false); setReviewBusy(false); }
+    finally { activeRepository.current = null; busyRef.current = false; setBatchAction(null); onBusyChange(false); setReviewBusy(false); }
   }
   async function retryPush() {
     if (locked) return;
-    busyRef.current = true; setBusy(true); onBusyChange(true); stopped.current = false; setError('');
+    busyRef.current = true; setBatchAction('retry-push'); onBusyChange(true); stopped.current = false; setError('');
     try {
       for (const row of [...stateRef.current.lastResults]) {
         if (stopped.current || !row.commitSha || !['push_failed', 'push_blocked'].includes(row.status)) continue;
@@ -288,8 +290,14 @@ export function ProjectSourceChanges(props: {
       }
       notifyProjectGitChanged(project.id); await refresh();
     } catch (reason) { setError(gitFailureText(reason)); }
-    finally { activeRepository.current = null; busyRef.current = false; setBusy(false); onBusyChange(false); }
+    finally { activeRepository.current = null; busyRef.current = false; setBatchAction(null); onBusyChange(false); }
   }
+  async function stopBatch() {
+    stopped.current = true;
+    if (activeRepository.current) await client.cancelProjectGitAction(project.id, activeRepository.current);
+    return { cancelled: true };
+  }
+  const stopBatchButton = <GitOperationStopButton zh={zh} size="compact" onStop={stopBatch} onStopError={reason => setError(gitFailureText(reason))} />;
   async function execute(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, name: string): Promise<ExecutionOutcome> {
     if (busyRef.current || locked) return null;
     busyRef.current = true; setOperation({ repositoryId: repository.id, action: action.type }); onBusyChange(true); setError(''); setFeedback('');
@@ -513,14 +521,13 @@ export function ProjectSourceChanges(props: {
           </div>
           <div className="source-git-count">{summary && <span>{label('批次摘要单独保存 · ', 'Batch summary saved separately · ')}</span>}{label('待提交', 'To commit')} {filesCount} {label('个文件', 'files')}{units.length > 1 ? ` · ${units.length} ${label('个仓库', 'repositories')}` : ''}</div>
           <div className="source-git-actions">
-            {busy ? <button type="button" onClick={() => { stopped.current = true; if (activeRepository.current) void client.cancelProjectGitAction(project.id, activeRepository.current).catch(reason => setError(gitFailureText(reason))); }}>{label('停止批次', 'Stop batch')}</button> : null}
             <SourceCommitOptions active={active} zh={zh}>
               <label className="source-git-parent-option"><input type="checkbox" checked={state.stagedOnly} disabled={locked} onChange={event => update({ stagedOnly: event.target.checked })} />{label('只显示已暂存文件', 'Show staged files only')}</label>
               <label className="source-git-parent-option"><input type="checkbox" checked={updateParents} disabled={locked} onChange={event => update({ updateParents: event.target.checked })} />{label('同时更新父仓库的子模块引用', 'Update parent submodule references')}</label>
               <small>{label('勾选或取消勾选会更新 Git 暂存区。只提交已暂存的改动。', 'Checkboxes update the Git index. Only staged changes are committed.')}</small>
             </SourceCommitOptions>
-            <button type="button" disabled={locked || !units.length} onClick={() => void prepare(true)}>{label('提交并推送…', 'Commit and push…')}</button>
-            <button type="button" className="source-git-primary" disabled={locked || !units.length} onClick={() => void prepare(false)}>{label('提交…', 'Commit…')}</button>
+            {batchAction === 'commit-push' ? stopBatchButton : <button type="button" disabled={locked || !units.length} onClick={() => void prepare(true)}>{label('提交并推送…', 'Commit and push…')}</button>}
+            {batchAction === 'commit' ? stopBatchButton : <button type="button" className="source-git-primary" disabled={locked || !units.length} onClick={() => void prepare(false)}>{label('提交…', 'Commit…')}</button>}
           </div>
           {hasFeedback ? <p className="source-git-feedback" role="status">{feedback || editorFeedback}</p> : null}
         </section>
@@ -580,7 +587,7 @@ export function ProjectSourceChanges(props: {
           ) : <p className="source-git-empty">{label('选择贮藏条目查看差异', 'Select a stash to see its diff')}</p>}
         </div>
       ) : null}
-      {state.lastResults.length ? <><GitPaneSeparator name="source-results" label={label('调整差异与批次结果区域高度', 'Resize diff and batch results')} axis="y" initial={78} min={resultsBounds.min} max={resultsBounds.max} /><section className="source-git-results" aria-label={label('批次结果', 'Batch results')}><header><strong>{label('最近一次批次', 'Last batch')}</strong>{state.lastResults.some(result => ['push_failed', 'push_blocked'].includes(result.status) && result.commitSha) ? <button type="button" disabled={locked} onClick={() => void retryPush()}>{label('重试失败的推送', 'Retry failed pushes')}</button> : null}</header>{state.lastResults.map(result => <div key={result.repositoryId}><strong>{result.repositoryName}</strong><span>{statuses[result.status]}</span>{result.commitSha ? <code title={result.commitSha}>{result.commitSha.slice(0, 8)}</code> : null}{result.error ? <p><VisibleApplicationError error={result.error} language={zh ? 'zh-CN' : 'en'} /></p> : null}</div>)}</section></> : null}
+      {state.lastResults.length ? <><GitPaneSeparator name="source-results" label={label('调整差异与批次结果区域高度', 'Resize diff and batch results')} axis="y" initial={78} min={resultsBounds.min} max={resultsBounds.max} /><section className="source-git-results" aria-label={label('批次结果', 'Batch results')}><header><strong>{label('最近一次批次', 'Last batch')}</strong>{state.lastResults.some(result => ['push_failed', 'push_blocked'].includes(result.status) && result.commitSha) ? (batchAction === 'retry-push' ? stopBatchButton : <button type="button" disabled={locked} onClick={() => void retryPush()}>{label('重试失败的推送', 'Retry failed pushes')}</button>) : null}</header>{state.lastResults.map(result => <div key={result.repositoryId}><strong>{result.repositoryName}</strong><span>{statuses[result.status]}</span>{result.commitSha ? <code title={result.commitSha}>{result.commitSha.slice(0, 8)}</code> : null}{result.error ? <p><VisibleApplicationError error={result.error} language={zh ? 'zh-CN' : 'en'} /></p> : null}</div>)}</section></> : null}
     </section>
     {active && tab === 'stash' && stashMenu && stashMenuRepository ? (
       <GitContextMenu x={stashMenu.x} y={stashMenu.y} title={`${stashMenuRepository.name} · ${stashMenu.stash.ref}`}

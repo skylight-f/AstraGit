@@ -35,14 +35,14 @@ export function usePushBatch(cancel: (repositoryId: string) => Promise<{ cancell
 
   function stop() {
     const batch = currentBatch.current;
-    const repositoryId = batch?.repositoryId;
-    if (!batch || !repositoryId || batch.stopRequest) return;
+    if (!batch || batch.stopRequest) return;
+    const repositoryId = batch.repositoryId;
 
     batch.stopRequested = true;
     setStopping(true);
     batch.stopRequest = (async () => {
       // Cancellation can arrive while the push is still registering with the local service.
-      while (batch.repositoryId === repositoryId) {
+      while (repositoryId && batch.repositoryId === repositoryId) {
         const { cancelled } = await cancel(repositoryId);
         if (cancelled || batch.repositoryId !== repositoryId) return;
         await new Promise<void>(resolve => setTimeout(resolve, 150));

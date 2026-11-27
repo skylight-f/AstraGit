@@ -2,6 +2,7 @@ import { Select, TextInput } from '../../../ui/FormControls.js';
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitMailboxInput, GitMailboxPreview, GitPatchInput, GitPatchPreview, GitPatchExportInput, GitRepositoryPatchExport, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
+import { GitOperationStopButton, type CancelGitAction } from '../components/GitOperationProgress.js';
 import { GitOperationDialog, GitOperationDialogHeader } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { GitPaneSeparator } from '../components/GitPaneSeparator.js';
@@ -16,7 +17,7 @@ const desktopRequired = () => Object.assign(new Error('请在 AstraGit 桌面应
 
 export function GitPatchDialog(props: {
   request: GitPatchDialogRequest; projectId: string; client: Pick<DashboardClient, 'previewRepositoryGitMailbox' | 'previewRepositoryGitPatch' | 'exportRepositoryGitPatch'>; zh: boolean; busy: boolean;
-  onClose: () => void; onAbort: () => Promise<void>;
+  onClose: () => void; onAbort: CancelGitAction;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<{ outcome: ExecutionOutcome; error?: unknown }>;
 }) {
   const [request] = useState(props.request); const importing = request.mode === 'import'; const text = (cn: string, en: string) => props.zh ? cn : en;
@@ -189,6 +190,6 @@ export function GitPatchDialog(props: {
         </section>
       </div>
       {error ? <VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /> : null}{needsReview ? <p role="alert">{text('请刷新核对仓库结果，再重新预览；不会自动重复应用。', 'Refresh and verify the repository outcome before previewing again. The patch is not reapplied automatically.')}</p> : null}{feedback ? <p role="status">{feedback}</p> : null}
-      <footer className="git-operation-dialog-actions">{props.busy ? <Button variant="secondary" onClick={() => void props.onAbort().catch(setError)}>{text('中止操作', 'Stop operation')}</Button> : null}<Button variant="secondary" disabled={locked} onClick={props.onClose}>{text('关闭', 'Close')}</Button>{importing ? <Button variant="primary" disabled={locked || loading || !preview?.applicable || needsReview} busy={props.busy} onClick={() => void apply()}>{importFormat === 'mailbox' ? text('开始导入提交序列', 'Start importing commits') : text('应用补丁', 'Apply patch')}</Button> : <Button variant="primary" disabled={locked || loading || !artifact} onClick={() => void save()}>{text('保存补丁…', 'Save patch…')}</Button>}</footer>
+      <footer className="git-operation-dialog-actions"><Button variant="secondary" disabled={locked} onClick={props.onClose}>{text('关闭', 'Close')}</Button>{importing ? props.busy ? <GitOperationStopButton zh={props.zh} onStop={props.onAbort} onStopError={setError} /> : <Button variant="primary" disabled={locked || loading || !preview?.applicable || needsReview} onClick={() => void apply()}>{importFormat === 'mailbox' ? text('开始导入提交序列', 'Start importing commits') : text('应用补丁', 'Apply patch')}</Button> : <Button variant="primary" disabled={locked || loading || !artifact} onClick={() => void save()}>{text('保存补丁…', 'Save patch…')}</Button>}</footer>
     </GitOperationDialog>;
 }

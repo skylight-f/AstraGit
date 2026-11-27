@@ -2,6 +2,7 @@ import { Select } from '../../../ui/FormControls.js';
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitCommitReplaySeriesPreview, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
+import { GitOperationStopButton, type CancelGitAction } from '../components/GitOperationProgress.js';
 import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
@@ -10,7 +11,7 @@ import './gitCommitReplay.css';
 export interface GitCommitReplaySeriesRequest { repository: ProjectGitRepositoryWorkbenchItem; revisions: string[] }
 export function GitCommitReplaySeriesDialog(props: {
   request: GitCommitReplaySeriesRequest; projectId: string; client: Pick<DashboardClient, 'previewRepositoryGitReplaySeries'>; zh: boolean; busy: boolean;
-  onClose(): void; onAbort(): Promise<void>;
+  onClose(): void; onAbort: CancelGitAction;
   onExecute(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string): Promise<{ outcome: ExecutionOutcome; error?: unknown }>;
   onCompleted(preview: GitCommitReplaySeriesPreview): void;
 }) {
@@ -65,6 +66,6 @@ export function GitCommitReplaySeriesDialog(props: {
         {loading ? <p role="status">{text('正在核对顺序、来源和本地内容…', 'Reviewing order, sources and local contents…')}</p> : null}
         {current?.error || failed ? <VisibleApplicationError error={failed ?? current?.error} language={props.zh ? 'zh-CN' : 'en'} /> : null}
       </div>
-      <footer>{props.busy ? <Button onClick={() => void props.onAbort().catch(error => { if (alive.current) setFailure({ key, error }); })}>{text('中止操作', 'Stop operation')}</Button> : null}<Button variant="secondary" disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新核对', 'Recheck')}</Button><Button variant="primary" busy={props.busy} disabled={!preview || props.busy || Boolean(failed)} onClick={() => void submit()}>{text('拣选所选提交', 'Cherry-pick selected commits')}</Button></footer>
+      <footer><Button variant="secondary" disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新核对', 'Recheck')}</Button>{props.busy ? <GitOperationStopButton zh={props.zh} onStop={props.onAbort} onStopError={error => { if (alive.current) setFailure({ key, error }); }} /> : <Button variant="primary" disabled={!preview || props.busy || Boolean(failed)} onClick={() => void submit()}>{text('拣选所选提交', 'Cherry-pick selected commits')}</Button>}</footer>
     </GitOperationDialog>;
 }

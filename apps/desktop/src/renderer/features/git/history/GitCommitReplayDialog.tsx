@@ -2,6 +2,7 @@ import { Select } from '../../../ui/FormControls.js';
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitCommitReplayInput, GitCommitReplayPreview, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
+import { GitOperationStopButton, type CancelGitAction } from '../components/GitOperationProgress.js';
 import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
@@ -10,7 +11,7 @@ import './gitCommitReplay.css';
 export interface GitCommitReplayRequest { repository: ProjectGitRepositoryWorkbenchItem; kind: 'cherry_pick' | 'revert'; revision: string; mainline?: number }
 export function GitCommitReplayDialog(props: {
   request: GitCommitReplayRequest; projectId: string; client: Pick<DashboardClient, 'previewRepositoryGitReplay'>; zh: boolean; busy: boolean;
-  onClose(): void; onAbort(): Promise<void>;
+  onClose(): void; onAbort: CancelGitAction;
   onExecute(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string): Promise<{ outcome: ExecutionOutcome; error?: unknown }>;
   onCompleted(preview: GitCommitReplayPreview): void;
 }) {
@@ -73,6 +74,6 @@ export function GitCommitReplayDialog(props: {
         </> : null}
         {failed ? <p role="alert">{text('请重新核对当前状态后再操作。', 'Reload and review the current state before trying again.')}</p> : null}
       </div>
-      <footer>{props.busy ? <Button onClick={() => void props.onAbort().catch(error => { if (alive.current) setFailure({ key, error }); })}>{text('中止操作', 'Stop operation')}</Button> : null}<Button variant="secondary" disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新核对', 'Recheck')}</Button><Button variant="primary" busy={props.busy} disabled={!ready} onClick={() => void submit()}>{commit ? title : text('应用到暂存区', 'Apply without committing')}</Button></footer>
+      <footer><Button variant="secondary" disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新核对', 'Recheck')}</Button>{props.busy ? <GitOperationStopButton zh={props.zh} onStop={props.onAbort} onStopError={error => { if (alive.current) setFailure({ key, error }); }} /> : <Button variant="primary" disabled={!ready} onClick={() => void submit()}>{commit ? title : text('应用到暂存区', 'Apply without committing')}</Button>}</footer>
     </GitOperationDialog>;
 }

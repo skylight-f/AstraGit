@@ -2,6 +2,7 @@ import { Select, TextInput } from '../../../ui/FormControls.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitTagItem, GitTagPage, GitTagTarget, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
+import { GitOperationStopButton, type CancelGitAction } from '../components/GitOperationProgress.js';
 import { GitOperationDialog, GitOperationDialogHeader } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { GitPaneSeparator } from '../components/GitPaneSeparator.js';
@@ -15,7 +16,7 @@ interface Review { action: ProjectGitAction; title: string; name: string; versio
 export function GitTagManagementDialog(props: {
   request: GitTagManagementRequest; projectId: string;
   client: Pick<DashboardClient, 'loadRepositoryGitTags' | 'loadRepositoryGitTagTarget' | 'loadProjectGitWorkbench'>;
-  zh: boolean; busy: boolean; onClose: () => void; onAbort: () => Promise<void>;
+  zh: boolean; busy: boolean; onClose: () => void; onAbort: CancelGitAction;
   onOpenCommit: (sha: string) => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<{ outcome: ExecutionOutcome; error?: unknown }>;
 }) {
@@ -34,7 +35,7 @@ export function GitTagManagementDialog(props: {
   const [target, setTarget] = useState<{ revision: string; value: GitTagTarget } | null>(null); const [targetLoading, setTargetLoading] = useState(false);
   const [remote, setRemote] = useState(request.remote ?? repository.snapshot.remotes[0] ?? '');
   const [review, setReview] = useState<Review | null>(null); const [confirmed, setConfirmed] = useState(false);
-  const [running, setRunning] = useState(false); const [preparing, setPreparing] = useState(false); const [aborting, setAborting] = useState(false); const [needsReview, setNeedsReview] = useState(false);
+  const [running, setRunning] = useState(false); const [preparing, setPreparing] = useState(false); const [needsReview, setNeedsReview] = useState(false);
   const query = useRef<AbortController | null>(null); const alive = useRef(true); const gate = useRef(false);
   const split = useRef<HTMLDivElement>(null); const [bounds, setBounds] = useState({ min: 20, max: 55 });
   const disabled = props.busy || running || preparing;
@@ -125,7 +126,7 @@ export function GitTagManagementDialog(props: {
           ]}
         /></label>
         {annotated ? <label>{text('标签说明（可选，默认使用标签名称）', 'Annotation (optional; defaults to tag name)')}<textarea rows={6} value={message} disabled={disabled} onChange={event => { setMessage(event.target.value); }} /></label> : <p>{text('轻量标签只记录目标版本，不包含附注。', 'A lightweight tag records the target revision without an annotation.')}</p>}
-        <p>{text('创建后可在标签列表中选择远程并推送。', 'After creation, select a remote in the tag list to push the tag.')}</p><Button type="submit" variant="primary" disabled={disabled || !createReady} busy={running}>{text('创建标签', 'Create tag')}</Button>
+        <p>{text('创建后可在标签列表中选择远程并推送。', 'After creation, select a remote in the tag list to push the tag.')}</p>{running ? <GitOperationStopButton zh={props.zh} onStop={props.onAbort} onStopError={setError} /> : <Button type="submit" variant="primary" disabled={disabled || !createReady}>{text('创建标签', 'Create tag')}</Button>}
       </form> : <>
         <div className="git-tag-filters"><label>{text('标签来源', 'Tag source')}<Select
           ariaLabel={text('标签来源', 'Tag source')}
@@ -157,9 +158,9 @@ export function GitTagManagementDialog(props: {
             options={repository.snapshot.remotes.map(item => ({ value: item, label: item }))}
           /></label><Button variant="secondary" disabled={disabled || needsReview || !remote || !selected.local} busy={preparing} onClick={() => void preparePush(selected)}>{text('推送标签…', 'Push tag…')}</Button></> : null}<Button variant="danger" disabled={disabled || needsReview || !page || loading} onClick={() => prepareDelete(selected)}>{location ? text('删除远程标签…', 'Delete remote tag…') : text('删除本地标签…', 'Delete local tag…')}</Button></div> : null}
           </> : !loading ? <p>{selection ? text('所选标签不在当前列表中，请重新选择或清除筛选。', 'The selected tag is not in this list. Select it again or clear the filter.') : text('选择标签查看版本及操作。', 'Select a tag to view its versions and actions.')}</p> : null}
-          {review ? <section className="git-tag-review" aria-label={text('确认标签操作', 'Confirm tag action')}><h4>{review.title} · {review.name}</h4>{review.versions.map((version, index) => <div className="git-tag-version" key={index}><span>{version.destination}</span><code>{version.object ?? text('不存在，将跳过', 'Absent; will be skipped')}</code></div>)}<p>{review.action.type === 'delete_remote_tag' ? text('只删除所列服务器上核对过的标签版本，保留本地标签。此操作会影响其他使用者。', 'Delete the reviewed tag versions from the listed servers and keep the local tag. This affects other users.') : review.action.type === 'delete_tag' ? text('只删除本地标签，保留远程标签。', 'Delete only the local tag and keep remote tags.') : text('仅推送这个标签；已有的不同远程标签不会被覆盖。', 'Push only this tag; a different existing remote tag will not be overwritten.')}</p>{review.destructive ? <label className="git-tag-confirm"><input type="checkbox" checked={confirmed} disabled={disabled || needsReview} onChange={event => setConfirmed(event.target.checked)} />{text('确认删除以上标签引用', 'Confirm deleting these tag refs')}</label> : null}<div className="git-tag-actions"><Button variant="secondary" disabled={disabled} onClick={() => { setReview(null); setConfirmed(false); }}>{text('返回', 'Back')}</Button><Button variant={review.destructive ? 'danger' : 'primary'} disabled={disabled || needsReview || (review.destructive && !confirmed)} busy={running} onClick={() => void execute(review.action, review.title)}>{review.title}</Button></div></section> : null}
+          {review ? <section className="git-tag-review" aria-label={text('确认标签操作', 'Confirm tag action')}><h4>{review.title} · {review.name}</h4>{review.versions.map((version, index) => <div className="git-tag-version" key={index}><span>{version.destination}</span><code>{version.object ?? text('不存在，将跳过', 'Absent; will be skipped')}</code></div>)}<p>{review.action.type === 'delete_remote_tag' ? text('只删除所列服务器上核对过的标签版本，保留本地标签。此操作会影响其他使用者。', 'Delete the reviewed tag versions from the listed servers and keep the local tag. This affects other users.') : review.action.type === 'delete_tag' ? text('只删除本地标签，保留远程标签。', 'Delete only the local tag and keep remote tags.') : text('仅推送这个标签；已有的不同远程标签不会被覆盖。', 'Push only this tag; a different existing remote tag will not be overwritten.')}</p>{review.destructive ? <label className="git-tag-confirm"><input type="checkbox" checked={confirmed} disabled={disabled || needsReview} onChange={event => setConfirmed(event.target.checked)} />{text('确认删除以上标签引用', 'Confirm deleting these tag refs')}</label> : null}<div className="git-tag-actions"><Button variant="secondary" disabled={disabled} onClick={() => { setReview(null); setConfirmed(false); }}>{text('返回', 'Back')}</Button>{running ? <GitOperationStopButton zh={props.zh} onStop={props.onAbort} onStopError={setError} /> : <Button variant={review.destructive ? 'danger' : 'primary'} disabled={disabled || needsReview || (review.destructive && !confirmed)} onClick={() => void execute(review.action, review.title)}>{review.title}</Button>}</div></section> : null}
         </div></div>
       </>}
-      <footer>{feedback ? <p role="status">{feedback}</p> : null}{error ? <VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /> : null}{needsReview ? <p role="status">{text('请重新载入并核对标签状态后再操作；未确认结果时不会自动重试。', 'Reload and review tag state before continuing. Unconfirmed operations are not automatically retried.')}</p> : null}{running ? <Button variant="secondary" disabled={aborting} onClick={async () => { setAborting(true); try { await props.onAbort(); } catch (reason) { if (alive.current) setError(reason); } finally { if (alive.current) setAborting(false); } }}>{text('中止操作', 'Abort operation')}</Button> : null}</footer>
+      <footer>{feedback ? <p role="status">{feedback}</p> : null}{error ? <VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /> : null}{needsReview ? <p role="status">{text('请重新载入并核对标签状态后再操作；未确认结果时不会自动重试。', 'Reload and review tag state before continuing. Unconfirmed operations are not automatically retried.')}</p> : null}</footer>
     </GitOperationDialog>;
 }

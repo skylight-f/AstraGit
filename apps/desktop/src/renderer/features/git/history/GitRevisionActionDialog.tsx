@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitResetMode, GitWritePreview, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { describeUserFacingError, userFacingErrorCause } from '@astragit/shared';
 import { Button } from '../../../ui/Button.js';
+import { GitOperationStopButton, type CancelGitAction } from '../components/GitOperationProgress.js';
 import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { gitFailureCode, gitIntegrationLabel } from '../workbench/gitOperationFeedback.js';
@@ -30,7 +31,7 @@ export function GitRevisionActionDialog(props: {
   zh: boolean;
   busy: boolean;
   onClose: () => void;
-  onAbort: () => Promise<void>;
+  onAbort: CancelGitAction;
   onCompleted: (preview: GitWritePreview) => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<{ outcome: ExecutionOutcome; error?: unknown }>;
 }) {
@@ -112,6 +113,6 @@ export function GitRevisionActionDialog(props: {
       </> : null}
       {error ? <VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /> : null}
       {needsReview ? <p role="alert">{text('请重新载入并核对当前状态，不能直接重复此操作。', 'Reload and review the current state before attempting this operation again.')}</p> : null}
-      <footer>{props.busy ? <Button variant="secondary" onClick={() => void props.onAbort().catch(reason => { if (alive.current) setError(reason); })}>{text('中止操作', 'Stop operation')}</Button> : null}<Button variant="secondary" data-modal-initial-focus disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新载入', 'Reload')}</Button><Button disabled={!ready} busy={props.busy} onClick={() => void submit()}>{request.type === 'reset' ? text('重置', 'Reset') : text('跳过', 'Skip')}</Button></footer>
+      <footer><Button variant="secondary" data-modal-initial-focus disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新载入', 'Reload')}</Button>{props.busy ? <GitOperationStopButton zh={props.zh} onStop={props.onAbort} onStopError={reason => { if (alive.current) setError(reason); }} /> : <Button disabled={!ready} onClick={() => void submit()}>{request.type === 'reset' ? text('重置', 'Reset') : text('跳过', 'Skip')}</Button>}</footer>
     </GitOperationDialog>;
 }

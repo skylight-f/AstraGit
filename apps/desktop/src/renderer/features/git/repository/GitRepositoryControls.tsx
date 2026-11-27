@@ -17,7 +17,7 @@ import { ZeusSelect } from '../../../ui/ZeusSelect.js';
 import { FormDialog } from '../../../ui/FormDialog.js';
 import type { ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import type { BusyState, OperationTone, BranchKind, ExecutionOutcome, ProjectGitUpdateStrategy, PushSelection } from '../workbench/gitWorkbenchTypes.js';
-import { CircleNotch } from '@phosphor-icons/react/dist/csr/CircleNotch';
+import { GitOperationProgress, GitOperationStopButton, type CancelGitAction } from '../components/GitOperationProgress.js';
 import { ArrowRightIcon as ArrowRight } from '@phosphor-icons/react/dist/csr/ArrowRight';
 import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { CaretRightIcon as CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
@@ -1162,28 +1162,12 @@ export function BranchContextMenu(props: {
   );
 }
 
-function SyncOperationNotice({ busy, repository, zh, onStop }: {
-  busy: NonNullable<BusyState>;
-  repository?: ProjectGitRepositoryWorkbenchItem;
-  zh: boolean;
-  onStop?: (repositoryId: string) => void;
-}) {
-  const labels = { push: ['推送', 'Push'], pull: ['拉取', 'Pull'], fetch: ['抓取', 'Fetch'] } as const;
-  if (busy.action !== 'push' && busy.action !== 'pull' && busy.action !== 'fetch') return null;
-  return <aside className="git-sync-operation-notice" aria-label={zh ? 'Git 操作状态' : 'Git operation status'}>
-    <span className="git-operation-notice-status" role="status">
-      <CircleNotch aria-hidden="true" className="project-git-spinner" />
-      <span><strong>{repository?.name}</strong><span>{labels[busy.action][zh ? 0 : 1]}…</span></span>
-    </span>
-    {onStop && <Button variant="secondary" size="compact" onClick={() => onStop(busy.repositoryId)}>{zh ? '中止操作' : 'Stop operation'}</Button>}
-  </aside>;
-}
-
 export function PullDialog(props: {
   repository: ProjectGitRepositoryWorkbenchItem;
   zh: boolean;
   busy: BusyState;
-  onStop?: (repositoryId: string) => void;
+  onStop: CancelGitAction;
+  onStopError: (reason: unknown) => void;
   onClose: () => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
 }) {
@@ -1194,8 +1178,9 @@ export function PullDialog(props: {
   const [commitMerge, setCommitMerge] = useState(true);
   const [includeMergeLog, setIncludeMergeLog] = useState(false);
   const [noFastForward, setNoFastForward] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const locked = submitting || props.busy !== null;
+  const [submitting, setSubmitting] = useState<'pull' | 'fetch' | null>(null);
+  const locked = submitting !== null || props.busy !== null;
+  const activeAction = props.busy?.repositoryId === props.repository.id ? props.busy.action : undefined;
   const branches = props.repository.snapshot.remoteBranches.filter((ref) => ref.startsWith(remote + '/') && !ref.endsWith('/HEAD')).map((ref) => ref.slice(remote.length + 1));
   const selectedBranch = branches.includes(branch) ? branch : '';
   return (
@@ -1206,7 +1191,7 @@ export function PullDialog(props: {
           </strong>
         </header>
         <main>
-          <fieldset disabled={locked} className="project-git-sync-fields">
+          <fieldset className="project-git-sync-fields">
             <label>
               <span>{props.zh ? '从仓库拉取' : 'Pull from remote'}</span>
               <Select
@@ -1237,21 +1222,27 @@ export function PullDialog(props: {
                   searchPlaceholder={props.zh ? '搜索远程分支' : 'Search remote branches'}
                   emptyLabel={branches.length ? (props.zh ? '没有匹配的远程分支' : 'No matching remote branches') : props.zh ? '暂无远程分支，请点击刷新' : 'No remote branches. Refresh to fetch them.'}
                 />
-                <Button
+                {submitting === 'fetch' ? <GitOperationStopButton
+                  zh={props.zh}
+                  size="compact"
+                  disabled={activeAction !== 'fetch'}
+                  onStop={props.onStop}
+                  onStopError={props.onStopError}
+                /> : <Button
                   variant="secondary"
                   size="compact"
                   disabled={locked || !remote}
                   onClick={async () => {
-                    setSubmitting(true);
+                    setSubmitting('fetch');
                     try {
                       await props.onExecute(props.repository, { type: 'fetch', remote }, props.zh ? '刷新远程分支' : 'Refresh remote branches');
                     } finally {
-                      setSubmitting(false);
+                      setSubmitting(null);
                     }
                   }}
                 >
                   {props.zh ? '刷新' : 'Refresh'}
-                </Button>
+                </Button>}
               </span>
             </label>
             <label>
@@ -1283,28 +1274,29 @@ export function PullDialog(props: {
           </fieldset>
         </main>
         <footer>
-          {props.busy && <SyncOperationNotice busy={props.busy} repository={props.repository} zh={props.zh} onStop={props.onStop} />}
+          {submitting ? <GitOperationProgress repositoryName={props.repository.name}
+            action={submitting === 'fetch' ? (props.zh ? '刷新远程分支' : 'Refresh remote branches') : props.zh ? '拉取' : 'Pull'}
+          /> : null}
           <Button variant="secondary" disabled={locked} onClick={props.onClose}>
             {props.zh ? '取消' : 'Cancel'}
           </Button>
-          <Button
+          {submitting === 'pull' ? <GitOperationStopButton zh={props.zh} disabled={activeAction !== 'pull'} onStop={props.onStop} onStopError={props.onStopError} /> : <Button
             variant="primary"
             disabled={locked || !remote || !selectedBranch || props.repository.snapshot.detached}
-            busy={submitting}
             onClick={async () => {
               if (locked) return;
-              setSubmitting(true);
+              setSubmitting('pull');
               try {
                 const outcome = await props.onExecute(props.repository, { type: 'pull', remote, targetBranch: selectedBranch, strategy: rebase ? 'rebase' : 'merge', commitMerge, includeMergeLog, noFastForward }, props.zh ? '拉取' : 'Pull');
                 // The workbench owns conflict resolution; a rejected pull keeps this form and its inputs.
                 if (outcome === 'completed' || outcome === 'conflict') props.onClose();
               } finally {
-                setSubmitting(false);
+                setSubmitting(null);
               }
             }}
           >
             {props.zh ? '拉取' : 'Pull'}
-          </Button>
+          </Button>}
         </footer>
       </GitOperationDialog>
   );
@@ -1349,9 +1341,6 @@ export function PushDialog(props: {
   const activePush = submitting && props.busy?.action === 'push' ? props.busy : null;
   const canSubmit = !locked && selections.length > 0 && !duplicateTarget && selections.every(item => item.remote && item.targetBranch.trim());
   const submitLabel = resultMode ? (props.zh ? '重试推送' : 'Retry push') : props.zh ? '推送' : 'Push';
-  const runningLabel = props.stopping ? (props.zh ? '正在中止…' : 'Stopping…')
-    : activePush ? (props.zh ? '中止推送' : 'Stop push')
-    : (props.zh ? '推送中…' : 'Pushing…');
   return (
     <GitOperationDialog className="project-git-reference-dialog project-git-sync-dialog" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '推送' : 'Push'}>
         <header>
@@ -1419,23 +1408,18 @@ export function PushDialog(props: {
           ) : null}
         </main>
         <footer>
-          {activePush && <SyncOperationNotice busy={activePush} repository={props.repositories.find(item => item.id === activePush.repositoryId)} zh={props.zh} />}
+          {submitting ? <GitOperationProgress
+            repositoryName={props.repositories.find(item => item.id === activePush?.repositoryId)?.name}
+            action={props.zh ? '推送' : 'Push'}
+          /> : null}
           <Button variant="secondary" disabled={locked} onClick={props.onClose}>
             {resultMode ? (props.zh ? '关闭' : 'Close') : props.zh ? '取消' : 'Cancel'}
           </Button>
-          {!completed ? (
+          {submitting ? <GitOperationStopButton zh={props.zh} onStop={props.onStop} stopping={props.stopping} /> : !completed ? (
             <Button
-              variant={submitting ? 'secondary' : 'primary'}
-              busy={submitting && (props.stopping || !activePush)}
-              disabled={submitting ? !activePush : !canSubmit}
-              onKeyDown={event => {
-                if (event.repeat && event.key === 'Enter') event.preventDefault();
-              }}
+              variant="primary"
+              disabled={!canSubmit}
               onClick={async () => {
-                if (submitting) {
-                  if (activePush && !props.stopping) props.onStop();
-                  return;
-                }
                 if (!canSubmit) return;
                 setSubmitting(true);
                 try {
@@ -1449,7 +1433,7 @@ export function PushDialog(props: {
                 }
               }}
             >
-              {submitting ? runningLabel : submitLabel}
+              {submitLabel}
             </Button>
           ) : null}
         </footer>

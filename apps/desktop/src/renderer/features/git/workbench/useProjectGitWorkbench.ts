@@ -929,16 +929,12 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     });
   }
 
-  async function cancelGitAction(repositoryId: string): Promise<void> {
-    await props.client.cancelProjectGitAction(props.project.id, repositoryId);
+  function cancelGitAction(repositoryId: string) {
+    return props.client.cancelProjectGitAction(props.project.id, repositoryId);
   }
 
   function reportWorkbenchError(reason: unknown): void {
     setError(errorMessage(reason, zh));
-  }
-
-  function stopSyncOperation(repositoryId: string): void {
-    void cancelGitAction(repositoryId).catch(reportWorkbenchError);
   }
 
   function openFlowConflicts(repositoryId: string): void {
@@ -975,13 +971,13 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     request?.resolve(decision);
   }
 
-  function stopOperation(repositoryId: string): void {
+  async function stopOperation(repositoryId: string) {
     if (stagePreviewController.current) {
       stagePreviewController.current.abort();
       finishStageReview(null);
-      return;
+      return { cancelled: true };
     }
-    stopSyncOperation(repositoryId);
+    return cancelGitAction(repositoryId);
   }
 
   async function executeWithResult(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) {
@@ -1087,7 +1083,7 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       operationErrorsByRepository: operationErrorsByRepositoryRef.current,
       operationNoticeRoot, pushResults, pushSelectedBranches, pushStopping: pushBatch.stopping, setCheckoutNotice, setConflictAction,
       setContextMenu, setMenuConfirmation, setPushResults, setStagePreferenceNotice, showGitContextMenu,
-      stagePreferenceNotice, stageRequest, stopOperation, stopPush: pushBatch.stop, stopSyncOperation,
+      stagePreferenceNotice, stageRequest, stopOperation, stopPush: pushBatch.stop,
     },
     workspace: {
       error, fileQuery, ignoredQuery, loadState, loadWorkbench, refreshWorkbench, reportWorkbenchError,

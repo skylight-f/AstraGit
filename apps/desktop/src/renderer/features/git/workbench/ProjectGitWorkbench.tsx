@@ -54,6 +54,7 @@ import { RepositoryNavigationTree } from '../repository/RepositoryNavigationTree
 import { SubtreeManagementDialog } from '../repository/SubtreeManagementDialog.js';
 import { CommitDialog } from '../commits/CommitDialog.js';
 import { GitOperationConsole, operationActionLabels } from './GitOperationConsole.js';
+import { GitOperationProgress, GitOperationStopButton } from '../components/GitOperationProgress.js';
 import { GitOperationsMenu } from './GitOperationsMenu.js';
 import type { GitContextTarget, ProjectGitWorkbenchProps } from './gitWorkbenchTypes.js';
 import { useProjectGitWorkbench } from './useProjectGitWorkbench.js';
@@ -98,7 +99,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       launchRepositoryFile, menuConfirmation, operationErrorsByRepository, operationHistory,
       operationNoticeRoot, pushResults, pushSelectedBranches, pushStopping, setCheckoutNotice, setConflictAction,
       setContextMenu, setMenuConfirmation, setPushResults, setStagePreferenceNotice, showGitContextMenu,
-      stagePreferenceNotice, stageRequest, stopOperation, stopPush, stopSyncOperation,
+      stagePreferenceNotice, stageRequest, stopOperation, stopPush,
     },
     workspace: {
       error, fileQuery, ignoredQuery, loadState, loadWorkbench, refreshWorkbench, reportWorkbenchError,
@@ -265,26 +266,23 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       aria-label={zh ? '仓库管理' : 'Repository management'}
     >
       {stagePreferenceNotice && !busy && !selectedRepository?.snapshot.integrationState && !checkoutNotice ? <aside className="git-operation-notice"><span role="status">{stagePreferenceNotice}</span><Button variant="secondary" size="compact" onClick={() => setStagePreferenceNotice('')}>{zh ? '关闭' : 'Close'}</Button></aside> : null}
-      {!(busy && (pushOpen || pullOpen)) && (busy || selectedRepository?.snapshot.integrationState || checkoutNotice) ? (
+      {busy && !pushOpen && !pullOpen ? (
+        <aside className="git-operation-notice" aria-label={zh ? "Git 操作状态" : "Git operation status"}>
+          <GitOperationProgress repositoryName={activeOperationRepository?.name} action={operationActionLabels[busy.action][zh ? 0 : 1]} />
+          <GitOperationStopButton zh={zh} size="compact" onStop={() => stopOperation(busy.repositoryId)} onStopError={reportWorkbenchError} />
+        </aside>
+      ) : null}
+      {!busy && (selectedRepository?.snapshot.integrationState || checkoutNotice) ? (
         <aside className="git-operation-notice" aria-label={zh ? 'Git 操作状态' : 'Git operation status'}>
           <span className="git-operation-notice-status" role="status">
-            {busy ? <CircleNotch aria-hidden="true" className="project-git-spinner" /> : selectedRepository?.snapshot.integrationState ? <WarningCircle aria-hidden="true" /> : <CheckCircle aria-hidden="true" />}
+            {selectedRepository?.snapshot.integrationState ? <WarningCircle aria-hidden="true" /> : <CheckCircle aria-hidden="true" />}
             <span>
-              <strong>{!busy && !selectedRepository?.snapshot.integrationState && checkoutNotice ? repositories.find(repository => repository.id === checkoutNotice.repositoryId)?.name : activeOperationRepository?.name}</strong>
-              <span>{busy ? `${operationActionLabels[busy.action][zh ? 0 : 1]}…` : selectedRepository?.snapshot.integrationNoCommit ? (zh ? `${gitIntegrationLabel(selectedRepository.snapshot.integrationState, zh)}待完成：解决并暂存冲突，先提交已应用内容，再继续剩余提交。` : `${gitIntegrationLabel(selectedRepository.snapshot.integrationState, zh)} in progress: resolve and stage conflicts, commit the applied contents, then continue the remaining commits.`) : selectedRepository?.snapshot.integrationState ? (zh ? `${gitIntegrationLabel(selectedRepository.snapshot.integrationState, zh)}待完成` : `${gitIntegrationLabel(selectedRepository.snapshot.integrationState, zh)} in progress`) : zh ? `已切换到 ${checkoutNotice?.branch}；本地修改保留在贮藏中` : `Switched to ${checkoutNotice?.branch}; local changes remain in a stash`}</span>
+              <strong>{!selectedRepository?.snapshot.integrationState && checkoutNotice ? repositories.find(repository => repository.id === checkoutNotice.repositoryId)?.name : activeOperationRepository?.name}</strong>
+              <span>{selectedRepository?.snapshot.integrationNoCommit ? (zh ? `${gitIntegrationLabel(selectedRepository.snapshot.integrationState, zh)}待完成：解决并暂存冲突，先提交已应用内容，再继续剩余提交。` : `${gitIntegrationLabel(selectedRepository.snapshot.integrationState, zh)} in progress: resolve and stage conflicts, commit the applied contents, then continue the remaining commits.`) : selectedRepository?.snapshot.integrationState ? (zh ? `${gitIntegrationLabel(selectedRepository.snapshot.integrationState, zh)}待完成` : `${gitIntegrationLabel(selectedRepository.snapshot.integrationState, zh)} in progress`) : zh ? `已切换到 ${checkoutNotice?.branch}；本地修改保留在贮藏中` : `Switched to ${checkoutNotice?.branch}; local changes remain in a stash`}</span>
             </span>
           </span>
           <div className="git-operation-notice-actions">
-            {!busy && !selectedRepository?.snapshot.integrationState && checkoutNotice ? <><Button variant="secondary" size="compact" onClick={() => { setSelectedRepositoryId(checkoutNotice.repositoryId); setSelectedStashRef(repositories.find(repository => repository.id === checkoutNotice.repositoryId)?.snapshot.stashes.find(stash => stash.hash === checkoutNotice.savedStash)?.ref ?? ''); setTab('stash'); setCheckoutNotice(null); }}>{zh ? '查看贮藏' : 'View stash'}</Button><Button variant="secondary" size="compact" onClick={() => setCheckoutNotice(null)}>{zh ? '关闭' : 'Close'}</Button></> : null}
-            {busy ? (
-              <Button
-                variant="secondary"
-                size="compact"
-                onClick={() => stopOperation(busy.repositoryId)}
-              >
-                {zh ? '中止操作' : 'Stop operation'}
-              </Button>
-            ) : null}
+            {!selectedRepository?.snapshot.integrationState && checkoutNotice ? <><Button variant="secondary" size="compact" onClick={() => { setSelectedRepositoryId(checkoutNotice.repositoryId); setSelectedStashRef(repositories.find(repository => repository.id === checkoutNotice.repositoryId)?.snapshot.stashes.find(stash => stash.hash === checkoutNotice.savedStash)?.ref ?? ''); setTab('stash'); setCheckoutNotice(null); }}>{zh ? '查看贮藏' : 'View stash'}</Button><Button variant="secondary" size="compact" onClick={() => setCheckoutNotice(null)}>{zh ? '关闭' : 'Close'}</Button></> : null}
             {selectedRepository?.snapshot.integrationState ? (
               <>
                 {selectedRepository.snapshot.integrationNoCommit ? <Button variant="secondary" size="compact" disabled={busy !== null || selectedRepository.snapshot.conflictFiles.length > 0 || !selectedRepository.snapshot.fileStatuses.some(file => file.indexStatus !== ' ' && file.indexStatus !== '?')} onClick={openCommit}>{zh ? '先提交已应用内容…' : 'Commit applied changes first…'}</Button> : null}
@@ -796,7 +794,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       <MotionPresence>
         {revisionOpen ? <CheckoutRevisionDialog open={revisionOpen} zh={zh} repositories={repositories} selectedRepository={selectedRepository} busy={busy} onClose={() => setRevisionOpen(false)} onExecute={execute} /> : null}
       </MotionPresence>
-      <MotionPresence>{pullOpen && selectedRepository ? <PullDialog key={selectedRepository.id} repository={selectedRepository} zh={zh} busy={busy} onStop={stopSyncOperation} onClose={() => setPullOpen(false)} onExecute={execute} /> : null}</MotionPresence>
+      <MotionPresence>{pullOpen && selectedRepository ? <PullDialog key={selectedRepository.id} repository={selectedRepository} zh={zh} busy={busy} onStop={() => cancelGitAction(selectedRepository.id)} onStopError={reportWorkbenchError} onClose={() => setPullOpen(false)} onExecute={execute} /> : null}</MotionPresence>
       <MotionPresence>
         {pushOpen ? (
           <PushDialog

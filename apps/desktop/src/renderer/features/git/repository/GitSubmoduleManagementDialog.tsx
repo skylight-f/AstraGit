@@ -2,6 +2,7 @@ import { Select, TextInput } from '../../../ui/FormControls.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitSubmoduleChange, GitSubmodulePreview, GitSubmoduleState, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
+import { GitOperationStopButton, type CancelGitAction } from '../components/GitOperationProgress.js';
 import { GitOperationDialog, GitOperationDialogHeader } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { GitPaneSeparator } from '../components/GitPaneSeparator.js';
@@ -11,7 +12,7 @@ import './gitSubmoduleManagement.css';
 export function GitSubmoduleManagementDialog(props: {
   repository: ProjectGitRepositoryWorkbenchItem; projectId: string;
   client: Pick<DashboardClient, 'loadRepositoryGitSubmodules' | 'previewRepositoryGitSubmodule'>;
-  zh: boolean; busy: boolean; initialPath?: string; onClose(): void; onAbort(): Promise<void>;
+  zh: boolean; busy: boolean; initialPath?: string; onClose(): void; onAbort: CancelGitAction;
   onOpenRepository(path: string): void;
   onExecute(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string): Promise<{ outcome: ExecutionOutcome; error?: unknown }>;
 }) {
@@ -118,11 +119,11 @@ export function GitSubmoduleManagementDialog(props: {
           </form>
           {loading ? <p role="status">{text('正在读取实际状态…', 'Reading actual state…')}</p> : null}
           {error ? <div role="alert"><VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /></div> : null}
-          {preview ? <section className="git-submodule-preview" aria-label={text('操作影响', 'Operation effects')}><h3>{text('请核对本次影响', 'Review this operation')}</h3><p>{preview.change.path}</p>{preview.existingHeadSha ? <p>{text('现有仓库 HEAD：', 'Existing repository HEAD: ')}{preview.existingHeadSha}</p> : null}<ul>{preview.effects.map(effect => <li key={effect}>{effectLabel(effect, props.zh)}</li>)}</ul><label className="git-submodule-check"><input type="checkbox" checked={confirmed} disabled={locked} onChange={event => setConfirmed(event.target.checked)} />{text('已核对以上影响', 'I reviewed these effects')}</label><Button disabled={locked || !confirmed} onClick={() => void perform()}>{text('执行操作', 'Execute operation')}</Button></section> : null}
+          {preview ? <section className="git-submodule-preview" aria-label={text('操作影响', 'Operation effects')}><h3>{text('请核对本次影响', 'Review this operation')}</h3><p>{preview.change.path}</p>{preview.existingHeadSha ? <p>{text('现有仓库 HEAD：', 'Existing repository HEAD: ')}{preview.existingHeadSha}</p> : null}<ul>{preview.effects.map(effect => <li key={effect}>{effectLabel(effect, props.zh)}</li>)}</ul><label className="git-submodule-check"><input type="checkbox" checked={confirmed} disabled={locked} onChange={event => setConfirmed(event.target.checked)} />{text('已核对以上影响', 'I reviewed these effects')}</label>{saving ? <GitOperationStopButton zh={props.zh} onStop={props.onAbort} onStopError={setError} /> : <Button disabled={locked || !confirmed} onClick={() => void perform()}>{text('执行操作', 'Execute operation')}</Button>}</section> : null}
           {feedback ? <p role="status">{feedback}</p> : null}
         </div>
       </div>
-      <footer className="git-operation-dialog-actions">{module?.initialized ? <Button variant="secondary" disabled={locked} onClick={() => props.onOpenRepository(module.path)}>{text('打开子仓库文件状态', 'Open module File Status')}</Button> : null}<Button variant="secondary" disabled={locked || loading} onClick={() => void load()}>{text('重新载入', 'Reload')}</Button>{saving ? <Button variant="secondary" onClick={() => void props.onAbort().catch(setError)}>{text('中止操作并核对结果', 'Cancel and review outcome')}</Button> : null}</footer>
+      <footer className="git-operation-dialog-actions">{module?.initialized ? <Button variant="secondary" disabled={locked} onClick={() => props.onOpenRepository(module.path)}>{text('打开子仓库文件状态', 'Open module File Status')}</Button> : null}<Button variant="secondary" disabled={locked || loading} onClick={() => void load()}>{text('重新载入', 'Reload')}</Button></footer>
     </GitOperationDialog>;
 }
 function operationLabel(value: GitSubmoduleChange['operation'], zh: boolean) {

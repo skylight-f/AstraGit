@@ -2,6 +2,7 @@ import { Select, TextInput } from '../../../ui/FormControls.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitExternalToolConfiguration, GitExternalToolInput, GitExternalToolKind, GitExternalToolPreview, GitExternalToolSettings, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
+import { GitOperationStopButton, type CancelGitAction } from '../components/GitOperationProgress.js';
 import { GitOperationDialog, GitOperationDialogHeader } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
@@ -11,7 +12,7 @@ export interface GitExternalToolRequest { repository: ProjectGitRepositoryWorkbe
 export function GitExternalToolDialog(props: {
   request: GitExternalToolRequest; projectId: string; zh: boolean; busy: boolean;
   client: Pick<DashboardClient, 'loadRepositoryGitExternalTools' | 'previewRepositoryGitExternalTool'>;
-  onClose(): void; onAbort(): Promise<void>;
+  onClose(): void; onAbort: CancelGitAction;
   onExecute(repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string): Promise<{ outcome: ExecutionOutcome; error?: unknown }>;
 }) {
   const text = (cn: string, en: string) => props.zh ? cn : en;
@@ -80,7 +81,7 @@ export function GitExternalToolDialog(props: {
           {input.mode === 'merge' ? <><p>{text('外部工具处理磁盘中的冲突文件，内置编辑器未保存的草稿仍保留。工具必须等待编辑窗口关闭后退出；取消后请关闭仍打开的外部窗口并核对文件。', 'The external tool edits conflict files on disk. Unsaved built-in drafts are retained. The tool must wait until its editor closes; after cancellation, close any remaining external windows and review the files.')}</p><label className="git-external-check"><input type="checkbox" checked={markResolved} disabled={locked} onChange={event => setMarkResolved(event.target.checked)} />{text('工具成功退出且核对通过后，暂存所选文件并标记为已解决', 'After a successful tool exit and validation, stage selected files and mark them resolved')}</label><small>{text('未勾选时只回到内置编辑器复核，不自动暂存。不会继续整合或创建提交。', 'Otherwise return to the built-in editor for review without staging. No integration is continued and no commit is created.')}</small></> : <p>{text('将所选版本的临时副本交给差异工具；本操作不自动暂存或提交文件。', 'Pass temporary copies of the selected versions to the diff tool. This action does not stage or commit files.')}</p>}
           <ul>{input.paths.map(path => <li key={path}>{path}</li>)}</ul>
           <Button variant="secondary" disabled={locked || loading} onClick={() => void prepare()}>{text('读取并核对版本', 'Read and review versions')}</Button>
-          {preview ? <section className="git-external-tool-preview"><strong>{preview.toolName}</strong>{preview.command ? <pre>{preview.command}</pre> : null}{preview.files.map(file => <article key={file.path}><strong>{file.path}</strong><small>{versionLabel(file.beforeLabel, props.zh)} ({file.beforeBytes} B) → {versionLabel(file.afterLabel, props.zh)} ({file.afterBytes} B)</small></article>)}<Button disabled={locked} onClick={() => void perform({ type: 'external_tool', input: preview.input, expectedFingerprint: preview.fingerprint }, true)}>{text('启动并等待工具退出', 'Launch and wait for the tool')}</Button></section> : null}
+          {preview ? <section className="git-external-tool-preview"><strong>{preview.toolName}</strong>{preview.command ? <pre>{preview.command}</pre> : null}{preview.files.map(file => <article key={file.path}><strong>{file.path}</strong><small>{versionLabel(file.beforeLabel, props.zh)} ({file.beforeBytes} B) → {versionLabel(file.afterLabel, props.zh)} ({file.afterBytes} B)</small></article>)}{saving ? <GitOperationStopButton zh={props.zh} onStop={props.onAbort} onStopError={setError} /> : <Button disabled={locked} onClick={() => void perform({ type: 'external_tool', input: preview.input, expectedFingerprint: preview.fingerprint }, true)}>{text('启动并等待工具退出', 'Launch and wait for the tool')}</Button>}</section> : null}
         </> : tab === 'settings' && settings ? <>
           <div className="git-external-tool-grid"><label>{text('工具类型', 'Tool type')}<Select
             ariaLabel={text('工具类型', 'Tool type')}
@@ -116,12 +117,12 @@ export function GitExternalToolDialog(props: {
               { value: 'false', label: text('不保留', 'Do not keep') },
             ]}
           /></label> : null}
-          <div className="git-external-tool-actions"><Button disabled={locked || loading || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/u.test(name)} onClick={() => void perform({ type: 'configure_external_tool', configuration: configuration(), expectedFingerprint: settings.fingerprint }, false)}>{text('保存这组设置', 'Save these settings')}</Button><Button variant="secondary" disabled={locked || loading} onClick={() => void perform({ type: 'configure_external_tool', configuration: configuration(true), expectedFingerprint: settings.fingerprint }, false)}>{text('移除此范围的默认工具覆盖', 'Remove default tool override in this scope')}</Button></div>
+          <div className="git-external-tool-actions">{saving ? <GitOperationStopButton zh={props.zh} onStop={props.onAbort} onStopError={setError} /> : <Button disabled={locked || loading || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/u.test(name)} onClick={() => void perform({ type: 'configure_external_tool', configuration: configuration(), expectedFingerprint: settings.fingerprint }, false)}>{text('保存这组设置', 'Save these settings')}</Button>}<Button variant="secondary" disabled={locked || loading} onClick={() => void perform({ type: 'configure_external_tool', configuration: configuration(true), expectedFingerprint: settings.fingerprint }, false)}>{text('移除此范围的默认工具覆盖', 'Remove default tool override in this scope')}</Button></div>
           <details><summary>{text('当前配置与继承值', 'Current configuration and inherited values')}</summary>{settings.entries.filter(item => item.key.startsWith(`${kind}.`) || item.key.startsWith(`${kind}tool.`)).map(item => <div key={item.key} className="git-external-config-entry"><strong>{item.key}</strong><pre>{item.value ?? '—'}</pre><small>{text('当前范围：', 'In selected scope: ')}{item[scope] ?? text('未设置，使用继承值', 'Not set; inherited')}</small></div>)}</details>
         </> : null}
         {feedback ? <p role="status">{feedback}</p> : null}
       </div>
-      <footer className="git-operation-dialog-actions"><Button variant="secondary" disabled={locked || loading} onClick={() => void load()}>{text('重新载入', 'Reload')}</Button>{saving ? <Button variant="secondary" onClick={() => void props.onAbort().catch(setError)}>{text('中止并核对结果', 'Cancel and review outcome')}</Button> : null}</footer>
+      <footer className="git-operation-dialog-actions"><Button variant="secondary" disabled={locked || loading} onClick={() => void load()}>{text('重新载入', 'Reload')}</Button></footer>
     </GitOperationDialog>;
 }
 
