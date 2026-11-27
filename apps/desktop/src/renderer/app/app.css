@@ -25,6 +25,10 @@ body,
   --ag-card-radius: 10px;
   --ag-control-radius: 5px;
   --ag-tool-size: 26px;
+  --ag-rail-width: 40px;
+  --ag-rail-button-size: 28px;
+  --ag-rail-gap: 5px;
+  --ag-rail-padding-block: 6px;
   --ag-modal-backdrop: rgb(0 0 0 / 10%);
 }
 
@@ -91,7 +95,7 @@ body {
 }
 .gitapp-code-review > header { display: flex; align-items: center; gap: 7px; flex: 0 0 42px; padding: 0 12px; }
 .gitapp-code-review > header > button { margin-left: auto; display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 5px; background: transparent; color: var(--ag-muted); cursor: pointer; }
-.gitapp-code-review button:focus-visible, .gitapp-titlebar-actions > button:focus-visible, .gitapp-update-trigger:focus-visible { outline: 2px solid var(--ag-focus); outline-offset: 1px; }
+.gitapp-code-review button:focus-visible, .gitapp-titlebar-actions > button:focus-visible { outline: 2px solid var(--ag-focus); outline-offset: 1px; }
 .gitapp-review-scroll { display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .gitapp-review-controls { flex: none; padding: 12px; }
 .gitapp-review-result { flex: 1 0 auto; overflow-wrap: anywhere; }
@@ -150,7 +154,7 @@ body {
 
 .gitapp-layout {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-columns: var(--ag-rail-width) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   overflow: hidden;
@@ -172,8 +176,8 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  padding: 6px 4px;
+  gap: var(--ag-rail-gap);
+  padding: var(--ag-rail-padding-block) 4px;
   background: var(--ag-bg);
   box-sizing: border-box;
 }
@@ -181,9 +185,9 @@ body {
 .gitapp-activity-rail > button {
   display: grid;
   place-items: center;
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
+  flex: 0 0 var(--ag-rail-button-size);
+  width: var(--ag-rail-button-size);
+  height: var(--ag-rail-button-size);
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -218,8 +222,26 @@ body {
   cursor: default;
 }
 
-.gitapp-activity-rail > .gitapp-rail-settings {
-  margin-top: auto;
+.gitapp-activity-rail > :is(.gitapp-rail-update, .gitapp-rail-settings) {
+  margin-block-start: auto;
+}
+
+.gitapp-activity-rail > .gitapp-rail-update + .gitapp-rail-settings {
+  margin-block-start: 0;
+}
+
+.gitapp-activity-rail > .gitapp-rail-update[data-update-available='true'] {
+  background: var(--ag-brand-selected);
+  color: var(--ag-brand-ink);
+}
+
+.gitapp-activity-rail > .gitapp-rail-update[data-update-phase='ready'] {
+  background: var(--ag-accent);
+  color: var(--ag-panel);
+}
+
+.gitapp-activity-rail > .gitapp-rail-update[data-update-phase='ready']:hover {
+  background: color-mix(in srgb, var(--ag-accent) 90%, black);
 }
 
 .gitapp-list-page {
@@ -647,26 +669,6 @@ body {
   box-sizing: border-box;
 }
 
-.gitapp-update-trigger {
-  min-width: 0;
-  height: var(--ag-tool-size);
-  margin-left: auto;
-  padding: 0 8px;
-  overflow: hidden;
-  border: 1px solid var(--ag-brand-edge);
-  border-radius: var(--ag-control-radius);
-  background: var(--ag-brand-selected);
-  color: var(--ag-brand-ink);
-  font: 12px system-ui;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-}
-.gitapp-update-trigger:hover:not(:disabled) { border-color: var(--ag-accent); }
-.gitapp-update-trigger[data-update-phase='ready'] { color: #fff; background: var(--ag-accent); border-color: var(--ag-accent); }
-.gitapp-update-trigger[data-update-phase='ready']:hover:not(:disabled) { background: color-mix(in srgb, var(--ag-accent) 90%, black); }
-.gitapp-update-trigger:disabled { opacity: .55; cursor: default; }
 .gitapp-update-settings > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--zeus-space-4); }
 .gitapp-update-settings > header span { color: var(--ag-muted); font-size: var(--zeus-type-size-control); }
 .gitapp-release-notes {
@@ -693,13 +695,6 @@ body {
 .gitapp-update-progress-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; color: var(--ag-muted); font-size: 12px; }
 .gitapp-update-progress-summary span:last-child { font-variant-numeric: tabular-nums; }
 .gitapp-update-settings footer { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-.gitapp-update-dialog { width: min(520px, 80vw); padding: 22px; border: 1px solid #dce0e9; border-radius: 14px; color: #253048; box-shadow: 0 20px 70px #17213a40; font: 13px/1.65 system-ui; }
-.gitapp-update-dialog::backdrop { background: var(--ag-modal-backdrop); }
-.gitapp-update-dialog header { display: flex; align-items: center; justify-content: space-between; }
-.gitapp-update-dialog h2 { margin: 0; font-size: 18px; }
-.gitapp-update-dialog footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
-.gitapp-update-dialog button { border: 1px solid #dce0e9; border-radius: 7px; padding: 7px 12px; font: inherit; cursor: pointer; background: #fff; color: inherit; }
-.gitapp-update-dialog button:disabled { opacity: .5; cursor: default; }
 
 .gitapp-workbench-header {
   display: grid;

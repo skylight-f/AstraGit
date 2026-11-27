@@ -43,7 +43,7 @@
 - 保留键盘焦点可见性。选择控件用与行为匹配的 ARIA 状态，菜单和弹窗检查 `Tab`、方向键及 `Esc` 的相应行为。关闭弹窗后将焦点归还给合适的触发位置。
 - 加载、刷新与提交使用就地状态，保留用户当前的工作上下文。浮层入场和退场复用 `MotionPresence`，动效时长沿用 `--zeus-motion-*`，遵循 `prefers-reduced-motion`。关闭中的界面立即停止接收交互。[MotionPresence](../apps/desktop/src/renderer/ui/MotionPresence.tsx) · [交互样式](../apps/desktop/src/renderer/ui/primitives.css)
 - 推送开始后，在原「推送」按钮位置提供「中止推送」。状态区显示当前仓库和进度。中止期间显示「正在中止…」并防止重复请求，结果保留已执行项并标记未执行项。[推送弹窗](../apps/desktop/src/renderer/features/git/repository/GitRepositoryControls.tsx)
-- 标题栏的「查看更新」进入应用更新设置，优先展示新版说明。更新与重启操作由设置页中的独立按钮触发。[应用更新设置](../apps/desktop/src/renderer/features/updates/ApplicationUpdateSettings.tsx)
+- 左下角活动栏的「应用更新」在设置按钮上方，更新就绪时以品牌蓝标示。更新弹窗在活动栏右侧靠下打开，顶部居中显示应用图标和版本，长发布说明在正文内滚动，底部保留当前状态和操作。只有就绪状态提供重启确认。[应用更新弹窗](../apps/desktop/src/renderer/features/updates/ApplicationUpdateDialog.tsx)
 - macOS 原生辅助窗口沿用系统控件、系统字体和语义色，状态文本和操作名称与主界面保持一致。[原生更新进度窗口](../apps/desktop/native/UpdateProgressPanel.swift)
 
 ## 布局与文案

@@ -6,23 +6,32 @@ import { extractReleaseNotes, releasePageUrl, releaseRepository } from '@astragi
 
 const bundledNotes = import.meta.glob<string>('../../../../../../releases/v*.md', { eager: true, query: '?raw', import: 'default' });
 
-export function ApplicationReleaseNotes({ version, zh, upcoming = false, markdown }: { version: string; zh: boolean; upcoming?: boolean; markdown?: string }) {
+export function ApplicationReleaseNotes({ version, zh, upcoming = false, markdown, inDialog = false }: {
+  version: string;
+  zh: boolean;
+  upcoming?: boolean;
+  markdown?: string;
+  inDialog?: boolean;
+}) {
   const file = bundledNotes[`../../../../../../releases/v${version}.md`];
   const notes = (file ? extractReleaseNotes(file) : '') || markdown;
   const title = upcoming ? (zh ? '新版更新内容' : 'New version release notes') : (zh ? '更新内容' : 'Release notes');
   const url = `${releasePageUrl}/tag/v${version}`;
+  const empty = upcoming
+    ? (zh ? '可在发布页查看此版本的完整说明。' : 'See the release page for this version’s full notes.')
+    : (zh ? '此版本暂无内置发布说明。' : 'No release notes were bundled for this version.');
   return <section className="gitapp-release-notes" aria-label={title}>
-    <header>
+    {!inDialog ? <header>
       <h4>{title}</h4>
       <span className="gitapp-release-notes-version">v{version}</span>
       <a href={url} target="_blank" rel="noreferrer">
         {zh ? '查看发布页' : 'View release'} <ArrowSquareOut size={14} aria-hidden="true" />
       </a>
-    </header>
+    </header> : null}
     {notes ? <div className="gitapp-release-notes-body">{renderNotes(notes, url)}</div> :
-      <p className="gitapp-release-notes-empty">{upcoming
-        ? (zh ? '可在发布页查看此版本的完整说明。' : 'See the release page for this version’s full notes.')
-        : (zh ? '此版本暂无内置发布说明。' : 'No release notes were bundled for this version.')}</p>}
+      <p className="gitapp-release-notes-empty">{upcoming && inDialog ? <a href={url} target="_blank" rel="noreferrer">
+        {zh ? '查看此版本的发布说明' : 'View notes for this release'}
+      </a> : empty}</p>}
   </section>;
 }
 

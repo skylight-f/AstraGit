@@ -3,7 +3,7 @@ import { Button } from '../../ui/Button.js';
 import { ApplicationReleaseNotes } from './ApplicationReleaseNotes.js';
 import { applicationUpdateLabel, canPrepareApplicationUpdate, hasApplicationUpdate, type ApplicationUpdates } from './useApplicationUpdates.js';
 
-export function ApplicationUpdateSettings(props: { zh: boolean; update: ApplicationUpdates; disabled: boolean }) {
+export function ApplicationUpdateSettings(props: { zh: boolean; update: ApplicationUpdates; disabled: boolean; onInspect: () => void }) {
   const { zh, update } = props;
   const text = (cn: string, en: string) => zh ? cn : en;
   const state = update.state;
@@ -49,9 +49,11 @@ export function ApplicationUpdateSettings(props: { zh: boolean; update: Applicat
       {props.disabled ? <p>{text('当前 Git 操作结束后可检查或安装更新。', 'Finish the current Git operation before checking or installing updates.')}</p> : null}
       <footer>
         <Button variant="secondary" busy={update.busy === 'check'} disabled={locked || downloading} onClick={() => void update.perform('check')}>{text('检查更新', 'Check for updates')}</Button>
-        {state?.phase === 'ready' ? <Button variant="primary" disabled={locked} onClick={() => void update.perform('restart')}>{homebrew ? text('重启生效', 'Restart to update') : text('重启并更新', 'Restart and update')}</Button>
+        {state?.phase === 'ready' ? <Button variant="primary" disabled={locked} aria-haspopup="dialog" onClick={props.onInspect}>{homebrew ? text('重启生效', 'Restart to update') : text('重启并更新', 'Restart and update')}</Button>
           : canPrepareApplicationUpdate(state) ? <Button variant="primary" disabled={locked} onClick={() => void update.perform('prepare')}>{homebrew ? text('更新', 'Update') : text('后台下载更新', 'Download in background')}</Button> : null}
-        {hasUpdate || state?.phase === 'failed' ? <Button variant="secondary" disabled={locked} onClick={() => void update.openDetails()}>{state?.phase === 'manual' || state?.phase === 'downloaded' ? text('查看安装方式', 'Installation options') : text('更新详情', 'Update details')}</Button> : null}
+        {state?.phase !== 'ready' && state?.currentVersion ? <Button variant="secondary" aria-haspopup="dialog" onClick={props.onInspect}>
+          {hasUpdate || state.phase === 'failed' ? text('更新详情', 'Update details') : text('版本说明', 'Release notes')}
+        </Button> : null}
       </footer>
       {upcomingVersion && state?.currentVersion ? <ApplicationReleaseNotes version={state.currentVersion} zh={zh} /> : null}
     </>}

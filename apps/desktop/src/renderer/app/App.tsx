@@ -17,10 +17,12 @@ import { ProjectGitWorkbench } from '../features/git/workbench/ProjectGitWorkben
 import { useGitCommitModels } from '../features/models/useGitCommitModels.js';
 import { Settings, type SettingsSection } from '../features/settings/Settings.js';
 import { useApplicationUpdates } from '../features/updates/useApplicationUpdates.js';
+import { ApplicationUpdateDialog } from '../features/updates/ApplicationUpdateDialog.js';
 import { readAutoFetchPreference, readLanguagePreference, resolveApplicationLanguage, saveAutoFetchPreference, saveLanguagePreference, type LanguagePreference } from '../features/settings/applicationPreferences.js';
 import { ReleaseUpdateButton } from '../features/updates/ReleaseUpdateButton.js';
 import { Button } from '../ui/Button.js';
 import { MenuSurface } from '../ui/MenuSurface.js';
+import { MotionPresence } from '../ui/MotionPresence.js';
 import { ApplicationErrorDialogHost, reportApplicationError, useApplicationErrorDialog } from '../ui/ApplicationErrorDialog.js';
 import { readProjectNavigation, resolveProjectWorkspaceTabs, selectProjectTab, writeProjectNavigation, writeProjectWorkspaceTabs, type ProjectGitTab, type ProjectNavigation } from '../features/projects/projectWorkspacePersistence.js';
 import { useRepositorySetup } from '../features/projects/useRepositorySetup.js';
@@ -242,7 +244,10 @@ export function App(props: AppProps) {
     if (project) await openProject(project);
   });
   const repositorySetupKind = repositorySetup.job?.kind ?? repositorySetup.draft?.kind ?? 'clone';
-  const applicationUpdates = useApplicationUpdates(language, sourceBatchBusy || repositorySetup.busy);
+  const updateDisabled = sourceBatchBusy || repositorySetup.busy;
+  const applicationUpdates = useApplicationUpdates(language, updateDisabled);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const inspectUpdate = () => setUpdateDialogOpen(true);
 
   const endTabDrag = () => {
     const drag = tabDrag.current;
@@ -433,7 +438,6 @@ export function App(props: AppProps) {
               AstraGit
               {props.development ? <span className="gitapp-titlebar-development">Development</span> : null}
             </strong>
-            <ReleaseUpdateButton zh={zh} update={applicationUpdates} onInspect={() => openSettings('updates')} />
           </div>
           <WorkspaceSearch client={props.client} projects={sortedProjects} project={activeProject} zh={zh} mac={props.customTitlebar === true} disabled={sourceBatchBusy || repositorySetup.busy} onNavigate={navigateSearch} />
           <div className="gitapp-titlebar-actions"><button ref={reviewButton} type="button" disabled={!activeProject || settingsOpen} aria-label={zh ? '代码评审' : 'Code review'} title={zh ? '代码评审' : 'Code review'} aria-expanded={reviewVisible} aria-controls="gitapp-code-review" onClick={() => { setReviewVisited(true); setReviewOpen(value => !value); }}><ShieldCheck size={19} /><span>{zh ? '评审' : 'Review'}</span></button></div>
@@ -446,6 +450,7 @@ export function App(props: AppProps) {
           <button type="button" aria-label={zh ? '分支视图' : 'Branch view'} title={zh ? '分支' : 'Branch'} aria-current={!settingsOpen && inWorkbench && !commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectTab(navigation.branchTab === 'stash' ? 'log' : navigation.branchTab)}>
             <GitBranch size={18} aria-hidden="true" />
           </button>
+          <ReleaseUpdateButton zh={zh} update={applicationUpdates} open={updateDialogOpen} onInspect={inspectUpdate} />
           <button type="button" className="gitapp-rail-settings" aria-label={zh ? '设置' : 'Settings'} title={zh ? '设置' : 'Settings'} aria-current={settingsOpen ? 'page' : undefined} onClick={() => { if (settingsOpen) setSettingsOpen(false); else openSettings(); }}>
             <GearSix size={18} aria-hidden="true" />
           </button>
@@ -644,10 +649,11 @@ export function App(props: AppProps) {
       </div>
       {reviewVisible ? <GitPaneSeparator name="review-main" label={zh ? '调整代码评审宽度' : 'Resize code review'} initial={reviewSplit.initial} min={reviewBounds.min} max={reviewBounds.max} /> : null}
       {reviewVisited && activeProject ? <CodeReviewPanel key={activeProject.id} client={props.client} project={activeProject} zh={zh} active={reviewVisible} modelSettingsRevision={modelSettingsRevision} onSettings={() => openSettings('models')} onClose={() => { setReviewOpen(false); reviewButton.current?.focus(); }} onNavigate={navigateSearch} /> : null}
-      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} autoFetchEnabled={autoFetchEnabled} onAutoFetchChange={changeAutoFetch} onModelsChanged={modelSettingsChanged} section={settingsSection} onSectionChange={setSettingsSection} update={applicationUpdates} updateDisabled={sourceBatchBusy || repositorySetup.busy} /> : null}
+      {settingsOpen ? <Settings client={props.client} language={language} languagePreference={languagePreference} onLanguageChange={changeLanguage} autoFetchEnabled={autoFetchEnabled} onAutoFetchChange={changeAutoFetch} onModelsChanged={modelSettingsChanged} section={settingsSection} onSectionChange={setSettingsSection} update={applicationUpdates} updateDisabled={updateDisabled} onInspectUpdate={inspectUpdate} /> : null}
       </div>
       </div>
       </div>
+      <MotionPresence>{updateDialogOpen ? <ApplicationUpdateDialog zh={zh} update={applicationUpdates} disabled={updateDisabled} onDismiss={() => setUpdateDialogOpen(false)} /> : null}</MotionPresence>
       <ApplicationErrorDialogHost language={zh ? 'zh-CN' : 'en'} />
     </>
   );
