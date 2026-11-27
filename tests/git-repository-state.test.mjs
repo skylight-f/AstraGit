@@ -8,7 +8,7 @@ import test from 'node:test';
 import { executeProjectGitAction, getGitRepositoryContext, getGitStatus, getGitWorktreeClean } from '../packages/git-core/dist/index.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
 import { describeUserFacingError } from '../packages/shared/src/userFacingError.ts';
 
 const exec = promisify(execFile);

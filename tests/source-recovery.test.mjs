@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { batchDraftScope, batchSummaryId, clearDraftsOnBatchCommit, loadCommitDrafts, repositoryDraftScope, sourceReviewMessages } from '../apps/desktop/src/renderer/git/useGitCommitDrafts.ts';
-import { readSourceGitState } from '../apps/desktop/src/renderer/git/sourceGitState.ts';
-import { runSourceBatch } from '../apps/desktop/src/renderer/git/sourceGitBatch.ts';
+import { batchDraftScope, batchSummaryId, clearDraftsOnBatchCommit, loadCommitDrafts, repositoryDraftScope, sourceReviewMessages } from '../apps/desktop/src/renderer/features/git/commits/useGitCommitDrafts.ts';
+import { readSourceGitState } from '../apps/desktop/src/renderer/features/git/changes/sourceGitState.ts';
+import { runSourceBatch } from '../apps/desktop/src/renderer/features/git/changes/sourceGitBatch.ts';
 
 test('project review reuses the active draft for blank repositories and keeps independent drafts', () => {
   const units = ['child', 'design', 'root'].map(id => ({

@@ -8,7 +8,7 @@ import test from 'node:test';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
 import { parseReviewReport } from '../packages/git-server/dist/gitCodeReview.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
 
 const execute = promisify(execFile);
 const validReport = { summary: 'Review summary', impacts: ['Public API behavior changes.'], findings: [], checks: ['Run integration tests.'] };

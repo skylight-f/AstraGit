@@ -8,8 +8,8 @@ import test from 'node:test';
 import { executeProjectGitAction, getProjectGitCommitReplayPreview, getProjectGitRepositorySnapshot, parseGitCommitReplayInput } from '../packages/git-core/dist/index.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
-import { buildWorkspaceGitCommandRequest } from '../apps/desktop/src/renderer/features/git/workspaceGitCommandClient.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
+import { buildWorkspaceGitCommandRequest } from '../apps/desktop/src/renderer/features/git/api/workspaceGitCommandClient.ts';
 
 process.env.GIT_CONFIG_GLOBAL = '/dev/null'; process.env.GIT_CONFIG_NOSYSTEM = '1'; process.env.LC_ALL = 'C';
 const exec = promisify(execFile);

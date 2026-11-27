@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyConflictRawEdits, conflictModelText, conflictRawOffsetAt, conflictRawPositionAt, ConflictRawTextHistory } from '../apps/desktop/src/renderer/git/conflictRawText.ts';
+import { applyConflictRawEdits, conflictModelText, conflictRawOffsetAt, conflictRawPositionAt, ConflictRawTextHistory } from '../apps/desktop/src/renderer/features/git/conflicts/conflictRawText.ts';
 
 const edit = (startLineNumber, startColumn, endLineNumber, endColumn, text) => ({ range: { startLineNumber, startColumn, endLineNumber, endColumn }, text });
 const fullEdit = (previous, text) => {

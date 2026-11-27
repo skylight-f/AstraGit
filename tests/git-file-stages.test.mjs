@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { gitFileStagePaths, stagingCheckboxState } from '../apps/desktop/src/renderer/git/gitFileStages.ts';
+import { gitFileStagePaths, stagingCheckboxState } from '../apps/desktop/src/renderer/features/git/changes/gitFileStages.ts';
 
 const file = (path, status, category = 'modified') => ({ path, indexStatus: status[0], workingTreeStatus: status[1], category });
 

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { gitConflictMessage, gitFailureCode, gitFailureContext, gitFailureText, gitPostActionRefreshError } from '../apps/desktop/src/renderer/git/gitOperationFeedback.ts';
+import { gitConflictMessage, gitFailureCode, gitFailureContext, gitFailureText, gitPostActionRefreshError } from '../apps/desktop/src/renderer/features/git/workbench/gitOperationFeedback.ts';
 import { describeUserFacingError } from '../packages/shared/src/userFacingError.ts';
-import { AstraGitApiError, createLocalApiTransport } from '../apps/desktop/src/renderer/transport/localApiTransport.ts';
-import { createApplyStashConfirmation } from '../apps/desktop/src/renderer/git/applyStashConfirmation.ts';
+import { AstraGitApiError, createLocalApiTransport } from '../apps/desktop/src/renderer/api/localApiTransport.ts';
+import { createApplyStashConfirmation } from '../apps/desktop/src/renderer/features/git/workbench/applyStashConfirmation.ts';
 
 const connection = { baseUrl: 'http://127.0.0.1:43123', apiToken: 'feedback-fixture-token' };
 const conflictSnapshot = (extra = {}) => ({ branch: 'feature/local', detached: false, conflictFiles: ['src/first.ts', 'src/second.ts'], integrationState: 'merge', ...extra });

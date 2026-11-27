@@ -1,11 +1,11 @@
 import { createRoot } from 'react-dom/client';
-import { App } from './App.js';
-import { createDashboardClientLike } from './clientBootstrap.js';
-import type { RendererBootstrap } from './bootstrapTypes.js';
+import { App } from './app/App.js';
+import { createDashboardClientLike } from './api/clientBootstrap.js';
+import type { RendererBootstrap } from './app/bootstrapTypes.js';
 
-import './styles.css';
+import './styles/styles.css';
 import './ui/primitives.css';
-import './agentdesk-theme.css';
+import './styles/agentdesk-theme.css';
 
 async function main(): Promise<void> {
   const rootElement = document.getElementById('root');

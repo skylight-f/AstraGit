@@ -11,6 +11,23 @@
 - 右上角 **设置 → 通用 → 界面语言** 支持跟随系统、简体中文和 English，立即生效并记住选择；模型配置位于 **设置 → AI 模型**。
 - `pnpm build:app` 构建独立的 macOS `AstraGit.app`；`main` 推送触发自动发行，应用内提供更新检查、下载与安装。
 
+## 源码目录
+
+`apps/desktop/src/main/` 管理 Electron 窗口、原生能力和更新，`preload/` 提供窗口桥接，`renderer/` 实现桌面界面。Git 执行、服务、存储、AI 运行时及跨进程共享契约分别由 `packages/` 下的工作区包维护。
+
+桌面界面从 `renderer/main.tsx` 启动，其余文件按使用范围归入下列目录。
+
+| 目录（相对于 `renderer/`） | 放置内容 |
+| --- | --- |
+| `app/` | 应用外壳、工作区布局和启动类型 |
+| `api/` | 本机 HTTP 传输、客户端组装和公共接口类型 |
+| `ui/` | 与业务无关的按钮、选择器、弹窗、菜单及其交互逻辑 |
+| `styles/` | 全局样式、品牌和主题 |
+| `features/` | 按功能组织的界面，如 `projects/`、`search/`、`models/` 和 `code-review/`。功能专用的组件、状态、样式和图片放在一起 |
+| `features/git/` | 按 Git 操作归类，如 `changes/` 放工作区变更与暂存，`history/` 放历史与提交重放，`conflicts/` 放冲突编辑器。工作台在 `workbench/`，Git 专用共享控件在 `components/`，请求与契约在 `api/` |
+
+组件先放在使用它的功能目录。例如，分支删除选择器与分支管理弹窗同放在 `features/git/branches/`。多个 Git 功能共用且含有 Git 语义的控件放在 `features/git/components/`，如文件状态图标。跨功能使用、通过属性和回调即可工作的基础控件放在 `ui/`，如 `Button` 和 `FormDialog`。业务界面可以组合这些基础控件，`ui/` 不引用业务页面。
+
 ## 开发
 
 需要 Node.js 24、pnpm 10，以及本机 Git。使用 Codex 订阅模型时，需要另行安装可用的 Codex CLI。

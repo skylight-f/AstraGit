@@ -9,7 +9,7 @@ import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
 import { resolveCliSearchPath } from '../packages/ai-runtime/dist/index.js';
 import { gitBranchNameIssue } from '../packages/shared/dist/index.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
 
 const execute = promisify(execFile);
 

@@ -8,8 +8,8 @@ import test from 'node:test';
 import { buildGitPatchExport, getGitDiff, getProjectGitRepositorySnapshot, getProjectGitCommitDetail, getProjectGitComparisonDiff, readSelectedGitCommitChanges, parseGitUnifiedDiff } from '../packages/git-core/dist/index.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
-import { gitDiffFileVersions, gitDiffUnavailableMessage } from '../apps/desktop/src/renderer/git/gitDiffFeedback.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
+import { gitDiffFileVersions, gitDiffUnavailableMessage } from '../apps/desktop/src/renderer/features/git/diff/gitDiffFeedback.ts';
 import { gitDiffReader, gitDisplayDiffOptions, readGitDisplayDiff } from '../packages/git-core/dist/gitDiffReader.js';
 
 const exec = promisify(execFile);

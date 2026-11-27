@@ -9,8 +9,8 @@ import { tmpdir } from 'node:os';
 import { executeProjectGitAction, getProjectGitPatchExport, getProjectGitPatchPreview } from '../packages/git-core/dist/index.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
-import { buildWorkspaceGitCommandRequest } from '../apps/desktop/src/renderer/features/git/workspaceGitCommandClient.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
+import { buildWorkspaceGitCommandRequest } from '../apps/desktop/src/renderer/features/git/api/workspaceGitCommandClient.ts';
 import { createPatchFileAccess } from '../apps/desktop/src/main/patchFileAccess.ts';
 
 const exec = promisify(execFile);

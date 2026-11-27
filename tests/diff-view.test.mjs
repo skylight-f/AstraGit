@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { alignedDiffRows, replacementHighlight } from '../apps/desktop/src/renderer/git/gitDiffRows.ts';
+import { alignedDiffRows, replacementHighlight } from '../apps/desktop/src/renderer/features/git/diff/gitDiffRows.ts';
 
 test('aligned replacements retain original content and authoritative line numbers with unequal block lengths', () => {
   const hunk = { lines: [

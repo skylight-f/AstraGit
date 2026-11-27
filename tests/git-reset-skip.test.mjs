@@ -8,10 +8,10 @@ import test from 'node:test';
 import { executeProjectGitAction, getProjectGitRepositorySnapshot, getProjectGitResetPreview, getProjectGitSkipPreview } from '../packages/git-core/dist/index.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
 import { describeUserFacingError } from '../packages/shared/src/index.ts';
-import { gitRevisionActionNeedsReview } from '../apps/desktop/src/renderer/git/GitRevisionActionDialog.tsx';
-import { gitConflictMessage } from '../apps/desktop/src/renderer/git/gitOperationFeedback.ts';
+import { gitRevisionActionNeedsReview } from '../apps/desktop/src/renderer/features/git/history/GitRevisionActionDialog.tsx';
+import { gitConflictMessage } from '../apps/desktop/src/renderer/features/git/workbench/gitOperationFeedback.ts';
 import { readGitWritePreview } from '../packages/git-core/dist/gitDestructivePreview.js';
 
 const exec = promisify(execFile);

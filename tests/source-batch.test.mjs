@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { executeProjectGitAction, getProjectGitRepositorySnapshot, getProjectGitSubmodules, parseGitUnifiedDiff, readSelectedGitCommitChanges, validateProjectGitPushTarget } from '../packages/git-core/dist/index.js';
-import { buildSourceCommitUnits, stagedCommitUnits } from '../apps/desktop/src/renderer/git/sourceGitState.ts';
-import { branchPushTarget, createPushDraft } from '../apps/desktop/src/renderer/git/pushTarget.ts';
-import { pushSourceResult, runSourceBatch, validateSourceReview } from '../apps/desktop/src/renderer/git/sourceGitBatch.ts';
+import { buildSourceCommitUnits, stagedCommitUnits } from '../apps/desktop/src/renderer/features/git/changes/sourceGitState.ts';
+import { branchPushTarget, createPushDraft } from '../apps/desktop/src/renderer/features/git/repository/pushTarget.ts';
+import { pushSourceResult, runSourceBatch, validateSourceReview } from '../apps/desktop/src/renderer/features/git/changes/sourceGitBatch.ts';
 
 const exec = promisify(execFile);
 const gitAt = cwd => async (...args) => (await exec('git', args, { cwd })).stdout.trim();

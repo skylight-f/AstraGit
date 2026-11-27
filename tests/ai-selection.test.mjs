@@ -1,5 +1,5 @@
-import { generateStagedCommitDrafts } from '../apps/desktop/src/renderer/git/generateStagedCommitDrafts.ts';
-import { repositoryDraftScope } from '../apps/desktop/src/renderer/git/useGitCommitDrafts.ts';
+import { generateStagedCommitDrafts } from '../apps/desktop/src/renderer/features/git/commits/generateStagedCommitDrafts.ts';
+import { repositoryDraftScope } from '../apps/desktop/src/renderer/features/git/commits/useGitCommitDrafts.ts';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -9,8 +9,8 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
-import { loadGitCommitModelOptions, saveDisabledCodexModels } from '../apps/desktop/src/renderer/git/gitCommitModels.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
+import { loadGitCommitModelOptions, saveDisabledCodexModels } from '../apps/desktop/src/renderer/features/models/gitCommitModels.ts';
 
 const execute = promisify(execFile);
 test('disabled Codex models are filtered and an unavailable remembered model falls back', async t => {
@@ -138,7 +138,7 @@ test('daily commit usage keeps reported zero distinct from unknown and includes 
   assert.equal(reportedGenerationTokens({ input_tokens: 70, output_tokens: 8, cache_read_input_tokens: 20, cache_creation_input_tokens: 10 }, 'anthropic_messages'), 108);
   assert.equal(reportedGenerationTokens({ totalTokens: 0, inputTokens: 2, outputTokens: 1 }, 'codex'), 0);
   assert.equal(reportedGenerationTokens({ prompt_tokens: 200 }, 'openai_completions'), null);
-  const { usageCalendarDays } = await import('../apps/desktop/src/renderer/CommitUsageCalendar.tsx');
+  const { usageCalendarDays } = await import('../apps/desktop/src/renderer/features/usage/CommitUsageCalendar.tsx');
   const year = usageCalendarDays(new Date(2024, 11, 1));
   assert.equal(year[0].day, '2023-12-02');
   assert.equal(year.at(-1).day, '2024-12-01');

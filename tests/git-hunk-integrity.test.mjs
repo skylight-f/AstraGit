@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { executeProjectGitAction, getProjectGitRepositorySnapshot, getProjectGitCommitDetail, getProjectGitComparisonDiff, parseGitUnifiedDiff } from '../packages/git-core/dist/index.js';
-import { buildGitHunkPatch } from '../apps/desktop/src/renderer/git/gitHunkPatch.ts';
+import { buildGitHunkPatch } from '../apps/desktop/src/renderer/features/git/diff/gitHunkPatch.ts';
 
 const exec = promisify(execFile);
 async function fixture(t, files = { 'file.txt': 'start\nold\n' }) {

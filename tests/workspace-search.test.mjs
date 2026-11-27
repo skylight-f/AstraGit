@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { searchWorkspace, searchDestinationAvailable } from '../apps/desktop/src/renderer/workspaceSearchState.ts';
+import { searchWorkspace, searchDestinationAvailable } from '../apps/desktop/src/renderer/features/search/workspaceSearchState.ts';
 
 const projects = [{ id: 'project', name: '示例项目', localPath: '/code/工作区' }, { id: 'other', name: 'AstraGit', localPath: '/code/AstraGit' }];
 const file = (path, indexStatus = ' ', workingTreeStatus = 'M') => ({ path, indexStatus, workingTreeStatus, category: 'modified' });

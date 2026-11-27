@@ -8,9 +8,30 @@ import test from 'node:test';
 import { executeProjectGitAction, getProjectGitRepositorySnapshot, getProjectGitHistory } from '../packages/git-core/dist/index.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
 import { describeUserFacingError, splitGitRemoteBranch } from '../packages/shared/src/index.ts';
-import { branchActionNeedsReview } from '../apps/desktop/src/renderer/git/GitBranchManagementDialog.tsx';
+import { branchActionNeedsReview, reviewRemoteBranchOptions } from '../apps/desktop/src/renderer/features/git/branches/GitBranchManagementDialog.tsx';
+
+test('batch remote deletion binds each selectable branch to its own reviewed commit and push destinations', () => {
+  const remotes = ['team', 'team/mirror', 'unconfigured'];
+  const first = 'team/feature/fix';
+  const second = 'team/mirror/feature/fix';
+  const heads = { [first]: '1'.repeat(40), [second]: '2'.repeat(40), 'unconfigured/main': '3'.repeat(40) };
+  const details = [
+    { name: 'team', pushFingerprint: 'a'.repeat(64), pushUrls: ['team.git'] },
+    { name: 'team/mirror', pushFingerprint: 'b'.repeat(64), pushUrls: ['primary.git', 'mirror.git'] },
+    { name: 'unconfigured', pushUrls: [] },
+  ];
+  const options = reviewRemoteBranchOptions({ remotes, remoteDetails: details, remoteBranchHeads: heads,
+    remoteBranches: [first, second, 'team/missing-head', 'unconfigured/main'] });
+  assert.deepEqual([...options.keys()], [first, second]);
+  for (const [index, ref] of [first, second].entries()) {
+    assert.deepEqual(options.get(ref), { name: ref, pushUrls: details[index].pushUrls, action: {
+      type: 'delete_remote_branch', remote: remotes[index], branchName: 'feature/fix',
+      expectedTargetHeadSha: heads[ref], expectedRemotePushFingerprint: details[index].pushFingerprint,
+    } });
+  }
+});
 
 const exec = promisify(execFile);
 const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', LC_ALL: 'C' };

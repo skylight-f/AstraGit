@@ -24,7 +24,7 @@ import { startSystemProxyBridge, type SystemProxyBridge } from './systemProxyBri
 import { installSystemProxyEnvironment, type InstalledSystemProxyEnvironment } from './systemProxyEnvironment.js';
 
 // Electron 的 ESM 命名空间会枚举全部懒加载 API；只读取实际使用项，避免初始化未使用的 safeStorage。
-const { app, BrowserWindow, dialog, ipcMain, nativeImage, net, powerMonitor, session, shell } = createRequire(import.meta.url)('electron') as typeof import('electron');
+const { app, BrowserWindow, dialog, ipcMain, nativeImage, net, powerMonitor, screen, session, shell } = createRequire(import.meta.url)('electron') as typeof import('electron');
 configureChromiumStorage(app.commandLine);
 
 let mainWindow: ElectronBrowserWindow | null = null;
@@ -277,6 +277,37 @@ async function loadMainWindow(): Promise<void> {
   });
   const window = mainWindow;
   window.once('closed', () => { if (mainWindow === window) mainWindow = null; });
+
+  let expanded: { originalWidth: number; width: number } | null = null;
+  let reviewOpen = false;
+  const canResize = () => !window.isFullScreen() && !window.isMaximized() && !window.isMinimized() && !(isWindows && window.isSnapped());
+  const restoreReviewWidth = () => {
+    if (reviewOpen || !expanded || !canResize()) return;
+    const bounds = window.getBounds();
+    // A user resize takes precedence over the pre-review width.
+    if (bounds.width === expanded.width) window.setBounds({ ...bounds, width: expanded.originalWidth });
+    expanded = null;
+  };
+  window.on('leave-full-screen', restoreReviewWidth);
+  window.on('unmaximize', restoreReviewWidth);
+  window.on('restore', restoreReviewWidth);
+  window.webContents.ipc.handle('astragit:review-window-width', (event, width: unknown) => {
+    if (event.senderFrame !== window.webContents.mainFrame || typeof width !== 'number' || !Number.isFinite(width) || width < 0) return 0;
+    reviewOpen = width > 0;
+    if (!reviewOpen) { restoreReviewWidth(); return 0; }
+    if (!canResize()) return 0;
+    const zoom = window.webContents.getZoomFactor();
+    const bounds = window.getBounds();
+    if (expanded) return bounds.width === expanded.width ? (expanded.width - expanded.originalWidth) / zoom : 0;
+    const { workArea } = screen.getDisplayMatching(bounds);
+    const room = workArea.x + workArea.width - (bounds.x + bounds.width);
+    const growth = Math.min(Math.round(width * zoom), room);
+    if (growth <= 0) return 0;
+    window.setBounds({ ...bounds, width: bounds.width + growth });
+    const actualWidth = window.getBounds().width;
+    expanded = { originalWidth: bounds.width, width: actualWidth };
+    return Math.max(0, actualWidth - bounds.width) / zoom;
+  });
 
   // 必须在加载页面前注册 IPC，避免渲染层首屏 invoke 早于 handler。
   ipcMain.removeHandler('astragit:get-bootstrap');

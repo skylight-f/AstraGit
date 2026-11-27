@@ -6,13 +6,13 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { executeProjectGitAction, getProjectGitLineDiff, parseGitLineChange } from '../packages/git-core/dist/index.js';
-import { alignedDiffRows } from '../apps/desktop/src/renderer/git/gitDiffRows.ts';
-import { selectGitFilePaths } from '../apps/desktop/src/renderer/git/gitFileSelection.ts';
+import { alignedDiffRows } from '../apps/desktop/src/renderer/features/git/diff/gitDiffRows.ts';
+import { selectGitFilePaths } from '../apps/desktop/src/renderer/features/git/changes/gitFileSelection.ts';
 import { prepareGitLineChanges } from '../packages/git-core/src/gitLineOperations.ts';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
-import { buildWorkspaceGitCommandRequest } from '../apps/desktop/src/renderer/features/git/workspaceGitCommandClient.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
+import { buildWorkspaceGitCommandRequest } from '../apps/desktop/src/renderer/features/git/api/workspaceGitCommandClient.ts';
 
 const exec = promisify(execFile);
 async function fixture(t, files = { 'file.txt': 'start\noldA\noldB\nend\n' }, unborn = false) {

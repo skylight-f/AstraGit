@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { pruneGitFileSelection, selectGitFilePaths } from '../apps/desktop/src/renderer/git/gitFileSelection.ts';
+import { pruneGitFileSelection, selectGitFilePaths } from '../apps/desktop/src/renderer/features/git/changes/gitFileSelection.ts';
 
 const files = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts'];
 const select = input => selectGitFilePaths({ orderedPaths: files, selectedPaths: [], anchor: null, clickedPath: 'c.ts', ...input });

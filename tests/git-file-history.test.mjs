@@ -9,7 +9,7 @@ import { getProjectGitTrackedFiles, getProjectGitFileHistory, getProjectGitFileR
 import { readFileHistory, readFileRevision } from '../packages/git-core/dist/gitFileHistory.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
 const exec = promisify(execFile);
 const env = { ...process.env, LC_ALL: 'C', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));

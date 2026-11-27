@@ -13,7 +13,7 @@ import { RepositorySetupService } from '../packages/git-server/dist/repositorySe
 import { ProjectStore } from '../packages/git-server/dist/projectStore.js';
 import { setupGitRepository } from '../packages/git-core/dist/index.js';
 import { gitRemoteAddressIssue } from '../packages/shared/src/repositorySetup.ts';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
 
 const exec = promisify(execFile);
 const git = async (cwd, ...args) => (await exec('git', args, { cwd, env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_DIR: undefined, GIT_WORK_TREE: undefined } })).stdout.trim();

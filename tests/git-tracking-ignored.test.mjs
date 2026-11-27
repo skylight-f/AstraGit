@@ -6,11 +6,11 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { executeProjectGitAction, getProjectGitStopTrackingPreview, getProjectGitIgnoredFiles, getProjectGitFileLocation } from '../packages/git-core/dist/index.js';
-import { gitTrackingNeedsReview } from '../apps/desktop/src/renderer/git/GitStopTrackingDialog.tsx';
+import { gitTrackingNeedsReview } from '../apps/desktop/src/renderer/features/git/files/GitStopTrackingDialog.tsx';
 import { createRepositoryFileLauncher } from '../apps/desktop/src/main/repositoryFileLauncher.ts';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
 import { describeUserFacingError } from '../packages/shared/src/index.ts';
 
 const exec = promisify(execFile);

@@ -10,6 +10,7 @@ const bootstrap = {
 contextBridge.exposeInMainWorld('astraGit', {
   getBootstrap: bootstrap.getBootstrap,
   chooseDirectory: bootstrap.chooseDirectory,
+  setReviewWindowWidth: (width: number) => ipcRenderer.invoke('astragit:review-window-width', width) as Promise<number>,
   choosePatchFile: () => ipcRenderer.invoke('astragit:patch-file-read'),
   savePatchFile: (request: { data: string; sha256: string; suggestedName: string }) => ipcRenderer.invoke('astragit:patch-file-save', request),
   saveSourceArchive: (request: unknown) => ipcRenderer.invoke('astragit:archive-file-save', request),

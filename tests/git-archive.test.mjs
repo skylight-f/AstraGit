@@ -13,7 +13,7 @@ import { parseGitArchiveInput, getProjectGitArchivePreview, writeProjectGitArchi
 import { writeGitArchive } from '../packages/git-core/dist/gitArchive.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
 import { createArchiveFileAccess } from '../apps/desktop/src/main/archiveFileAccess.ts';
 
 const exec = promisify(execFile);

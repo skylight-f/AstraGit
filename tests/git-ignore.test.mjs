@@ -8,9 +8,9 @@ import test from 'node:test';
 import { executeProjectGitAction, getProjectGitIgnorePreview, getProjectGitRepositorySnapshot } from '../packages/git-core/dist/index.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
-import { gitIgnorePatterns } from '../apps/desktop/src/renderer/git/gitIgnorePatterns.ts';
-import { gitIgnoreNeedsReview } from '../apps/desktop/src/renderer/git/GitIgnoreDialog.tsx';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
+import { gitIgnorePatterns } from '../apps/desktop/src/renderer/features/git/files/gitIgnorePatterns.ts';
+import { gitIgnoreNeedsReview } from '../apps/desktop/src/renderer/features/git/files/GitIgnoreDialog.tsx';
 
 const exec = promisify(execFile);
 const baseEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', LC_ALL: 'C' };

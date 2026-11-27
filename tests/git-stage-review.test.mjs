@@ -8,9 +8,9 @@ import test from 'node:test';
 import { executeProjectGitAction, getProjectGitStagePreview, parseGitLargeFileReview, parseGitStagePreviewInput } from '../packages/git-core/dist/index.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
-import { buildWorkspaceGitCommandRequest } from '../apps/desktop/src/renderer/features/git/workspaceGitCommandClient.ts';
-import { readGitLargeFilePreferences, saveGitLargeFilePreferences } from '../apps/desktop/src/renderer/git/gitLargeFilePreferences.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
+import { buildWorkspaceGitCommandRequest } from '../apps/desktop/src/renderer/features/git/api/workspaceGitCommandClient.ts';
+import { readGitLargeFilePreferences, saveGitLargeFilePreferences } from '../apps/desktop/src/renderer/features/git/files/gitLargeFilePreferences.ts';
 
 const exec = promisify(execFile); const MiB = 1024 ** 2;
 async function fixture(t) {

@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { commitPushTarget, commitThenPush } from '../apps/desktop/src/renderer/git/commitThenPush.ts';
-import { branchPushTarget, changePushDestination, createPushDraft } from '../apps/desktop/src/renderer/git/pushTarget.ts';
+import { commitPushTarget, commitThenPush } from '../apps/desktop/src/renderer/features/git/commits/commitThenPush.ts';
+import { branchPushTarget, changePushDestination, createPushDraft } from '../apps/desktop/src/renderer/features/git/repository/pushTarget.ts';
 import { executeProjectGitAction, getProjectGitRepositorySnapshot } from '../packages/git-core/dist/index.js';
 
 test('commit push target publishes the local branch name, using the same remote defaults as standalone push', () => {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createGitTemplateDraftGuard } from '../apps/desktop/src/renderer/git/gitTemplateDraftGuard.ts';
+import { createGitTemplateDraftGuard } from '../apps/desktop/src/renderer/features/git/commits/gitTemplateDraftGuard.ts';
 
 test('a delayed default template cannot replace typing even when the user clears back to the original empty value', () => {
   const draft = createGitTemplateDraftGuard(''); const request = draft.ticket();

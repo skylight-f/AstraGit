@@ -8,8 +8,8 @@ import test from 'node:test';
 import { executeProjectGitAction, getProjectGitFlowState, getProjectGitFlowPreview, parseGitFlowChange } from '../packages/git-core/dist/index.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
-import { createDashboardClientLike } from '../apps/desktop/src/renderer/clientBootstrap.ts';
-import { buildWorkspaceGitCommandRequest } from '../apps/desktop/src/renderer/features/git/workspaceGitCommandClient.ts';
+import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
+import { buildWorkspaceGitCommandRequest } from '../apps/desktop/src/renderer/features/git/api/workspaceGitCommandClient.ts';
 import { repositoryGitFlowDirectory, resolveGitFlowTool, verifyBundledGitFlow } from '../packages/git-core/dist/gitFlowTool.js';
 import { readGitFlowState, previewGitFlow } from '../packages/git-core/dist/gitFlowOperations.js';
 
