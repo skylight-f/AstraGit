@@ -1,4 +1,4 @@
-import type { DashboardClient, GitCommitSelectionPreview } from '../../../api/apiClient.js';
+import type { DashboardClient, GitCommitOptions, GitCommitSelectionPreview } from '../../../api/apiClient.js';
 import type { SourceBatchResult, SourceCommitUnit } from './sourceGitState.js';
 import { gitFailureText } from '../workbench/gitOperationFeedback.js';
 
@@ -26,6 +26,7 @@ export async function validateSourceReview(client: BatchClient, projectId: strin
 /** 每仓库独立提交；先完成子模块，再提交父仓库引用。已完成提交只重试推送。 */
 export async function runSourceBatch(input: {
   client: BatchClient; projectId: string; rows: SourceReviewRow[]; push: boolean;
+  options?: GitCommitOptions;
   stopped: () => boolean; onResults: (results: SourceBatchResult[]) => void;
   onActive: (repositoryId: string | null) => void; onCommitted: (row: SourceReviewRow) => void;
 }) {
@@ -68,7 +69,7 @@ export async function runSourceBatch(input: {
           fingerprint = preview.repositories[0]?.fingerprint;
         }
         if (!fingerprint) throw new Error('提交内容无法核对，请重新预览。');
-        const result = await client.executeProjectGitAction(projectId, row.repositoryId, { type: 'commit', paths: row.paths, selectionMode: row.mode, message: row.message, expectedFingerprint: fingerprint, expectedHeadSha: row.expectedHead, expectedBranch: row.branch });
+        const result = await client.executeProjectGitAction(projectId, row.repositoryId, { type: 'commit', paths: row.paths, selectionMode: row.mode, message: row.message, ...(input.options ? { options: input.options } : {}), expectedFingerprint: fingerprint, expectedHeadSha: row.expectedHead, expectedBranch: row.branch });
         if (result.result.outcome !== 'completed' || !result.result.headSha) throw new Error('无法确认提交已完成，请核对仓库状态。');
         update(row.repositoryId, { status: 'committed', commitSha: result.result.headSha }); input.onCommitted(row);
       } catch (error) {

@@ -11,7 +11,8 @@ import { GitBranch } from '@phosphor-icons/react/dist/csr/GitBranch';
 import { GitCommit } from '@phosphor-icons/react/dist/csr/GitCommit';
 import { Plus } from '@phosphor-icons/react/dist/csr/Plus';
 import { X } from '@phosphor-icons/react/dist/csr/X';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { desktopGitMenuCommands, type DesktopGitMenuCommand, type DesktopMenuCommand } from '@astragit/shared';
 import type { DashboardClient, GitAppProject, ProjectRecord } from '../api/apiClient.js';
 import { ProjectGitWorkbench } from '../features/git/workbench/ProjectGitWorkbench.js';
 import { useGitCommitModels } from '../features/models/useGitCommitModels.js';
@@ -53,6 +54,10 @@ type ProjectTabDragLayout = { sourceIndex: number; targets: Array<{ id: string; 
 
 const reviewSplit = { initial: 68, min: 40, max: 78 };
 const minimumReviewWidth = 280 + 6; // Panel and separator.
+
+function toolbarMenuButton(host: HTMLElement | null, command: DesktopGitMenuCommand): HTMLButtonElement | null | undefined {
+  return host?.querySelector<HTMLButtonElement>(`button[data-desktop-menu-command="${command}"]:not(:disabled)`);
+}
 
 function projectTabDropTarget(nav: HTMLElement, layout: ProjectTabDragLayout, x: number, y: number): ProjectTabDropTarget | null {
   const bounds = nav.getBoundingClientRect();
@@ -428,6 +433,58 @@ export function App(props: AppProps) {
     }
     setSettingsOpen(false);
   }
+
+  const canManageProjects = !updateDisabled && !openingLocalProject;
+  const activeSlotId = slots.find(slot => slot.projectId === activeProject?.id)?.id;
+  const canCloseProject = canManageProjects && Boolean(activeSlotId) && slots.length > 1 && inWorkbench && !settingsOpen;
+  const canRunGitMenu = inWorkbench && !settingsOpen && !viewSwitchDisabled;
+  const canReview = Boolean(activeProject) && !settingsOpen;
+  const onDesktopMenuCommand = useEffectEvent((command: DesktopMenuCommand) => {
+    if (document.querySelector('[aria-modal="true"], dialog[open]')) return;
+    switch (command) {
+      case 'settings': openSettings(); break;
+      case 'updates': openSettings('updates'); break;
+      case 'open-local-project': if (canManageProjects) void openLocalProject(); break;
+      case 'project-list':
+        if (canManageProjects) { setProjectAddMode(null); setProjectAddMenuOpen(false); setSettingsOpen(false); setShowList(true); }
+        break;
+      case 'close-project': if (canCloseProject && activeSlotId) closeSlot(activeSlotId); break;
+      case 'source': case 'changes': showProjectTab(command); break;
+      case 'history': showProjectTab('log'); break;
+      case 'review': if (canReview) reviewButton.current?.click(); break;
+      case 'search': {
+        const input = document.querySelector<HTMLInputElement>('.gitapp-titlebar input[type="search"]:not(:disabled)');
+        input?.focus(); input?.select();
+        break;
+      }
+      default:
+        if (canRunGitMenu) toolbarMenuButton(gitCommandHost, command)?.click();
+    }
+  });
+  useEffect(() => window.astraGit?.onDesktopMenuCommand?.(onDesktopMenuCommand), []);
+  useEffect(() => {
+    const send = window.astraGit?.setDesktopMenuState;
+    if (!send) return;
+    let previous = '';
+    const sync = () => {
+      const enabled: DesktopMenuCommand[] = ['settings', 'updates'];
+      if (canManageProjects) enabled.push('open-local-project', 'project-list');
+      if (canCloseProject) enabled.push('close-project');
+      if (!viewSwitchDisabled) enabled.push('source', 'changes', 'history');
+      if (!updateDisabled) enabled.push('search');
+      if (canReview) enabled.push('review');
+      if (canRunGitMenu) enabled.push(...desktopGitMenuCommands.filter(command => toolbarMenuButton(gitCommandHost, command)));
+      const next = enabled.join(',');
+      if (next === previous) return;
+      previous = next;
+      void send({ enabled, language }).catch(() => {});
+    };
+    sync();
+    if (!gitCommandHost || !canRunGitMenu) return;
+    const observer = new MutationObserver(sync);
+    observer.observe(gitCommandHost, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
+    return () => observer.disconnect();
+  }, [language, canManageProjects, canCloseProject, canRunGitMenu, canReview, gitCommandHost, updateDisabled, viewSwitchDisabled]);
 
   return (
     <>

@@ -388,16 +388,7 @@
   border-color: color-mix(in srgb, var(--zeus-control-accent) 88%, black);
 }
 .source-git-actions > .source-git-primary:focus-visible { outline-offset: 2px; }
-.source-git-options { margin-inline-end:auto; font-size:10px; }
-.source-git-options-trigger { display:inline-flex; align-items:center; gap:4px; border:0; background:transparent; color:var(--zeus-product-muted); padding:5px 2px; }
-.source-git-options-trigger svg { width:10px; height:10px; }
-/* 锚定操作行上沿，下面的提示换行也不会让浮层盖住开关按钮。 */
-.source-git-options-panel { position:absolute; bottom:calc(100% + 8px); left:0; right:0; z-index:5; display:grid; gap:10px; padding:12px; border:1px solid var(--zeus-product-line); border-radius:8px; background:var(--zeus-control-bg,#fff); box-shadow:0 8px 28px #18203b26; max-height:55vh; overflow:auto; font-size:11px; }
-.source-git-options-panel > header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.source-git-options-panel > header button { border:1px solid var(--zeus-control-border); border-radius:5px; background:var(--zeus-control-bg); padding:3px 7px; }
-.source-git-options-panel > label { display:grid; gap:5px; }
-.source-git-options-panel > .source-git-parent-option { display:flex; align-items:center; gap:6px; }
-.source-git-options-panel > small { color:var(--zeus-product-muted); line-height:1.5; }
+.source-git-options { margin-inline-end:auto; }
 .source-git-draft-repository { font-size:11px; color:var(--zeus-product-muted); }
 .source-git-draft-repository label { display:flex; align-items:center; gap:6px; }
 .source-git-draft-repository .zeus-form-select { flex:1; }

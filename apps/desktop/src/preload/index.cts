@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { HomebrewUpdateIndicatorState } from '@astragit/shared';
+import type { DesktopMenuCommand, DesktopMenuState, HomebrewUpdateIndicatorState } from '@astragit/shared';
 
 const bootstrap = {
   getBootstrap: () => ipcRenderer.invoke('astragit:get-bootstrap') as Promise<{ baseUrl: string; apiToken: string; language: 'zh-CN' | 'en-US'; customTitlebar?: boolean; development?: boolean } | null>,
@@ -20,6 +20,14 @@ contextBridge.exposeInMainWorld('astraGit', {
   openUpdates: (language: 'zh-CN' | 'en-US') => ipcRenderer.invoke('astragit:update-open', language),
   performUpdateAction: (action: 'check' | 'prepare' | 'restart', language: 'zh-CN' | 'en-US') => ipcRenderer.invoke('astragit:update-action', action, language),
   getUpdateIndicator: () => ipcRenderer.invoke('astragit:update-indicator-get'),
+  ...(process.platform === 'darwin' ? {
+    setDesktopMenuState: (state: DesktopMenuState) => ipcRenderer.invoke('astragit:desktop-menu-state', state) as Promise<void>,
+    onDesktopMenuCommand: (listener: (command: DesktopMenuCommand) => void) => {
+      const callback = (_event: Electron.IpcRendererEvent, command: DesktopMenuCommand) => listener(command);
+      ipcRenderer.on('astragit:desktop-menu-command', callback);
+      return () => ipcRenderer.removeListener('astragit:desktop-menu-command', callback);
+    },
+  } : {}),
   onUpdateIndicator: (listener: (state: HomebrewUpdateIndicatorState) => void) => {
     const callback = (_event: Electron.IpcRendererEvent, state: HomebrewUpdateIndicatorState) => listener(state);
     ipcRenderer.on('astragit:update-indicator', callback);

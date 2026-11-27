@@ -14,7 +14,7 @@ import { generateStagedCommitDrafts } from '../commits/generateStagedCommitDraft
 import type { SourceCommitUnit } from '../changes/sourceGitState.js';
 import type { SourceCommitCommands } from '../changes/ProjectSourceChanges.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { GitHistorySearchCommit, GitHistorySearchField, GitStagePreview, ProjectGitAction, ProjectGitActionResponse, ProjectGitCommitDetail, ProjectGitRepositorySnapshot, ProjectGitRepositoryWorkbenchItem, ProjectGitWorkbenchSnapshot } from '../../../api/apiClient.js';
+import type { GitCommitOptions, GitHistorySearchCommit, GitHistorySearchField, GitStagePreview, ProjectGitAction, ProjectGitActionResponse, ProjectGitCommitDetail, ProjectGitRepositorySnapshot, ProjectGitRepositoryWorkbenchItem, ProjectGitWorkbenchSnapshot } from '../../../api/apiClient.js';
 import { reportApplicationError, type ApplicationErrorOptions } from '../../../ui/ApplicationErrorDialog.js';
 import type { GitInteractiveRebaseRequest } from '../history/GitInteractiveRebaseDialog.js';
 import type { GitBranchManagementRequest } from '../branches/GitBranchManagementDialog.js';
@@ -75,8 +75,8 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const [pullOpen, setPullOpen] = useState(false);
   const [stashRepositoryId, setStashRepositoryId] = useState<string | null>(null);
   const operationsTriggerRef = useRef<HTMLButtonElement>(null);
-  const [commitOpen, setCommitOpen] = useState(false);
-  const [amendRepository, setAmendRepository] = useState<ProjectGitRepositoryWorkbenchItem | null>(null);
+  const [commitDialogOptions, setCommitDialogOptions] = useState<GitCommitOptions | null>(null);
+  const [amendRequest, setAmendRequest] = useState<{ repository: ProjectGitRepositoryWorkbenchItem; options?: GitCommitOptions } | null>(null);
   const [amendStepRepository, setAmendStepRepository] = useState<ProjectGitRepositoryWorkbenchItem | null>(null);
   const [interactiveRebase, setInteractiveRebase] = useState<GitInteractiveRebaseRequest | null>(null);
   const [externalToolRequest, setExternalToolRequest] = useState<GitExternalToolRequest | null>(null);
@@ -107,7 +107,10 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const [tagRequest, setTagRequest] = useState<GitTagManagementRequest | null>(null);
   const [fileHistoryRequest, setFileHistoryRequest] = useState<GitFileHistoryRequest | null>(null);
   const [stopTrackingRequest, setStopTrackingRequest] = useState<GitStopTrackingRequest | null>(null);
-  const openAmend = (repository: ProjectGitRepositoryWorkbenchItem) => setAmendRepository(currentSnapshot.current?.repositories.find(item => item.id === repository.id) ?? repository);
+  const openAmend = (repository: ProjectGitRepositoryWorkbenchItem, options?: GitCommitOptions) => setAmendRequest({
+    repository: currentSnapshot.current?.repositories.find(item => item.id === repository.id) ?? repository,
+    options,
+  });
   const [commitRequest, setCommitRequest] = useState(0);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mergeOptions, setMergeOptions] = useState<{ repository: ProjectGitRepositoryWorkbenchItem; source: string } | null>(null);
@@ -364,7 +367,7 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       setSubtree(null);
       setFileQuery('');
       setSelectedCommit(null);
-      setCommitOpen(false);
+      setCommitDialogOptions(null);
       setTab('changes');
       setSelectedFilePath(target.kind === 'file' ? target.path : '');
       setSelectedFileStage(target.kind === 'file' ? target.stage : 'unstaged');
@@ -504,7 +507,7 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         if (stagePreviewController.current === stagingController) stagePreviewController.current = null;
       }
       const response = commitPush && action.type === 'commit'
-        ? await commitThenPush({ snapshot: repository.snapshot, message: action.message, target: commitPush.target,
+        ? await commitThenPush({ snapshot: repository.snapshot, message: action.message, options: action.options, target: commitPush.target,
           execute: next => props.client.executeProjectGitAction(projectId, repository.id, next),
           onCommitted: committed => { committedHead = committed.result.headSha; commitPush.onCommitted(); },
           onPushing: next => { failureAction = next; setBusy({ repositoryId: repository.id, action: 'push' }); },
@@ -551,7 +554,7 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       const closeOperationDialogs = () => {
         setNewBranchOpen(false); setRevisionOpen(false); setRemoteCheckoutTarget(null);
         setPullOpen(false); setPushOpen(false); setPushResults([]); setMergeOpen(false); setMergeOptions(null); setUpdateOpen(false);
-        setMenuConfirmation(null); setStashRepositoryId(null); setCommitOpen(false); setAmendRepository(null); setBranchManagement(null); setRevisionAction(null); setIgnoreRequest(null); setStopTrackingRequest(null); setInteractiveRebase(null); setAmendStepRepository(null); setFlowRequest(null); setReplayRequest(null); setReplaySeriesRequest(null);
+        setMenuConfirmation(null); setStashRepositoryId(null); setCommitDialogOptions(null); setAmendRequest(null); setBranchManagement(null); setRevisionAction(null); setIgnoreRequest(null); setStopTrackingRequest(null); setInteractiveRebase(null); setAmendStepRepository(null); setFlowRequest(null); setReplayRequest(null); setReplaySeriesRequest(null);
       };
       const reviewFiles = () => {
         const latest = currentSnapshot.current?.repositories.find((item) => item.id === repository.id);
@@ -1000,12 +1003,12 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     return { outcome, error };
   }
 
-  function commitAndPush(repository: ProjectGitRepositoryWorkbenchItem, message: string, target: CommitPushTarget, onCommitted: () => void): Promise<ExecutionOutcome> {
-    return executeConfirmed(repository, { type: 'commit', message }, zh ? '提交并推送' : 'Commit and push', undefined, { target, onCommitted });
+  function commitAndPush(repository: ProjectGitRepositoryWorkbenchItem, message: string, target: CommitPushTarget, onCommitted: () => void, options: GitCommitOptions): Promise<ExecutionOutcome> {
+    return executeConfirmed(repository, { type: 'commit', message, options }, zh ? '提交并推送' : 'Commit and push', undefined, { target, onCommitted });
   }
 
-  function openCommitDialog(): void {
-    if (!generatingCommitRef.current) setCommitOpen(true);
+  function openCommitDialog(options: GitCommitOptions): void {
+    if (!generatingCommitRef.current) setCommitDialogOptions(options);
   }
 
   function stopCommitGeneration(): void {
@@ -1075,13 +1078,13 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       stopCommitGeneration,
     },
     dialogs: {
-      amendRepository, amendStepRepository, archiveRequest, branchManagement, commitOpen,
+      amendRequest, amendStepRepository, archiveRequest, branchManagement, commitDialogOptions,
       diffWindowRequest, externalToolRequest, fileHistoryRequest, flowRequest, ignoreRequest,
       interactiveRebase, lfsRequest, mergeOpen, mergeOptions, newBranchBase, newBranchOpen, openAmend,
       openDiffWindow, openPush, operationsOpen, operationsTriggerRef, patchRequest, pullOpen, pushOpen,
       remoteCheckoutRepository, remoteCheckoutTarget, replayRequest, replaySeriesRequest, revisionAction,
-      revisionOpen, setAmendRepository, setAmendStepRepository, setArchiveRequest, setBranchManagement,
-      setCommitOpen, setDiffWindowRequest, setExternalToolRequest, setFileHistoryRequest, setFlowRequest,
+      revisionOpen, setAmendRequest, setAmendStepRepository, setArchiveRequest, setBranchManagement,
+      setCommitDialogOptions, setDiffWindowRequest, setExternalToolRequest, setFileHistoryRequest, setFlowRequest,
       setIgnoreRequest, setInteractiveRebase, setLfsRequest, setMergeOpen, setMergeOptions,
       setNewBranchBase, setNewBranchOpen, setOperationsOpen, setPatchRequest, setPullOpen, setPushOpen,
       setRemoteCheckoutTarget, setReplayRequest, setReplaySeriesRequest, setRevisionAction,

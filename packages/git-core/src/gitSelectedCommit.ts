@@ -2,6 +2,7 @@ import { copyFile, mkdtemp, open, rename, rm, symlink, writeFile } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readSelectedCommitFingerprint, type GitCommitSelectionMode } from './gitCommitSelectionContext.js';
+import { gitCommitOptionArgs, type GitCommitOptions } from './gitCommitOptions.js';
 
 type Output = { stdout: string; stderr: string };
 type Runner = (args: string[], options?: { index?: string; input?: string }) => Promise<Output>;
@@ -9,7 +10,7 @@ type Runner = (args: string[], options?: { index?: string; input?: string }) => 
 /** 冻结所选内容后提交；成功时只更新真实索引中的所选路径。 */
 export async function commitSelectedPaths(cwd: string, input: {
   paths: string[]; selected: string[]; mode: GitCommitSelectionMode; message: string;
-  headSha: string; expectedFingerprint?: string;
+  headSha: string; expectedFingerprint?: string; options?: GitCommitOptions;
 }, run: Runner): Promise<Output> {
   const indexPath = (await run(['rev-parse', '--path-format=absolute', '--git-path', 'index'])).stdout.trim();
   const directory = await mkdtemp(join(tmpdir(), 'astragit-selected-commit-'));
@@ -61,7 +62,7 @@ if (diff.stdout.split('\\0').filter(Boolean).some(path => !allowed.has(path))) {
         await writeFile(join(hooks, name), `#!/bin/sh\nexec git -c core.hooksPath=${forShell(originalHooks)} hook run --ignore-missing ${quote(name)} -- "$@"\n`, { mode: 0o700 });
       } else await symlink(join(originalHooks, name), join(hooks, name));
     }
-    const output = await run(['-c', `core.hooksPath=${hooks}`, 'commit', '-m', input.message], { index });
+    const output = await run(['-c', `core.hooksPath=${hooks}`, 'commit', ...gitCommitOptionArgs(input.options), '-m', input.message], { index });
     // 保留未勾选的索引条目；工作区在冻结之后产生的修改继续留在工作区。
     try {
       await copyFile(indexPath, lockPath);

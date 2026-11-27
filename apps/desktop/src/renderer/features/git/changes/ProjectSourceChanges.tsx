@@ -4,7 +4,7 @@ import { CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
 import { GitFileViewSelect } from './GitFileViewSelect.js';
 import { Archive } from '@phosphor-icons/react/dist/csr/Archive';
-import type { DashboardClient, GitDiffSummary, ProjectGitAction, ProjectGitWorkbenchSnapshot, ProjectGitRepositorySnapshot, ProjectGitRepositoryWorkbenchItem, ProjectRecord } from '../../../api/apiClient.js';
+import type { DashboardClient, GitCommitOptions, GitDiffSummary, ProjectGitAction, ProjectGitWorkbenchSnapshot, ProjectGitRepositorySnapshot, ProjectGitRepositoryWorkbenchItem, ProjectRecord } from '../../../api/apiClient.js';
 import { GitCommitAiControls } from '../commits/GitCommitAiControls.js';
 import type { GitCommitModelState } from '../../models/useGitCommitModels.js';
 import { ProjectGitDiffWindow, SideBySideDiff } from '../diff/ProjectGitDiffViewer.js';
@@ -20,7 +20,7 @@ import { navigateGitFileRows } from './gitFileSelection.js';
 import { fileStagingState } from './gitFileStages.js';
 import { createPushDraft } from '../repository/pushTarget.js';
 import { SourceCommitReview, type SourceReviewDraft } from './SourceCommitReview.js';
-import { SourceCommitOptions } from './SourceCommitOptions.js';
+import { CommitOptionToggle, GitCommitOptionsMenu } from '../commits/GitCommitOptionsMenu.js';
 import { SourceRepositoryControls } from './SourceRepositoryControls.js';
 import { GitOperationStopButton } from '../components/GitOperationProgress.js';
 import { GitPaneSeparator, workspacePaneReferenceWidth } from '../components/GitPaneSeparator.js';
@@ -58,6 +58,7 @@ export function ProjectSourceChanges(props: {
   onGenerate: (units: SourceCommitUnit[], summary?: boolean) => Promise<void>;
   onStopGeneration: () => void;
   onStageAction: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, title: string) => Promise<ExecutionOutcome>;
+  onAmend: (repository: ProjectGitRepositoryWorkbenchItem, options: GitCommitOptions) => void;
   onCommandTargetChange: (target: { repositoryId: string | undefined; locked: boolean }) => void;
 }) {
   const { client, project, active, onBusyChange } = props;
@@ -104,7 +105,9 @@ export function ProjectSourceChanges(props: {
   const generating = props.generatingFor !== null;
   const updateParents = state.updateParents;
   const [summary, setEditingSummary] = useState(false);
-  const [review, setReview] = useState<{ rows: SourceReviewDraft[]; units: SourceCommitUnit[]; push: boolean; preferredRepositoryId?: string } | null>(null);
+  const [commitOptions, setCommitOptions] = useState<GitCommitOptions>({});
+  useEffect(() => { setCommitOptions({}); }, [project.id]);
+  const [review, setReview] = useState<{ rows: SourceReviewDraft[]; units: SourceCommitUnit[]; push: boolean; options: GitCommitOptions; preferredRepositoryId?: string } | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewError, setReviewError] = useState('');
   const [diff, setDiff] = useState<GitDiffSummary | null>(null);
@@ -254,7 +257,7 @@ export function ProjectSourceChanges(props: {
       });
       if (!rows.length) throw new Error(label('所选文件已无更改，请重新选择。', 'Selected files have no remaining changes.'));
       if (stale) setReviewError(label('填写说明后暂存内容已变化，请检查本次说明与文件列表后再确认。', 'Staged content changed after this message was written. Review the message and file list.'));
-      setReview({ rows, units: currentUnits, push, preferredRepositoryId });
+      setReview({ rows, units: currentUnits, push, options: commitOptions, preferredRepositoryId });
     } catch (reason) { setError(gitFailureText(reason)); }
     finally { setReviewBusy(false); }
   }
@@ -270,8 +273,9 @@ export function ProjectSourceChanges(props: {
         if (!saved.trim()) commitMessages.write(row.repositoryId, row.message, repositoryDraftScope(row.snapshot, row.gitlinks), saved);
       }
       busyRef.current = true; setBatchAction(review.push ? 'commit-push' : 'commit'); onBusyChange(true); stopped.current = false; setReview(null);
+      setCommitOptions({});
       batchStarted = true;
-      await runSourceBatch({ client, projectId: project.id, rows, push: review.push, stopped: () => stopped.current,
+      await runSourceBatch({ client, projectId: project.id, rows, push: review.push, options: review.options, stopped: () => stopped.current,
         onActive: id => { activeRepository.current = id; }, onResults: lastResults => update({ lastResults }),
         onCommitted: clearDraftsOnBatchCommit(review.units, rows, commitMessages),
       });
@@ -523,11 +527,17 @@ export function ProjectSourceChanges(props: {
           </div>
           <div className="source-git-count">{summary && <span>{label('批次摘要单独保存 · ', 'Batch summary saved separately · ')}</span>}{label('待提交', 'To commit')} {filesCount} {label('个文件', 'files')}{units.length > 1 ? ` · ${units.length} ${label('个仓库', 'repositories')}` : ''}</div>
           <div className="source-git-actions">
-            <SourceCommitOptions active={active} zh={zh}>
-              <label className="source-git-parent-option"><input type="checkbox" checked={state.stagedOnly} disabled={locked} onChange={event => update({ stagedOnly: event.target.checked })} />{label('只显示已暂存文件', 'Show staged files only')}</label>
-              <label className="source-git-parent-option"><input type="checkbox" checked={updateParents} disabled={locked} onChange={event => update({ updateParents: event.target.checked })} />{label('同时更新父仓库的子模块引用', 'Update parent submodule references')}</label>
-              <small>{label('勾选或取消勾选会更新 Git 暂存区。只提交已暂存的改动。', 'Checkboxes update the Git index. Only staged changes are committed.')}</small>
-            </SourceCommitOptions>
+            <GitCommitOptionsMenu className="source-git-options" zh={zh} repository={editor} disabled={locked || !active || !editor}
+              options={commitOptions} onChange={setCommitOptions} onAmend={(repository, options) => {
+                setCommitOptions({});
+                props.onAmend(repository, options);
+              }}>
+              <CommitOptionToggle checked={state.stagedOnly} onChange={() => update({ stagedOnly: !state.stagedOnly })}
+                title={label('勾选文件会更新 Git 暂存区，只提交已暂存的改动。', 'Selecting files updates the Git index. Commits use staged changes.')}>
+                {label('只显示已暂存文件', 'Show staged files only')}
+              </CommitOptionToggle>
+              <CommitOptionToggle checked={updateParents} onChange={() => update({ updateParents: !updateParents })}>{label('同时更新父仓库的子模块引用', 'Update parent submodule references')}</CommitOptionToggle>
+            </GitCommitOptionsMenu>
             {batchAction === 'commit-push' ? stopBatchButton : <button type="button" disabled={locked || !units.length} onClick={() => void prepare(true)}>{label('提交并推送…', 'Commit and push…')}</button>}
             {batchAction === 'commit' ? stopBatchButton : <button type="button" className="source-git-primary" disabled={locked || !units.length} onClick={() => void prepare(false)}>{label('提交…', 'Commit…')}</button>}
           </div>
@@ -596,7 +606,7 @@ export function ProjectSourceChanges(props: {
         items={stashMenuItems(stashMenuRepository, stashMenu.stash)} onClose={() => setStashMenu(null)} onError={reason => setError(gitFailureText(reason))} />
     ) : null}
     {stashConfirmation ? <GitMenuActionDialog value={stashConfirmation} zh={zh} onClose={() => setStashConfirmation(null)} /> : null}
-    {review ? <SourceCommitReview rows={review.rows} preferredRepositoryId={review.preferredRepositoryId} push={review.push} zh={zh} busy={reviewBusy} error={reviewError} onChange={(edited, patch) => {
+    {review ? <SourceCommitReview rows={review.rows} preferredRepositoryId={review.preferredRepositoryId} push={review.push} options={review.options} zh={zh} busy={reviewBusy} error={reviewError} onChange={(edited, patch) => {
       if (patch.message !== undefined) {
         for (const row of edited) commitMessages.write(row.repositoryId, patch.message, repositoryDraftScope(row.snapshot, row.gitlinks));
       }

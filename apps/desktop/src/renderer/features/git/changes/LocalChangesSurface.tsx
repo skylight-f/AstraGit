@@ -9,6 +9,7 @@ import type { BusyState } from '../workbench/gitWorkbenchTypes.js';
 import { repositoryDraftScope, type GitCommitDrafts } from '../commits/useGitCommitDrafts.js';
 import { commitPushTarget, type CommitPushTarget } from '../commits/commitThenPush.js';
 import { GitCommitAiControls } from '../commits/GitCommitAiControls.js';
+import { GitCommitOptionsMenu } from '../commits/GitCommitOptionsMenu.js';
 import type { GitCommitModelState } from '../../models/useGitCommitModels.js';
 import { GitPaneSeparator } from '../components/GitPaneSeparator.js';
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
@@ -16,7 +17,7 @@ import { CaretRightIcon as CaretRight } from '@phosphor-icons/react/dist/csr/Car
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/dist/csr/CheckCircle';
 import { FolderIcon as Folder } from '@phosphor-icons/react/dist/csr/Folder';
 import { GitFileViewSelect } from './GitFileViewSelect.js';
-import type { DashboardClient, ProjectGitAction, ProjectGitRepositorySnapshot, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
+import type { DashboardClient, GitCommitOptions, ProjectGitAction, ProjectGitRepositorySnapshot, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
 import { SelectableRow } from '../../../ui/SelectableRow.js';
 import { SideBySideDiff } from '../diff/ProjectGitDiffViewer.js';
@@ -49,8 +50,9 @@ export function LocalChangesSurface(props: {
   onExternalTool: (request: GitExternalToolRequest) => void;
   onConflictSaved: (repositoryId: string, path: string, result: { resolved: boolean; snapshot?: ProjectGitRepositorySnapshot }) => Promise<void>;
   onConfirmAction: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, title: string, description: string, danger: boolean) => void;
-  onCommit: () => void;
-  onCommitAndPush: (repository: ProjectGitRepositoryWorkbenchItem, message: string, target: CommitPushTarget, onCommitted: () => void) => Promise<ExecutionOutcome>;
+  onCommit: (options: GitCommitOptions) => void;
+  onAmend: (repository: ProjectGitRepositoryWorkbenchItem, options: GitCommitOptions) => void;
+  onCommitAndPush: (repository: ProjectGitRepositoryWorkbenchItem, message: string, target: CommitPushTarget, onCommitted: () => void, options: GitCommitOptions) => Promise<ExecutionOutcome>;
   commitMessages: GitCommitDrafts;
   commitModels: GitCommitModelState;
   onOpenModelSettings: () => void;
@@ -71,6 +73,7 @@ export function LocalChangesSurface(props: {
   });
   const [editingRepository, setEditingRepository] = useState<string | null>(null);
   const [pushSelection, setPushSelection] = useState<string | null>(null);
+  const [commitOptions, setCommitOptions] = useState<GitCommitOptions>({});
   const [fileSelection, setFileSelection] = useState<(GitFileSelection & { repositoryId: string; stage: ChangeStage }) | null>(null);
   const commitInputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -85,6 +88,7 @@ export function LocalChangesSurface(props: {
   const pushKey = repository && pushTarget ? JSON.stringify([repository.id, pushTarget]) : null;
   const pushAfterCommit = pushKey !== null && pushSelection === pushKey;
   useEffect(() => { setPushSelection(null); }, [repository?.id, repository?.snapshot.branch]);
+  useEffect(() => { setCommitOptions({}); }, [repository?.id, repository?.snapshot.branch, commitActive]);
   const conflicts = new Set(repository?.snapshot.conflictFiles ?? []);
   const selectedConflict = Boolean(repository && conflicts.has(props.selectedFilePath));
   const draft = repository && props.commitMessages.drafts[repository.id];
@@ -103,8 +107,8 @@ export function LocalChangesSurface(props: {
         setEditingRepository(null);
       };
       if (pushAfterCommit && pushTarget) {
-        await props.onCommitAndPush(repository, message.trim(), pushTarget, clearCommittedDraft);
-      } else if (await props.onExecute(repository, { type: 'commit', message: message.trim() }, props.zh ? '提交已暂存变更' : 'Commit staged changes') === 'completed') clearCommittedDraft();
+        await props.onCommitAndPush(repository, message.trim(), pushTarget, clearCommittedDraft, commitOptions);
+      } else if (await props.onExecute(repository, { type: 'commit', message: message.trim(), options: commitOptions }, props.zh ? '提交已暂存变更' : 'Commit staged changes') === 'completed') clearCommittedDraft();
     } finally {
       committingRef.current = false;
     }
@@ -295,6 +299,11 @@ export function LocalChangesSurface(props: {
               <div className="project-git-commit-message-heading">
                 <label htmlFor="project-git-commit-message">{props.zh ? '提交说明' : 'Commit message'}</label>
                 <div className="project-git-commit-generation-controls">
+                  <GitCommitOptionsMenu zh={props.zh} repository={repository} disabled={!repository || props.busy !== null || generating}
+                    options={commitOptions} onChange={setCommitOptions} onAmend={(target, options) => {
+                      setCommitOptions({});
+                      props.onAmend(target, options);
+                    }} />
                   <small className="project-git-commit-generation-feedback" role="status">{staleDraft ? (props.zh ? '提交范围已变化，可重新生成。' : 'Staged content changed. You can regenerate the message.') : props.generationFeedback}</small>
                   <GitCommitAiControls
                     zh={props.zh}
@@ -344,7 +353,7 @@ export function LocalChangesSurface(props: {
                 {pushAfterCommit ? (props.zh ? '提交并推送' : 'Commit and push') : props.zh ? '提交已暂存变更' : 'Commit staged changes'}
               </Button>
               {props.repositories.length > 1 ? (
-                <Button variant="secondary" onClick={props.onCommit} disabled={props.busy !== null || props.generatingCommitFor !== null}>
+                <Button variant="secondary" onClick={() => props.onCommit(commitOptions)} disabled={props.busy !== null || props.generatingCommitFor !== null}>
                   {props.zh ? '多仓库提交…' : 'Commit across repositories…'}
                 </Button>
               ) : null}

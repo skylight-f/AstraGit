@@ -1,0 +1,16 @@
+.git-commit-options-menu {
+  z-index: 110;
+}
+
+.git-commit-options-menu > button {
+  align-items: center;
+  gap: var(--zeus-space-3);
+}
+
+.git-commit-options-menu > button > svg {
+  color: var(--zeus-product-accent);
+}
+
+.git-commit-options-menu > button > [data-checked='false'] {
+  visibility: hidden;
+}

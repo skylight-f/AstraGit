@@ -77,13 +77,13 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       stopCommitGeneration,
     },
     dialogs: {
-      amendRepository, amendStepRepository, archiveRequest, branchManagement, commitOpen,
+      amendRequest, amendStepRepository, archiveRequest, branchManagement, commitDialogOptions,
       diffWindowRequest, externalToolRequest, fileHistoryRequest, flowRequest, ignoreRequest,
       interactiveRebase, lfsRequest, mergeOpen, mergeOptions, newBranchBase, newBranchOpen, openAmend,
       openDiffWindow, openPush, operationsOpen, operationsTriggerRef, patchRequest, pullOpen, pushOpen,
       remoteCheckoutRepository, remoteCheckoutTarget, replayRequest, replaySeriesRequest, revisionAction,
-      revisionOpen, setAmendRepository, setAmendStepRepository, setArchiveRequest, setBranchManagement,
-      setCommitOpen, setDiffWindowRequest, setExternalToolRequest, setFileHistoryRequest, setFlowRequest,
+      revisionOpen, setAmendRequest, setAmendStepRepository, setArchiveRequest, setBranchManagement,
+      setCommitDialogOptions, setDiffWindowRequest, setExternalToolRequest, setFileHistoryRequest, setFlowRequest,
       setIgnoreRequest, setInteractiveRebase, setLfsRequest, setMergeOpen, setMergeOptions,
       setNewBranchBase, setNewBranchOpen, setOperationsOpen, setPatchRequest, setPullOpen, setPushOpen,
       setRemoteCheckoutTarget, setReplayRequest, setReplaySeriesRequest, setRevisionAction,
@@ -140,22 +140,22 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const commandsDisabled = busy !== null || sourceLocked;
   const toolbar = (
     <header className="project-git-toolbar git-command-toolbar" aria-label={zh ? 'Git 工具栏' : 'Git toolbar'}>
-      <Button size="compact" variant="ghost" disabled={!selectedRepository || commandsDisabled} onClick={openToolbarCommit}>
+      <Button size="compact" variant="ghost" data-desktop-menu-command="commit" disabled={!selectedRepository || commandsDisabled} onClick={openToolbarCommit}>
         <GitCommit aria-hidden="true" />
         <span>{zh ? '提交' : 'Commit'}</span>
       </Button>
       <i />
-      <Button size="compact" variant="ghost" disabled={!selectedRepository || commandsDisabled || selectedRepository.snapshot.detached || !selectedRepository.snapshot.remotes.length} onClick={() => setPullOpen(true)}>
+      <Button size="compact" variant="ghost" data-desktop-menu-command="pull" disabled={!selectedRepository || commandsDisabled || selectedRepository.snapshot.detached || !selectedRepository.snapshot.remotes.length} onClick={() => setPullOpen(true)}>
         <ArrowDown aria-hidden="true" />
         <span>{zh ? '拉取' : 'Pull'}</span>
         {selectedRepository?.snapshot.behind ? <small>{selectedRepository.snapshot.behind}</small> : null}
       </Button>
-      <Button size="compact" variant="ghost" disabled={!selectedRepository || commandsDisabled || selectedRepository.snapshot.detached || !selectedRepository.snapshot.remotes.length} onClick={openPush}>
+      <Button size="compact" variant="ghost" data-desktop-menu-command="push" disabled={!selectedRepository || commandsDisabled || selectedRepository.snapshot.detached || !selectedRepository.snapshot.remotes.length} onClick={openPush}>
         <ArrowUp aria-hidden="true" />
         <span>{zh ? '推送' : 'Push'}</span>
         {selectedRepository?.snapshot.ahead ? <small>{selectedRepository.snapshot.ahead}</small> : null}
       </Button>
-      <Button size="compact" variant="ghost"
+      <Button size="compact" variant="ghost" data-desktop-menu-command="fetch"
 
         disabled={!selectedRepository || commandsDisabled || !selectedRepository.snapshot.remotes.length}
         onClick={() => {
@@ -166,7 +166,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         <span>{zh ? '抓取' : 'Fetch'}</span>
       </Button>
       <i />
-      <Button size="compact" variant="ghost"
+      <Button size="compact" variant="ghost" data-desktop-menu-command="branch"
 
         disabled={!selectedRepository || commandsDisabled}
         onClick={() => {
@@ -177,12 +177,12 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         <GitBranch aria-hidden="true" />
         <span>{zh ? '分支' : 'Branch'}</span>
       </Button>
-      <Button size="compact" variant="ghost" disabled={!selectedRepository || commandsDisabled || selectedRepository.snapshot.detached || Boolean(selectedRepository.snapshot.integrationState)} onClick={() => setMergeOpen(true)}>
+      <Button size="compact" variant="ghost" data-desktop-menu-command="merge" disabled={!selectedRepository || commandsDisabled || selectedRepository.snapshot.detached || Boolean(selectedRepository.snapshot.integrationState)} onClick={() => setMergeOpen(true)}>
         <GitMerge aria-hidden="true" />
         <span>{zh ? '合并' : 'Merge'}</span>
       </Button>
-      <Button size="compact" variant="ghost" disabled={!selectedRepository || commandsDisabled} onClick={() => selectedRepository && setTagRequest({ repository: selectedRepository })}><Tag aria-hidden="true" /><span>{zh ? '标签' : 'Tag'}</span></Button>
-      <Button size="compact" variant="ghost"
+      <Button size="compact" variant="ghost" data-desktop-menu-command="tag" disabled={!selectedRepository || commandsDisabled} onClick={() => selectedRepository && setTagRequest({ repository: selectedRepository })}><Tag aria-hidden="true" /><span>{zh ? '标签' : 'Tag'}</span></Button>
+      <Button size="compact" variant="ghost" data-desktop-menu-command="stash"
 
         disabled={!selectedRepository || commandsDisabled || selectedRepository.snapshot.clean || selectedRepository.snapshot.conflictFiles.length > 0}
         onClick={() => {
@@ -193,7 +193,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         <span>{zh ? '贮藏' : 'Stash'}</span>
       </Button>
       <span className="project-git-menu-anchor">
-        <Button size="compact" variant="ghost" ref={operationsTriggerRef} disabled={!selectedRepository || commandsDisabled} aria-haspopup="menu" aria-expanded={operationsOpen} onClick={() => setOperationsOpen((current) => !current)}>
+        <Button size="compact" variant="ghost" data-desktop-menu-command="git-actions" ref={operationsTriggerRef} disabled={!selectedRepository || commandsDisabled} aria-haspopup="menu" aria-expanded={operationsOpen} onClick={() => setOperationsOpen((current) => !current)}>
           <DotsThree aria-hidden="true" />
           <span>{zh ? '操作' : 'Actions'}</span>
         </Button>
@@ -236,7 +236,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         </MotionPresence>
       </span>
 
-      <Button size="compact" variant="ghost" disabled={commandsDisabled} onClick={refreshWorkbench}>
+      <Button size="compact" variant="ghost" data-desktop-menu-command="refresh" disabled={commandsDisabled} onClick={refreshWorkbench}>
         <ArrowsClockwise aria-hidden="true" />
         <span>{zh ? '刷新' : 'Refresh'}</span>
       </Button>
@@ -350,6 +350,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
             selectedRepositoryId={selectedRepositoryId}
             onSelectRepository={setSelectedRepositoryId}
             onStageAction={execute}
+            onAmend={openAmend}
             repositoryCommandBusy={busy !== null}
             commandsRef={sourceCommands}
             onCommandTargetChange={setSourceTarget}
@@ -682,6 +683,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
                 })
               }
               onCommit={openCommitDialog}
+              onAmend={openAmend}
               commitMessages={commitMessages}
               commitModels={props.commitModels}
               onOpenModelSettings={props.onOpenModelSettings}
@@ -720,10 +722,10 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       </MotionPresence>
       <MotionPresence>{contextMenu ? <GitContextMenu {...contextMenu} onClose={() => setContextMenu(null)} onError={reportWorkbenchError} /> : null}</MotionPresence>
       <MotionPresence>{menuConfirmation ? <GitMenuActionDialog value={menuConfirmation} zh={zh} onClose={() => setMenuConfirmation(null)} /> : null}</MotionPresence>
-      <MotionPresence>{commitOpen ? <CommitDialog commitMessages={commitMessages} open={commitOpen} zh={zh} repositories={repositories} busy={busy} onClose={() => setCommitOpen(false)} onExecute={execute} /> : null}</MotionPresence>
+      <MotionPresence>{commitDialogOptions ? <CommitDialog commitMessages={commitMessages} initialOptions={commitDialogOptions} zh={zh} repositories={repositories} busy={busy} onClose={() => setCommitDialogOptions(null)} onExecute={execute} /> : null}</MotionPresence>
       <MotionPresence>{interactiveRebase ? <GitInteractiveRebaseDialog key={`${props.project.id}:${interactiveRebase.repository.id}:${interactiveRebase.baseRef ?? 'default'}`} request={interactiveRebase} projectId={props.project.id} client={props.client} zh={zh} busy={busy !== null} onClose={() => setInteractiveRebase(null)} onExecute={execute} /> : null}</MotionPresence>
       <MotionPresence>{amendStepRepository ? <GitAmendDialog key={`rebase:${amendStepRepository.id}`} projectId={props.project.id} client={props.client} repository={amendStepRepository} rebaseStep zh={zh} busy={busy !== null} onClose={() => setAmendStepRepository(null)} onExecute={execute} /> : null}</MotionPresence>
-      <MotionPresence>{amendRepository ? <GitAmendDialog key={amendRepository.id} projectId={props.project.id} client={props.client} repository={amendRepository} zh={zh} busy={busy !== null} onClose={() => setAmendRepository(null)} onExecute={execute} /> : null}</MotionPresence>
+      <MotionPresence>{amendRequest ? <GitAmendDialog key={amendRequest.repository.id} projectId={props.project.id} client={props.client} repository={amendRequest.repository} options={amendRequest.options} zh={zh} busy={busy !== null} onClose={() => setAmendRequest(null)} onExecute={execute} /> : null}</MotionPresence>
       {stageRequest ? <GitStageReviewDialog key={stageRequest.preview.fingerprint} repositoryName={stageRequest.repository.name} preview={stageRequest.preview} zh={zh} selectionHint={stageRequest.selectionHint} onDecide={finishStageReview} /> : null}
       {flowRequest ? <GitFlowDialog key={JSON.stringify([props.project.id, flowRequest.repository.id, flowRequest.change])} request={flowRequest} projectId={props.project.id} client={props.client} zh={zh} busy={busy !== null} onClose={() => setFlowRequest(null)} onResolve={() => openFlowConflicts(flowRequest.repository.id)} onAbort={() => cancelGitAction(flowRequest.repository.id)} onExecute={executeWithResult} /> : null}
       {lfsRequest ? <GitLfsDialog key={JSON.stringify([props.project.id, lfsRequest.repository.id, lfsRequest.change])} request={lfsRequest} projectId={props.project.id} client={props.client} zh={zh} busy={busy !== null} onClose={() => setLfsRequest(null)} onAbort={() => cancelGitAction(lfsRequest.repository.id)} onExecute={executeWithResult} /> : null}

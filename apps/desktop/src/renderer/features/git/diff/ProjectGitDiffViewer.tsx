@@ -389,7 +389,9 @@ function TextHunkDiff(props: { hunk: GitDiffHunk; unified: boolean; zh: boolean;
           }}
         >
           <div className="astragit-diff-lines">
-            {rows.map((row, index) => <TextDiffLine key={index} cell={row[side]} controls={props.lineControls} hunkIndex={props.hunkIndex} order={props.order} zh={props.zh} />)}
+            {rows.map((row, index) => <TextDiffLine key={index} cell={row[side]}
+              pairedLineIndex={row[side].kind === 'empty' ? row[side === 'left' ? 'right' : 'left'].lineIndex : undefined}
+              controls={props.lineControls} hunkIndex={props.hunkIndex} order={props.order} zh={props.zh} />)}
           </div>
         </div>
       ))}
@@ -397,12 +399,18 @@ function TextHunkDiff(props: { hunk: GitDiffHunk; unified: boolean; zh: boolean;
   );
 }
 
-function TextDiffLine(props: { cell: DiffCell; unified?: boolean; newNumber?: number | null; controls?: GitDiffLineControls; hunkIndex: number; order: string[]; zh: boolean }) {
-  const { cell } = props;
-  const key = `${props.hunkIndex}:${cell.lineIndex}`;
-  const selectable = Boolean(props.controls && cell.lineIndex !== undefined && ['addition', 'deletion'].includes(cell.kind));
+function TextDiffLine(props: { cell: DiffCell; pairedLineIndex?: number; unified?: boolean; newNumber?: number | null; controls?: GitDiffLineControls; hunkIndex: number; order: string[]; zh: boolean }) {
+  const { cell, controls, hunkIndex, order } = props;
+  const selectable = Boolean(controls && cell.lineIndex !== undefined && ['addition', 'deletion'].includes(cell.kind));
+  const lineIndex = selectable ? cell.lineIndex : props.pairedLineIndex;
+  const key = `${hunkIndex}:${lineIndex}`;
+  const interactive = Boolean(controls && !controls.disabled && lineIndex !== undefined);
+  const selected = Boolean(lineIndex !== undefined && controls?.selected.has(key));
   const number = cell.number ?? props.newNumber;
-  const numberButton = selectable ? <button type="button" className="astragit-diff-line-number git-line-select" data-line-key={key} disabled={props.controls!.disabled} aria-pressed={props.controls!.selected.has(key)} aria-label={`${props.zh ? '选择' : 'Select'} ${cell.kind === 'addition' ? '+' : '−'} ${number}`} onClick={event => props.controls!.onSelect(props.hunkIndex, cell.lineIndex!, event, props.order)} onKeyDown={event => {
+  const numberButton = selectable ? <button type="button" className="astragit-diff-line-number git-line-select" data-line-key={key} disabled={props.controls!.disabled} aria-pressed={selected} aria-label={`${props.zh ? '选择' : 'Select'} ${cell.kind === 'addition' ? '+' : '−'} ${number}`} onClick={event => {
+        event.stopPropagation();
+        controls!.onSelect(hunkIndex, lineIndex!, event, order);
+      }} onKeyDown={event => {
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') { event.preventDefault(); event.stopPropagation(); props.controls!.onSelectAll(); }
         else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); props.controls!.onClear(); }
         else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
@@ -413,7 +421,17 @@ function TextDiffLine(props: { cell: DiffCell; unified?: boolean; newNumber?: nu
         }
       }}>{number}</button> : null;
   return (
-    <div className={`astragit-diff-line is-${cell.kind}`} data-line-selected={selectable && props.controls?.selected.has(key) || undefined} onContextMenu={event => { if (selectable && !props.controls!.disabled) { event.preventDefault(); event.stopPropagation(); props.controls!.onContextMenu(event, props.hunkIndex, cell.lineIndex!); } }}>
+    <div className={`astragit-diff-line is-${cell.kind}`} data-line-selected={selected || undefined} data-line-interactive={interactive || undefined}
+      onClick={interactive ? event => {
+        const selection = event.currentTarget.ownerDocument.getSelection();
+        if (event.detail > 1 || (selection && !selection.isCollapsed && selection.containsNode(event.currentTarget, true))) return;
+        event.currentTarget.closest('.project-git-diff-preview')?.querySelector<HTMLButtonElement>(`[data-line-key="${key}"]`)?.focus({ preventScroll: true });
+        controls!.onSelect(hunkIndex, lineIndex!, event, order);
+      } : undefined}
+      onContextMenu={interactive ? event => {
+        event.preventDefault(); event.stopPropagation();
+        controls!.onContextMenu(event, hunkIndex, lineIndex!);
+      } : undefined}>
       {selectable && (!props.unified || cell.kind === 'deletion') ? numberButton : <span className="astragit-diff-line-number" aria-hidden="true">{cell.number}</span>}
       {props.unified ? selectable && cell.kind === 'addition' ? numberButton : <span className="astragit-diff-line-number" aria-hidden="true">{props.newNumber}</span> : null}
       <span className="astragit-diff-line-sign" aria-hidden="true">{cell.kind === 'addition' ? '+' : cell.kind === 'deletion' ? '−' : ' '}</span>

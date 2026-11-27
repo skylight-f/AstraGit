@@ -1,22 +1,24 @@
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
+import { useState } from 'react';
 import type { BusyState } from '../workbench/gitWorkbenchTypes.js';
 import { repositoryDraftScope, type GitCommitDrafts } from './useGitCommitDrafts.js';
 import { stagedCommitUnits } from '../changes/sourceGitState.js';
-import type { ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
+import type { GitCommitOptions, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
 import { GitOperationDialog } from '../components/GitOperationDialog.js';
+import { GitCommitOptionsMenu } from './GitCommitOptionsMenu.js';
 
 export function CommitDialog(props: {
   commitMessages: GitCommitDrafts;
-  open: boolean;
+  initialOptions: GitCommitOptions;
   zh: boolean;
   repositories: ProjectGitRepositoryWorkbenchItem[];
   busy: BusyState;
   onClose: () => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
 }) {
+  const [options, setOptions] = useState(props.initialOptions);
   const staged = stagedCommitUnits(props.repositories);
-  if (!props.open) return null;
   return (
     <GitOperationDialog className="project-git-commit-dialog" onDismiss={props.onClose} dismissDisabled={props.busy !== null} role="dialog" aria-label={props.zh ? '提交已暂存变更' : 'Commit staged changes'}>
         <header>
@@ -38,6 +40,7 @@ export function CommitDialog(props: {
           })}
         </main>
         <footer>
+          <GitCommitOptionsMenu zh={props.zh} options={options} onChange={setOptions} disabled={props.busy !== null || !staged.length} />
           <Button variant="secondary" onClick={props.onClose} disabled={props.busy !== null}>
             {props.zh ? '取消' : 'Cancel'}
           </Button>
@@ -48,7 +51,7 @@ export function CommitDialog(props: {
             onClick={async () => {
               for (const { repository } of staged) {
                 const message = props.commitMessages.drafts[repository.id]!.message;
-                const outcome = await props.onExecute(repository, { type: 'commit', message: message.trim() }, props.zh ? '提交已暂存变更' : 'Commit staged changes');
+                const outcome = await props.onExecute(repository, { type: 'commit', message: message.trim(), options }, props.zh ? '提交已暂存变更' : 'Commit staged changes');
                 if (outcome !== 'completed') return;
                 props.commitMessages.clearCommitted(repository.id, message);
               }

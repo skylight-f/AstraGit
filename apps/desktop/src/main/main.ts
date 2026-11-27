@@ -7,7 +7,7 @@ import { writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { startGitServer, type RunningGitServer } from '@astragit/git-server';
-import { describeUserFacingError, releasePageUrl } from '@astragit/shared';
+import { describeUserFacingError, releasePageUrl, type DesktopMenuCommand, type DesktopMenuState } from '@astragit/shared';
 import { resolveCliSearchPath } from '@astragit/ai-runtime';
 import { createReleaseUpdateService } from './releaseUpdateService.js';
 import { applicationIdentity } from './applicationIdentity.js';
@@ -21,9 +21,10 @@ import { createAutomaticUpdateScheduler, type AutomaticUpdateScheduler } from '.
 import { execFile } from './releaseVerification.js';
 import { startSystemProxyBridge, type SystemProxyBridge } from './systemProxyBridge.js';
 import { installSystemProxyEnvironment, type InstalledSystemProxyEnvironment } from './systemProxyEnvironment.js';
+import { desktopMenuTemplate } from './desktopMenu.js';
 
 // Electron 的 ESM 命名空间会枚举全部懒加载 API；只读取实际使用项，避免初始化未使用的 safeStorage。
-const { app, BrowserWindow, dialog, ipcMain, nativeImage, net, powerMonitor, screen, session, shell } = createRequire(import.meta.url)('electron') as typeof import('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, net, powerMonitor, screen, session, shell } = createRequire(import.meta.url)('electron') as typeof import('electron');
 configureChromiumStorage(app.commandLine);
 
 let mainWindow: ElectronBrowserWindow | null = null;
@@ -276,6 +277,34 @@ async function loadMainWindow(): Promise<void> {
   });
   const window = mainWindow;
   window.once('closed', () => { if (mainWindow === window) mainWindow = null; });
+  if (process.platform === 'darwin') {
+    const contents = window.webContents;
+    const invoke = (command: DesktopMenuCommand) => {
+      if (!contents.isDestroyed()) contents.send('astragit:desktop-menu-command', command);
+    };
+    let language: DesktopMenuState['language'] = app.getLocale().startsWith('zh') ? 'zh-CN' : 'en-US';
+    const install = (enabled: DesktopMenuCommand[]) => Menu.setApplicationMenu(Menu.buildFromTemplate(desktopMenuTemplate({ language, enabled }, development, invoke)));
+    install([]);
+    ipcMain.removeHandler('astragit:desktop-menu-state');
+    ipcMain.handle('astragit:desktop-menu-state', (event, state: DesktopMenuState) => {
+      if (event.sender !== contents || event.senderFrame !== contents.mainFrame || !state || !Array.isArray(state.enabled) || (state.language !== 'zh-CN' && state.language !== 'en-US')) return;
+      if (state.language !== language) {
+        language = state.language;
+        install(state.enabled);
+      } else {
+        const menu = Menu.getApplicationMenu();
+        for (const section of menu?.items ?? []) {
+          for (const item of section.submenu?.items ?? []) {
+            if (item.id) item.enabled = state.enabled.includes(item.id as DesktopMenuCommand);
+          }
+        }
+      }
+    });
+    window.once('closed', () => {
+      ipcMain.removeHandler('astragit:desktop-menu-state');
+      install([]);
+    });
+  }
 
   let expanded: { originalWidth: number; width: number } | null = null;
   let reviewOpen = false;

@@ -86,7 +86,7 @@ export function GitLineChanges(props: {
         <button type="button" disabled={disabled || !selected.length} onClick={() => void execute(primary, selected)}>{props.stage === 'staged' ? text('取消暂存所选行', 'Unstage selected lines') : text('暂存所选行', 'Stage selected lines')}</button>
         {props.stage === 'unstaged' ? <button type="button" data-danger disabled={disabled || !selected.length} onClick={() => discard(selected)}>{text('放弃所选行…', 'Discard selected lines…')}</button> : null}
       </div>
-      <small>{text('点击行号；Shift 连选，Ctrl/⌘ 多选；右键操作。', 'Click line numbers; Shift for range, Ctrl/⌘ to toggle; right-click for actions.')}</small>
+      <small>{text('点击增删行；Shift 连选，Ctrl/⌘ 多选；右键操作。', 'Click changed lines; Shift for range, Ctrl/⌘ to toggle; right-click for actions.')}</small>
     </> : null}
   </div>;
   const shown = preview ? preview.readOnlyReason && !file ? props.fallback : preview.diff : props.fallback;

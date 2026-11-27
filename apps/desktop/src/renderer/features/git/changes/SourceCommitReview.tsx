@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X } from '@phosphor-icons/react/dist/csr/X';
-import type { ProjectGitRepositorySnapshot } from '../../../api/apiClient.js';
+import type { GitCommitOptions, ProjectGitRepositorySnapshot } from '../../../api/apiClient.js';
+import { GitCommitOptionsSummary } from '../commits/GitCommitOptionsMenu.js';
 import { RepositoryPushFields } from '../repository/RepositoryPushFields.js';
 import { branchPushTarget, type PushDestinationDraft } from '../repository/pushTarget.js';
 import type { SourceReviewRow } from './sourceGitBatch.js';
@@ -17,6 +18,7 @@ export function SourceCommitReview(props: {
   rows: SourceReviewDraft[];
   preferredRepositoryId?: string;
   push: boolean;
+  options: GitCommitOptions;
   zh: boolean;
   busy: boolean;
   error: string;
@@ -48,6 +50,7 @@ export function SourceCommitReview(props: {
       <div>
         <h2 id="source-review-title">{label('确认本项目的提交', 'Review project commits')}</h2>
         <p>{label('每个仓库生成独立提交，按下列顺序执行。', 'Each repository gets a separate commit, in the order below.')}</p>
+        <GitCommitOptionsSummary options={props.options} zh={props.zh} />
       </div>
       <Button size="compact" className="source-git-review-close" disabled={props.busy} onClick={props.onClose} aria-label={label('关闭预览', 'Close review')}>
         <X aria-hidden="true" />

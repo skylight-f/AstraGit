@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { DashboardClient, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
+import type { DashboardClient, GitCommitOptions, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
 import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
+import { GitCommitOptionsSummary } from './GitCommitOptionsMenu.js';
 
 /** Amend is always a single-repository action, independent of batch commit drafts. */
 export function GitAmendDialog(props: {
@@ -13,6 +14,7 @@ export function GitAmendDialog(props: {
   zh: boolean;
   busy: boolean;
   rebaseStep?: boolean;
+  options?: GitCommitOptions;
   onClose: () => void;
   onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
 }) {
@@ -36,6 +38,7 @@ export function GitAmendDialog(props: {
   }, [props.client, props.projectId, repository, rebaseStep]);
   return <GitOperationDialog className="project-git-menu-action-dialog git-amend-dialog" role="dialog" aria-label={title} onDismiss={props.onClose} dismissDisabled={props.busy}>
       <header><strong>{title}</strong><p>{repository.name} · {repository.snapshot.branch} · {repository.snapshot.headSha.slice(0, 12)}</p></header>
+      <GitCommitOptionsSummary options={props.options} zh={props.zh} />
       {rebaseStep ? <p>{text('当前暂停在 edit 步骤。修订仅包含暂存内容；完成后仍需点击“继续”重放剩余计划。', 'This rebase is paused at an edit step. Only staged contents are included. Continue the rebase afterwards to replay the remaining plan.')}</p> : null}
       <p>{staged.length ? text(`将 ${staged.length} 个已暂存文件合入上次提交，未暂存内容保留。`, `Include ${staged.length} staged files in the last commit. Unstaged contents are kept.`) : text('没有暂存更改，仅修订提交说明。', 'No staged changes. Only the commit message will be amended.')}</p>
       {staged.length ? <ul className="git-amend-files">{staged.slice(0, 200).map(file => <li key={file.path}>{file.path}</li>)}{staged.length > 200 ? <li>{text(`还有 ${staged.length - 200} 个文件`, `${staged.length - 200} more files`)}</li> : null}</ul> : null}
@@ -44,7 +47,7 @@ export function GitAmendDialog(props: {
       <label className="git-checkout-stash"><input type="checkbox" checked={confirmed} disabled={props.busy} onChange={event => setConfirmed(event.target.checked)} />{rebaseStep ? text('确认修订当前暂停的提交，随后由我继续变基。', 'Amend the paused commit. I will continue the rebase afterwards.') : text('我确认替换上次提交；若已推送，其他使用者需要协调历史变更。', 'I confirm replacing the last commit. If it was pushed, coordinate the rewritten history with other users.')}</label>
       <footer><Button variant="secondary" data-modal-initial-focus disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button disabled={props.busy || !loaded || (!rebaseStep && !message.trim()) || !confirmed || !repository.snapshot.indexFingerprint} busy={props.busy} onClick={async () => {
         const identity = { expectedHeadSha: repository.snapshot.headSha, expectedIndexFingerprint: repository.snapshot.indexFingerprint! };
-        const action: ProjectGitAction = rebaseStep ? { type: 'amend_rebase_step', message, ...identity, expectedStepFingerprint: rebaseStep.fingerprint } : { type: 'amend_commit', message, ...identity, expectedBranch: repository.snapshot.branch };
+        const action: ProjectGitAction = rebaseStep ? { type: 'amend_rebase_step', message, ...identity, expectedStepFingerprint: rebaseStep.fingerprint } : { type: 'amend_commit', message, options: props.options, ...identity, expectedBranch: repository.snapshot.branch };
         const outcome = await props.onExecute(repository, action, title);
         if (outcome === 'completed') props.onClose();
       }}>{text('修订提交', 'Amend commit')}</Button></footer>

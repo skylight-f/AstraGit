@@ -13,3 +13,5 @@
 .astragit-diff-line>.git-line-select:disabled { cursor:default; opacity:.6; }
 .astragit-diff-line[data-line-selected] { box-shadow:inset 3px 0 var(--zeus-control-accent); background:color-mix(in srgb,var(--zeus-control-accent) 16%,var(--zeus-product-panel)); }
 .astragit-diff-line[data-line-selected]>.git-line-select { color:var(--zeus-control-accent); font-weight:700; }
+.astragit-diff-line.is-empty[data-line-interactive] { cursor:pointer; }
+.astragit-diff-line.is-empty[data-line-selected] { background:color-mix(in srgb,var(--zeus-control-accent) 16%,var(--zeus-product-panel)); }

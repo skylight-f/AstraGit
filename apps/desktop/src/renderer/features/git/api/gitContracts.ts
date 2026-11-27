@@ -18,6 +18,8 @@ export type { GitTrackedFileQuery, GitTrackedFilePage, GitFileHistoryQuery, GitF
 export type { GitHistorySearchQuery, GitHistorySearchPage, GitHistorySearchCommit, GitHistorySearchField } from '@astragit/git-core';
 export type { ProjectGitConflictFile, ProjectGitConflictIndexStage, SaveProjectGitConflictInput } from '@astragit/git-core';
 export type { ProjectGitRepositorySettings } from '@astragit/git-core';
+export type { GitCommitOptions } from '@astragit/git-core';
+import type { GitCommitOptions } from '@astragit/git-core';
 export type { GitResetMode, GitWritePreview } from '@astragit/git-core';
 export type { GitIgnoreInput, GitIgnorePreview, GitIgnoreScope } from '@astragit/git-core';
 export type { GitStopTrackingPreview, GitIgnoredItem, GitIgnoredPage, GitIgnoredQuery } from '@astragit/git-core';
@@ -206,7 +208,7 @@ export type ProjectGitAction =
   | { type: 'reset_revision'; targetSha: string; mode: import('@astragit/git-core').GitResetMode; expectedFingerprint: string; discardNestedRepositories?: boolean }
   | { type: 'skip_integration'; kind: 'rebase' | 'cherry_pick' | 'revert' | 'am'; expectedFingerprint: string; discardNestedRepositories?: boolean }
   | import('@astragit/git-core').RepositorySettingsAction
-  | { type: 'amend_commit'; message: string; expectedHeadSha: string; expectedBranch: string; expectedIndexFingerprint: string }
+  | { type: 'amend_commit'; message: string; options?: GitCommitOptions; expectedHeadSha: string; expectedBranch: string; expectedIndexFingerprint: string }
   | { type: 'discard'; paths: string[] }
   | { type: 'rename_branch'; branchName: string; newName: string }
   | { type: 'create_tag'; tagName: string; revision: string; message?: string; annotated?: boolean; expectedTargetSha?: string }
@@ -227,7 +229,7 @@ export type ProjectGitAction =
   | { type: 'import_patch'; patch: import('@astragit/git-core').GitPatchInput; expectedFingerprint: string }
   | { type: 'apply_line_changes'; input: import('@astragit/git-core').GitLineChange; largeFileReview?: GitLargeFileReview }
   | { type: 'apply_patch'; patch: string; reverse?: boolean; target?: 'index' | 'worktree' }
-  | { type: 'commit'; message: string; paths?: string[]; selectionMode?: 'worktree' | 'staged'; expectedFingerprint?: string; expectedHeadSha?: string; expectedBranch?: string }
+  | { type: 'commit'; message: string; options?: GitCommitOptions; paths?: string[]; selectionMode?: 'worktree' | 'staged'; expectedFingerprint?: string; expectedHeadSha?: string; expectedBranch?: string }
   | { type: 'push'; remote?: string; sourceBranch?: string; targetBranch?: string; setUpstream?: boolean; forceWithLease?: boolean; pushTags?: boolean; pushAllTags?: boolean; expectedHeadSha?: string; expectedBranch?: string }
   | { type: 'pull'; remote?: string; targetBranch?: string; strategy: 'rebase' | 'merge'; commitMerge?: boolean; includeMergeLog?: boolean; noFastForward?: boolean }
   | { type: 'update'; strategy: 'merge' | 'rebase' | 'reset'; smart?: boolean }

@@ -45,12 +45,13 @@
 - 保留键盘焦点可见性。选择控件用与行为匹配的 ARIA 状态，菜单和弹窗检查 `Tab`、方向键及 `Esc` 的相应行为。关闭弹窗后将焦点归还给合适的触发位置。
 - 加载、刷新与提交使用就地状态，保留用户当前的工作上下文。浮层入场和退场复用 `MotionPresence`，动效时长沿用 `--zeus-motion-*`，遵循 `prefers-reduced-motion`。关闭中的界面立即停止接收交互。[MotionPresence](../apps/desktop/src/renderer/ui/MotionPresence.tsx) · [交互样式](../apps/desktop/src/renderer/ui/primitives.css)
 - 可终止的 Git 操作开始后，原执行按钮切换为「终止」，统一使用 `GitOperationStopButton`。发出请求后显示「正在终止…」并防止重复请求，任务结束后按结果恢复执行、重试或关闭入口。批次保留已执行结果和未执行项的状态。独立的进度提示显示当前仓库和操作。[操作进度与终止按钮](../apps/desktop/src/renderer/features/git/components/GitOperationProgress.tsx)
-- 左下角活动栏的「应用更新」在设置按钮上方，更新就绪时以品牌蓝标示。更新弹窗在活动栏右侧靠下打开，顶部居中显示应用图标和版本，长发布说明在正文内滚动，底部保留当前状态和操作。只有就绪状态提供重启确认。[应用更新弹窗](../apps/desktop/src/renderer/features/updates/ApplicationUpdateDialog.tsx)
+- 检测到新版本时，左下角活动栏在设置按钮上方显示「应用更新」，更新就绪时以品牌蓝标示。手动检查和版本说明从设置进入。更新弹窗在活动栏右侧靠下打开，顶部居中显示应用图标和版本，长发布说明在正文内滚动，底部保留当前状态和操作。只有就绪状态提供重启确认。[应用更新弹窗](../apps/desktop/src/renderer/features/updates/ApplicationUpdateDialog.tsx)
 - macOS 原生辅助窗口沿用系统控件、系统字体和语义色，状态文本和操作名称与主界面保持一致。[原生更新进度窗口](../apps/desktop/native/UpdateProgressPanel.swift)
 
 ## 布局与文案
 
 - 应用级入口放在现有外壳。仓库级操作归入工作台工具栏，文件或提交操作放在对应列表行、右键菜单或详情区。工具栏按动作分组，低频入口沿用「操作」菜单。
+- macOS 菜单随应用语言显示项目、视图、仓库、窗口和帮助入口。仓库菜单复用当前工作台工具栏的操作和可用状态。开发者工具与界面重载入口在开发版提供。
 - 保持仓库导航、记录列表和详情区的边界。网格与弹性布局允许子面板收缩，长路径和分支名按控件需要截断或换行，并保留查看完整值的方式。代码差异在内容区滚动，面板标题、主要操作和弹窗底部保持可达。
 - 自定义标题栏使用现有拖拽区域。加入搜索、按钮或菜单触发器时给可交互区域设置 `-webkit-app-region: no-drag`。[标题栏样式](../apps/desktop/src/renderer/app/app.css)
 - 界面新增文案同时提供简体中文和英文，沿用「暂存」「贮藏」「推送」等现有术语。按钮优先用能描述结果的动词，如「导出补丁」「删除分支」。错误提示说明正在处理的对象、失败原因及可行的下一步。

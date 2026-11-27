@@ -49,6 +49,9 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { promisify } from 'node:util';
 import { hasUnresolvedGitConflictMarkers, gitRemoteAddressIssue, type RepositorySetupInput, type UserFacingErrorCause } from '@astragit/shared';
 import { commitSelectedPaths } from './gitSelectedCommit.js';
+import { gitCommitOptionArgs, type GitCommitOptions } from './gitCommitOptions.js';
+export { parseGitCommitOptions } from './gitCommitOptions.js';
+export type { GitCommitOptions } from './gitCommitOptions.js';
 import { executeRepositorySettings, readRepositorySettings, type RepositorySettingsAction } from './gitRepositorySettings.js';
 import { readGitWritePreview, type GitResetMode, type GitWritePreview } from './gitDestructivePreview.js';
 import { readGitCommitReplayPreview, parseGitCommitReplayInput, gitCommitReplayArguments, gitCommitReplayFailure, type GitCommitReplayInput } from './gitCommitReplay.js';
@@ -206,7 +209,7 @@ export type ProjectGitAction =
   | { type: 'reset_revision'; targetSha: string; mode: GitResetMode; expectedFingerprint: string; discardNestedRepositories?: boolean }
   | { type: 'skip_integration'; kind: 'rebase' | 'cherry_pick' | 'revert' | 'am'; expectedFingerprint: string; discardNestedRepositories?: boolean }
   | RepositorySettingsAction
-  | { type: 'amend_commit'; message: string; expectedHeadSha: string; expectedBranch: string; expectedIndexFingerprint: string }
+  | { type: 'amend_commit'; message: string; options?: GitCommitOptions; expectedHeadSha: string; expectedBranch: string; expectedIndexFingerprint: string }
   | { type: 'discard'; paths: string[] }
   | { type: 'rename_branch'; branchName: string; newName: string }
   | { type: 'create_tag'; tagName: string; revision: string; message?: string; annotated?: boolean; expectedTargetSha?: string }
@@ -227,7 +230,7 @@ export type ProjectGitAction =
   | { type: 'import_patch'; patch: GitPatchInput; expectedFingerprint: string }
   | { type: 'apply_line_changes'; input: GitLineChange; largeFileReview?: GitLargeFileReview }
   | { type: 'apply_patch'; patch: string; reverse?: boolean; target?: 'index' | 'worktree' }
-  | { type: 'commit'; message: string; paths?: string[]; selectionMode?: 'worktree' | 'staged'; expectedFingerprint?: string; expectedHeadSha?: string; expectedBranch?: string }
+  | { type: 'commit'; message: string; options?: GitCommitOptions; paths?: string[]; selectionMode?: 'worktree' | 'staged'; expectedFingerprint?: string; expectedHeadSha?: string; expectedBranch?: string }
   | { type: 'push'; remote?: string; sourceBranch?: string; targetBranch?: string; setUpstream?: boolean; forceWithLease?: boolean; pushTags?: boolean; pushAllTags?: boolean; expectedHeadSha?: string; expectedBranch?: string }
   | { type: 'pull'; remote?: string; targetBranch?: string; strategy: 'rebase' | 'merge'; commitMerge?: boolean; includeMergeLog?: boolean; noFastForward?: boolean }
   | { type: 'update'; strategy: 'merge' | 'rebase' | 'reset'; smart?: boolean }
@@ -1626,7 +1629,7 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
       if (await readIntegrationState(repositoryPath)) throw refuse('ASTRAGIT_GIT_INTEGRATION_ACTIVE', '提交整合期间不能修订上次提交，请先完成或终止当前整合。');
       if ((await getGitStatus(repositoryPath)).conflictFiles.length) throw refuse('ASTRAGIT_GIT_CONFLICTS_REMAIN', '请先解决并暂存所有冲突。');
       if (typeof action.message !== 'string' || !action.message.trim() || action.message.includes('\0') || Buffer.byteLength(action.message) > 128 * 1024) throw refuse('ASTRAGIT_GIT_AMEND_MESSAGE_INVALID', '提交说明不能为空、包含无效字节或超过 128 KiB。');
-      return finishProjectGitAction(repositoryPath, action.type, await runGit(repositoryPath, ['commit', '--amend', '--cleanup=verbatim', '-F', '-'], action.message));
+      return finishProjectGitAction(repositoryPath, action.type, await runGit(repositoryPath, ['commit', '--amend', ...gitCommitOptionArgs(action.options), '--cleanup=verbatim', '-F', '-'], action.message));
     }
     case 'subtree': {
       const [path] = requireRepositoryPaths(repositoryPath, [action.path]);
@@ -1819,10 +1822,10 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
         }
         const execution = projectGitExecution.getStore();
         const output = await commitSelectedPaths(repositoryPath, {
-          paths, selected, mode: action.selectionMode ?? 'worktree', message, headSha: context.headSha, expectedFingerprint: action.expectedFingerprint,
+          paths, selected, mode: action.selectionMode ?? 'worktree', message, options: action.options, headSha: context.headSha, expectedFingerprint: action.expectedFingerprint,
         }, (command, options) => projectGitExecution.run({ ...execution, env: { ...execution?.env, ...(options?.index ? { GIT_INDEX_FILE: options.index } : {}) } }, () => runGit(repositoryPath, command, options?.input)));
         return finishProjectGitAction(repositoryPath, action.type, output);
-      } else args = ['commit', '-m', message];
+      } else args = ['commit', ...gitCommitOptionArgs(action.options), '-m', message];
       break;
     }
     case 'push': {

@@ -49,6 +49,7 @@ import {
   getProjectGitRepositorySnapshot,
   getProjectGitInitialChanges,
   getProjectGitRepositorySettings,
+  parseGitCommitOptions,
   getProjectGitResetPreview,
   getProjectGitSkipPreview,
   getProjectGitIgnorePreview,
@@ -641,7 +642,7 @@ export function parseProjectGitAction(value: unknown): ProjectGitAction {
       return { type: value.type, operation: value.operation as typeof operations[number], name: stringValue('name') ?? '', value: stringValue('value'), expectedSettingsFingerprint: stringValue('expectedSettingsFingerprint') ?? '' };
     }
     case 'amend_commit':
-      return { type: 'amend_commit', message: typeof value.message === 'string' ? value.message : '', expectedHeadSha: stringValue('expectedHeadSha') ?? '', expectedBranch: stringValue('expectedBranch') ?? '', expectedIndexFingerprint: stringValue('expectedIndexFingerprint') ?? '' };
+      return { type: 'amend_commit', message: typeof value.message === 'string' ? value.message : '', ...(value.options === undefined ? {} : { options: parseGitCommitOptions(value.options) }), expectedHeadSha: stringValue('expectedHeadSha') ?? '', expectedBranch: stringValue('expectedBranch') ?? '', expectedIndexFingerprint: stringValue('expectedIndexFingerprint') ?? '' };
     case 'subtree':
       if (value.operation !== 'add' && value.operation !== 'pull' && value.operation !== 'push') throw projectGitError('ASTRAGIT_ACTION_INVALID', '不支持的子树操作。');
       return { type: 'subtree', operation: value.operation, path: typeof value.path === 'string' ? value.path : '', remote: stringValue('remote') ?? '', branch: stringValue('branch') ?? '' };
@@ -698,6 +699,7 @@ export function parseProjectGitAction(value: unknown): ProjectGitAction {
       return {
         type: 'commit',
         message: stringValue('message') ?? '',
+        ...(value.options === undefined ? {} : { options: parseGitCommitOptions(value.options) }),
         ...(value.paths === undefined ? {} : { paths: paths() }),
         selectionMode: value.selectionMode === 'staged' ? 'staged' : 'worktree',
         expectedFingerprint: stringValue('expectedFingerprint'),
