@@ -43,6 +43,7 @@ export interface ZeusSelectProps<T extends string> {
   triggerClassName?: string;
   triggerTitle?: string;
   triggerRef?: RefObject<HTMLButtonElement | null>;
+  initialFocus?: boolean;
   hideSelectedLabel?: boolean;
   className?: string;
   style?: CSSProperties;
@@ -53,8 +54,6 @@ export interface ZeusSelectProps<T extends string> {
   popoverMinWidth?: number;
   /** 各入口可统一浮层宽度，窄窗口仍受视口约束。 */
   popoverMaxWidth?: number;
-  /** 浮层箭头对齐触发器的起始、中部或末端交互区。 */
-  popoverArrowAlignment?: 'start' | 'center' | 'end';
   /** 启用后使用包含选择与置顶按钮的对话框，避免在选项内嵌套按钮。 */
   pinning?: ZeusSelectPinning;
   /** 弹层的局部外观，不影响同一选择器的其他使用位置。 */
@@ -70,7 +69,7 @@ interface ZeusSelectPopoverLayout {
   top: number;
   left: number;
   width: number;
-  arrowLeft: number;
+  maxHeight: number;
   placement: 'top' | 'bottom';
 }
 
@@ -209,21 +208,32 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
   const listboxId = `${rootId}-listbox`;
   const activeOptionIndex = visibleOptions.findIndex((option) => option.value === activeValue);
   const activeOptionId = activeOptionIndex >= 0 ? `${listboxId}-option-${activeOptionIndex}` : undefined;
-  const searchPlaceholder = props.searchPlaceholder ?? props.ariaLabel;
-  const emptyLabel = props.emptyLabel ?? 'No matching options';
+  const zh = typeof document !== 'undefined' && document.documentElement.lang.startsWith('zh');
+  const searchPlaceholder = props.searchPlaceholder ?? (zh ? '搜索选项…' : 'Search options…');
+  const emptyLabel = props.emptyLabel ?? (zh ? '没有匹配的选项' : 'No matching options');
 
-  const focusOption = (value: T) => focusElement(optionRefs.current.get(value));
+  const focusOption = (value: T) => {
+    const option = optionRefs.current.get(value);
+    focusElement(option);
+    option?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  };
 
   const focusAdjacentTabStop = (direction: 1 | -1): boolean => {
     const trigger = triggerRef.current;
     if (!trigger || typeof window === 'undefined') return false;
-    const tabbableElements = Array.from(trigger.ownerDocument.querySelectorAll<HTMLElement>(tabbableSelector)).filter((element) => {
+    const modal = trigger.closest('[aria-modal="true"]');
+    const tabbableElements = Array.from((modal ?? trigger.ownerDocument).querySelectorAll<HTMLElement>(tabbableSelector)).filter((element) => {
       if (popoverRef.current?.contains(element) || element.hidden || element.closest('[inert], [aria-hidden="true"]')) return false;
       const style = window.getComputedStyle(element);
-      return element.checkVisibility() && style.display !== 'none' && style.visibility !== 'hidden' && element.getAttribute('aria-disabled') !== 'true';
+      return element.tabIndex >= 0 && !element.matches(':disabled') && element.checkVisibility()
+        && style.display !== 'none' && style.visibility !== 'hidden' && element.getAttribute('aria-disabled') !== 'true';
     });
     const triggerIndex = tabbableElements.indexOf(trigger);
-    const nextElement = triggerIndex >= 0 ? tabbableElements[triggerIndex + direction] : undefined;
+    if (triggerIndex < 0) return false;
+    const nextIndex = triggerIndex + direction;
+    const nextElement = modal
+      ? tabbableElements[(nextIndex + tabbableElements.length) % tabbableElements.length]
+      : tabbableElements[nextIndex];
     if (!nextElement) return false;
     focusElement(nextElement);
     return true;
@@ -236,35 +246,37 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
     const viewportPadding = 8;
     const popoverGap = 6;
     /** 模型长名称截断显示，避免单个长名称把菜单撑成横跨页面的大面板。 */
-    const maxWidth = Math.max(0, Math.min(window.innerWidth - viewportPadding * 2, props.popoverMaxWidth ?? (props.pinning ? 360 : Number.POSITIVE_INFINITY)));
+    const maxWidth = Math.max(0, Math.min(window.innerWidth - viewportPadding * 2, props.popoverMaxWidth ?? (props.pinning ? 360 : 480)));
     if (popoverRef.current) {
       popoverContentWidthRef.current = Math.max(popoverContentWidthRef.current, measurePopoverContentWidth(popoverRef.current, maxWidth));
     }
     const width = Math.min(Math.max(triggerRect.width, props.popoverMinWidth ?? 0, popoverContentWidthRef.current), maxWidth);
     const left = Math.min(Math.max(triggerRect.left, viewportPadding), Math.max(viewportPadding, window.innerWidth - width - viewportPadding));
-    const triggerInset = Math.min(14, triggerRect.width / 2);
-    const arrowAnchor = props.popoverArrowAlignment === 'start' ? triggerRect.left + triggerInset : props.popoverArrowAlignment === 'end' ? triggerRect.right - triggerInset : triggerRect.left + triggerRect.width / 2;
-    /** 旋转方块以左上角定位，减去半边长后再限制在浮层圆角以内。 */
-    const arrowLeft = Math.min(Math.max(arrowAnchor - left - 4, 12), Math.max(12, width - 20));
-    const popoverHeight = popoverRef.current?.offsetHeight ?? 0;
+    const popover = popoverRef.current;
+    const listbox = popover?.querySelector<HTMLElement>('.zeus-select-listbox');
+    const listLimit = listbox ? parseCssPixel(window.getComputedStyle(listbox).maxBlockSize) : 0;
+    const hiddenRowsHeight = listbox ? Math.max(0, Math.min(listbox.scrollHeight, listLimit || listbox.scrollHeight) - listbox.clientHeight) : 0;
+    const popoverHeight = (popover?.offsetHeight ?? 0) + hiddenRowsHeight;
     const bottomTop = triggerRect.bottom + popoverGap;
     const availableBottomHeight = Math.max(0, window.innerHeight - bottomTop - viewportPadding);
-    const placement = popoverHeight > 0 && popoverHeight > availableBottomHeight ? 'top' : 'bottom';
-    const top = Math.max(viewportPadding, placement === 'top' ? triggerRect.top - popoverGap - popoverHeight : bottomTop);
+    const availableTopHeight = Math.max(0, triggerRect.top - popoverGap - viewportPadding);
+    const placement = popoverHeight > availableBottomHeight && availableTopHeight > availableBottomHeight ? 'top' : 'bottom';
+    const maxHeight = placement === 'top' ? availableTopHeight : availableBottomHeight;
+    const top = placement === 'top' ? triggerRect.top - popoverGap - Math.min(popoverHeight, maxHeight) : bottomTop;
     const nextLayout: ZeusSelectPopoverLayout = {
       top,
       left,
       width,
-      arrowLeft,
+      maxHeight,
       placement,
     };
     setPopoverLayout((currentLayout) => {
-      if (currentLayout?.top === nextLayout.top && currentLayout.left === nextLayout.left && currentLayout.width === nextLayout.width && currentLayout.arrowLeft === nextLayout.arrowLeft && currentLayout.placement === nextLayout.placement) {
+      if (currentLayout?.top === nextLayout.top && currentLayout.left === nextLayout.left && currentLayout.width === nextLayout.width && currentLayout.maxHeight === nextLayout.maxHeight && currentLayout.placement === nextLayout.placement) {
         return currentLayout;
       }
       return nextLayout;
     });
-  }, [props.popoverArrowAlignment, props.popoverMinWidth, props.popoverMaxWidth, props.pinning]);
+  }, [props.popoverMinWidth, props.popoverMaxWidth, props.pinning]);
 
   const closeListbox = (restoreFocus = true) => {
     setOpen(false);
@@ -448,12 +460,16 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(syncPopoverLayout);
     if (triggerRef.current) resizeObserver?.observe(triggerRef.current);
     if (popoverRef.current) resizeObserver?.observe(popoverRef.current);
+    const repositionOnScroll = (event: Event) => {
+      if (event.target instanceof Node && popoverRef.current?.contains(event.target)) return;
+      syncPopoverLayout();
+    };
     window.addEventListener('resize', syncPopoverLayout);
-    document.addEventListener('scroll', syncPopoverLayout, true);
+    document.addEventListener('scroll', repositionOnScroll, true);
     return () => {
       resizeObserver?.disconnect();
       window.removeEventListener('resize', syncPopoverLayout);
-      document.removeEventListener('scroll', syncPopoverLayout, true);
+      document.removeEventListener('scroll', repositionOnScroll, true);
     };
   }, [open, searchPlaceholder, searchable, syncPopoverLayout, visibleOptions]);
 
@@ -462,8 +478,12 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
   useEffect(() => {
     if (!readyForFocus || typeof window === 'undefined') return undefined;
     // 等浮层挂载并完成定位，visibility:hidden 时无法接收焦点。
-    focusElement(searchable ? (searchRef.current ?? undefined) : (optionRefs.current.get(activeValue) ?? undefined));
+    if (searchable) focusElement(searchRef.current ?? undefined);
+    else focusOption(activeValue);
   }, [readyForFocus, searchable]);
+  useEffect(() => {
+    if (props.disabled) setOpen(false);
+  }, [props.disabled]);
   useEffect(() => {
     setActiveValue(props.value);
   }, [props.value]);
@@ -494,7 +514,7 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
                 top: popoverLayout.top,
                 left: popoverLayout.left,
                 width: popoverLayout.width,
-                '--zeus-select-arrow-left': `${popoverLayout.arrowLeft}px`,
+                maxHeight: popoverLayout.maxHeight,
               } as CSSProperties)
             : { visibility: 'hidden' }
         }
@@ -630,6 +650,7 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
         aria-controls={props.pinning ? `${rootId}-dialog` : listboxId}
         aria-activedescendant={open && !props.pinning ? activeOptionId : undefined}
         title={props.triggerTitle}
+        data-modal-initial-focus={props.initialFocus || undefined}
         disabled={props.disabled}
         onClick={() => (open ? closeListbox(false) : openListbox(props.value))}
         onKeyDown={handleTriggerKeyDown}

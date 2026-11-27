@@ -88,25 +88,86 @@ export function GitPatchDialog(props: {
       <div className="git-patch-dialog-body">
         <section className="git-patch-options" aria-label={text('补丁选项', 'Patch options')}>
           {importing ? <>
-            <label>{text('导入方式', 'Import mode')}<Select value={importFormat} disabled={locked} onChange={event => { invalidate(); setImportFormat(event.target.value === 'mailbox' ? 'mailbox' : 'diff'); }}><option value="diff">{text('应用文件差异（不创建提交）', 'Apply file differences (no commits)')}</option><option value="mailbox">{text('导入邮箱补丁序列并创建提交', 'Import mailbox series as commits')}</option></Select></label>
-            <label>{text('补丁来源', 'Patch source')}<Select value={source} disabled={locked} onChange={event => { const next = event.target.value === 'text' ? 'text' : 'file'; setSource(next); changeInput({ ...input, data: next === 'text' ? raw : '', encoding: next === 'text' ? 'utf8' : 'base64' }); if (next === 'file') setFileName(''); }}><option value="file">{text('从文件读取', 'Read from file')}</option><option value="text">{text('粘贴补丁文本', 'Paste patch text')}</option></Select></label>
+            <label>{text('导入方式', 'Import mode')}<Select
+              ariaLabel={text('导入方式', 'Import mode')}
+              value={importFormat}
+              disabled={locked}
+              onChange={value => { invalidate(); setImportFormat(value === 'mailbox' ? 'mailbox' : 'diff'); }}
+              options={[
+                { value: 'diff', label: text('应用文件差异（不创建提交）', 'Apply file differences (no commits)') },
+                { value: 'mailbox', label: text('导入邮箱补丁序列并创建提交', 'Import mailbox series as commits') },
+              ]}
+            /></label>
+            <label>{text('补丁来源', 'Patch source')}<Select
+              ariaLabel={text('补丁来源', 'Patch source')}
+              value={source}
+              disabled={locked}
+              onChange={value => { const next = value === 'text' ? 'text' : 'file'; setSource(next); changeInput({ ...input, data: next === 'text' ? raw : '', encoding: next === 'text' ? 'utf8' : 'base64' }); if (next === 'file') setFileName(''); }}
+              options={[
+                { value: 'file', label: text('从文件读取', 'Read from file') },
+                { value: 'text', label: text('粘贴补丁文本', 'Paste patch text') },
+              ]}
+            /></label>
             {source === 'file' ? <><Button disabled={locked} onClick={() => void chooseFile()}>{text('选择补丁文件…', 'Choose patch file…')}</Button><small>{fileName || text('支持 Git diff、二进制补丁和普通统一差异；最多 8 MiB。', 'Git diff, binary patches and unified diffs, up to 8 MiB.')}</small></> : <label className="git-patch-text-input">{text('补丁文本', 'Patch text')}<textarea value={raw} disabled={locked} spellCheck={false} onChange={event => { setRaw(event.target.value); changeInput({ ...input, data: event.target.value, encoding: 'utf8' }); }} /></label>}
             {importFormat === 'diff' ? <>
-            <label>{text('应用位置', 'Apply to')}<Select value={input.target} disabled={locked} onChange={event => changeInput({ ...input, target: event.target.value as GitPatchInput['target'] })}><option value="worktree">{text('仅工作区（不暂存）', 'Working tree only (do not stage)')}</option><option value="index">{text('仅暂存区（保留磁盘内容）', 'Index only (keep disk contents)')}</option><option value="both">{text('工作区和暂存区', 'Working tree and index')}</option></Select></label>
+            <label>{text('应用位置', 'Apply to')}<Select
+              ariaLabel={text('应用位置', 'Apply to')}
+              value={input.target}
+              disabled={locked}
+              onChange={value => changeInput({ ...input, target: value as GitPatchInput['target'] })}
+              options={[
+                { value: 'worktree', label: text('仅工作区（不暂存）', 'Working tree only (do not stage)') },
+                { value: 'index', label: text('仅暂存区（保留磁盘内容）', 'Index only (keep disk contents)') },
+                { value: 'both', label: text('工作区和暂存区', 'Working tree and index') },
+              ]}
+            /></label>
             <label>{text('移除路径前缀层数', 'Strip path components')}<TextInput type="number" min={0} max={32} value={input.strip ?? 1} disabled={locked} onChange={event => changeInput({ ...input, strip: Number(event.target.value) })} /></label>
             <label className="git-patch-check"><input type="checkbox" checked={input.reverse === true} disabled={locked} onChange={event => changeInput({ ...input, reverse: event.target.checked })} />{text('反向应用', 'Apply in reverse')}</label>
             <p>{text('导入只应用文件内容及模式，不创建提交、不切换分支，也不会自动继续合并或变基。', 'Import applies file contents and modes. It does not create commits, switch branches, or continue a merge or rebase.')}</p>
             </> : <>
-              <label>{text('邮件格式', 'Mailbox format')}<Select value={mailboxOptions.format ?? 'auto'} disabled={locked} onChange={event => { invalidate(); setMailboxOptions(current => ({ ...current, format: event.target.value as GitMailboxInput['format'] })); }}><option value="auto">{text('自动（识别 AstraGit 的 mboxrd 标记）', 'Auto (recognize AstraGit’s mboxrd marker)')}</option><option value="mbox">mbox</option><option value="mboxrd">mboxrd</option></Select></label>
+              <label>{text('邮件格式', 'Mailbox format')}<Select
+                ariaLabel={text('邮件格式', 'Mailbox format')}
+                value={mailboxOptions.format ?? 'auto'}
+                disabled={locked}
+                onChange={value => { invalidate(); setMailboxOptions(current => ({ ...current, format: value as GitMailboxInput['format'] })); }}
+                options={[
+                  { value: 'auto', label: text('自动（识别 AstraGit 的 mboxrd 标记）', 'Auto (recognize AstraGit’s mboxrd marker)') },
+                  { value: 'mbox', label: 'mbox' },
+                  { value: 'mboxrd', label: 'mboxrd' },
+                ]}
+              /></label>
               <label className="git-patch-check"><input type="checkbox" checked={mailboxOptions.threeWay !== false} disabled={locked} onChange={event => { invalidate(); setMailboxOptions(current => ({ ...current, threeWay: event.target.checked })); }} />{text('需要时尝试三方合并', 'Try a three-way merge when needed')}</label>
               <label className="git-patch-check"><input type="checkbox" checked={mailboxOptions.keepSubject !== false} disabled={locked} onChange={event => { invalidate(); setMailboxOptions(current => ({ ...current, keepSubject: event.target.checked })); }} />{text('保留邮件主题（含已有前缀）', 'Keep the email subject, including prefixes')}</label>
               <label className="git-patch-check"><input type="checkbox" checked={mailboxOptions.keepCR !== false} disabled={locked} onChange={event => { invalidate(); setMailboxOptions(current => ({ ...current, keepCR: event.target.checked })); }} />{text('保留补丁行尾的 CR 字节', 'Keep CR bytes at patch line endings')}</label>
-              <label>{text('没有文件变动的邮件', 'Emails without file changes')}<Select value={mailboxOptions.empty ?? 'stop'} disabled={locked} onChange={event => { invalidate(); setMailboxOptions(current => ({ ...current, empty: event.target.value as GitMailboxInput['empty'] })); }}><option value="stop">{text('暂停并由我处理', 'Stop for review')}</option><option value="keep">{text('保留为空提交', 'Keep as empty commits')}</option><option value="drop">{text('跳过', 'Drop')}</option></Select></label>
+              <label>{text('没有文件变动的邮件', 'Emails without file changes')}<Select
+                ariaLabel={text('没有文件变动的邮件', 'Emails without file changes')}
+                value={mailboxOptions.empty ?? 'stop'}
+                disabled={locked}
+                onChange={value => { invalidate(); setMailboxOptions(current => ({ ...current, empty: value as GitMailboxInput['empty'] })); }}
+                options={[
+                  { value: 'stop', label: text('暂停并由我处理', 'Stop for review') },
+                  { value: 'keep', label: text('保留为空提交', 'Keep as empty commits') },
+                  { value: 'drop', label: text('跳过', 'Drop') },
+                ]}
+              /></label>
               <p>{text('按预览顺序在当前分支创建提交，作者、日期和说明取自邮件。发生冲突会暂停，可在文件状态中处理并继续、跳过或终止；前面的提交可能已完成。', 'Create commits on the current branch in preview order, using email authors, dates and messages. Conflicts pause the series. Resolve, continue, skip or abort in File Status; earlier commits may already have completed.')}</p>
             </>}
 
           </> : <>
-            <label>{text('导出范围', 'Export scope')}<Select value={scope} disabled={locked} onChange={event => { invalidate(); setScope(event.target.value as GitPatchExportInput['scope']); }}><option value="worktree">{text('工作区相对 HEAD 的全部变更', 'All working tree changes against HEAD')}</option><option value="staged">{text('已暂存变更', 'Staged changes')}</option><option value="unstaged">{text('未暂存变更', 'Unstaged changes')}</option><option value="commit">{text('一个提交（相对第一父提交）', 'One commit (against its first parent)')}</option><option value="range">{text('两个版本之间的差异', 'Diff between two revisions')}</option><option value="series">{text('提交序列（保留作者与顺序）', 'Commit series (keep authors and order)')}</option></Select></label>
+            <label>{text('导出范围', 'Export scope')}<Select
+              ariaLabel={text('导出范围', 'Export scope')}
+              value={scope}
+              disabled={locked}
+              onChange={value => { invalidate(); setScope(value as GitPatchExportInput['scope']); }}
+              options={[
+                { value: 'worktree', label: text('工作区相对 HEAD 的全部变更', 'All working tree changes against HEAD') },
+                { value: 'staged', label: text('已暂存变更', 'Staged changes') },
+                { value: 'unstaged', label: text('未暂存变更', 'Unstaged changes') },
+                { value: 'commit', label: text('一个提交（相对第一父提交）', 'One commit (against its first parent)') },
+                { value: 'range', label: text('两个版本之间的差异', 'Diff between two revisions') },
+                { value: 'series', label: text('提交序列（保留作者与顺序）', 'Commit series (keep authors and order)') },
+              ]}
+            /></label>
             {scope === 'commit' ? <label>{text('提交或引用', 'Commit or ref')}<TextInput value={revision} disabled={locked} onChange={event => { invalidate(); setRevision(event.target.value); }} /></label> : (scope === 'range' || (scope === 'series' && !seriesSelected)) ? <><label>{text('起始版本', 'Base revision')}<TextInput value={baseRef} disabled={locked} onChange={event => { invalidate(); setBaseRef(event.target.value); }} /></label><label>{text('目标版本', 'Target revision')}<TextInput value={targetRef} disabled={locked} onChange={event => { invalidate(); setTargetRef(event.target.value); }} /></label></> : null}
             {scope !== 'series' && request.paths?.length ? <label className="git-patch-check"><input type="checkbox" checked={selectedOnly} disabled={locked} onChange={event => { invalidate(); setSelectedOnly(event.target.checked); }} />{text(`仅所选 ${request.paths.length} 项`, `Only ${request.paths.length} selected items`)}</label> : null}
             {['worktree', 'unstaged'].includes(scope) ? <label className="git-patch-check"><input type="checkbox" checked={includeUntracked} disabled={locked} onChange={event => { invalidate(); setIncludeUntracked(event.target.checked); }} />{text('包含未跟踪文件', 'Include untracked files')}</label> : null}

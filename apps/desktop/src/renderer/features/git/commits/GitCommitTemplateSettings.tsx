@@ -4,6 +4,7 @@ import { Button } from '../../../ui/Button.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
 import './gitCommitTemplate.css';
+import { Select } from '../../../ui/FormControls.js';
 
 export function GitCommitTemplateSettings(props: {
   client: Pick<DashboardClient, 'loadProjectGitCommitTemplate'>;
@@ -40,7 +41,16 @@ export function GitCommitTemplateSettings(props: {
     <p>{text('新说明为空时默认填入模板；已有手工或 AI 草稿保留。编辑会另存本仓库模板，不覆盖原文件或全局设置。', 'Templates initialize empty new messages. Existing manual or AI drafts are kept. Edits create a repository template without overwriting original files or global settings.')}</p>
     {template ? <small>{template.source === 'none' ? text('尚未配置模板', 'No template configured') : `${template.source === 'local' ? text('本仓库', 'This repository') : text('继承', 'Inherited')} · ${template.path}`}</small> : null}
     {error ? <VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /> : null}
-    <label>{text('设置方式', 'Configure using')}<select aria-label={text('模板设置方式', 'Template configuration mode')} disabled={disabled} value={mode} onChange={event => setMode(event.target.value === 'file' ? 'file' : 'content')}><option value="content">{text('编辑模板内容', 'Edit template text')}</option><option value="file">{text('使用已有文件', 'Use an existing file')}</option></select></label>
+    <label>{text('设置方式', 'Configure using')}<Select
+      ariaLabel={text('模板设置方式', 'Template configuration mode')}
+      value={mode}
+      disabled={disabled}
+      onChange={value => setMode(value === 'file' ? 'file' : 'content')}
+      options={[
+        { value: 'content', label: text('编辑模板内容', 'Edit template text') },
+        { value: 'file', label: text('使用已有文件', 'Use an existing file') },
+      ]}
+    /></label>
     {mode === 'content' ? <label>{text('模板内容', 'Template text')}<textarea aria-label={text('仓库提交模板内容', 'Repository commit template text')} rows={5} maxLength={30_000} value={content} disabled={disabled} onChange={event => setContent(event.target.value)} /></label> : <label>{text('模板文件路径', 'Template file path')}<input aria-label={text('仓库提交模板路径', 'Repository commit template path')} spellCheck={false} value={path} disabled={disabled} onChange={event => setPath(event.target.value)} /></label>}
     <small>{text('注释可在此预览，填入说明时由 Git 移除；空内容可作为本仓库的空模板。', 'Comments remain visible here and Git removes them when inserting the draft. Empty text creates an empty repository template.')}</small>
     <div className="git-settings-actions"><Button variant="secondary" size="compact" disabled={disabled} onClick={() => void load()}>{text('重新读取模板', 'Reload template')}</Button><Button variant="secondary" size="compact" disabled={disabled || !template || template.localPath === null} onClick={() => void save('inherit')}>{text('模板恢复继承', 'Use inherited template')}</Button><Button size="compact" disabled={disabled || !template || (mode === 'file' && !path)} busy={saving} onClick={() => void save(mode)}>{text('保存模板', 'Save template')}</Button></div>

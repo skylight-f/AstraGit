@@ -49,7 +49,13 @@ export function GitCommitReplaySeriesDialog(props: {
         {metadata ? <>
           <p>{text('应用到', 'Apply to')} {metadata.detached ? 'HEAD' : metadata.branch} · {metadata.headSha.slice(0, 12) || text('尚无提交', 'Unborn branch')}</p>
           <details open><summary>{text(`${metadata.commits.length} 个提交，按应用顺序排列`, `${metadata.commits.length} commits in application order`)}</summary><ol>{metadata.commits.map(item => <li key={item.sha}><code>{item.sha.slice(0, 8)}</code> {item.subject}{item.parentCount > 1 ? text('（合并提交）', ' (merge commit)') : ''}</li>)}</ol></details>
-          {metadata.hasMerges ? <label>{text('合并提交的父级来源', 'Mainline parent for merge commits')}<Select disabled={props.busy} value={mainline ?? metadata.input.mainline ?? 1} onChange={event => setMainline(Number(event.target.value))}>{Array.from({ length: metadata.maximumMainline }, (_, index) => <option key={index + 1} value={index + 1}>{text(`父提交 ${index + 1}`, `Parent ${index + 1}`)}</option>)}</Select><small>{text('原生批量拣选使用相同的父级序号；需要不同来源的合并请分别拣选。', 'Native batch cherry-pick uses one mainline number. Cherry-pick merges separately when they need different mainline parents.')}</small></label> : null}
+          {metadata.hasMerges ? <label>{text('合并提交的父级来源', 'Mainline parent for merge commits')}<Select
+            ariaLabel={text('合并提交的父级来源', 'Mainline parent for merge commits')}
+            value={String(mainline ?? metadata.input.mainline ?? 1)}
+            disabled={props.busy}
+            onChange={value => setMainline(Number(value))}
+            options={Array.from({ length: metadata.maximumMainline }, (_, index) => ({ value: String(index + 1), label: text(`父提交 ${index + 1}`, `Parent ${index + 1}`) }))}
+          /><small>{text('原生批量拣选使用相同的父级序号；需要不同来源的合并请分别拣选。', 'Native batch cherry-pick uses one mainline number. Cherry-pick merges separately when they need different mainline parents.')}</small></label> : null}
         </> : null}
         <label className="git-commit-replay-checkbox"><input type="checkbox" checked={commit} disabled={props.busy} onChange={event => { setCommit(event.target.checked); if (!event.target.checked) setIncludeSourceId(false); }} />{text('成功应用每个提交后立即提交', 'Commit immediately after each successful application')}</label>
         <label className="git-commit-replay-checkbox"><input type="checkbox" checked={includeSourceId} disabled={props.busy || !commit} onChange={event => setIncludeSourceId(event.target.checked)} />{text('在提交说明中记录来源提交 ID', 'Record the source commit IDs in messages')}</label>

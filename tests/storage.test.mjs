@@ -171,15 +171,19 @@ test('Codex starts a CLI handshake with a new, independent home and AstraGit ide
   const command = join(root, 'codex-test');
   await cp(new URL('./fixtures/codex-app-server.mjs', import.meta.url), command);
   await chmod(command, 0o755);
-  const manager = createCodexAppServerManager({ codexHome: home, lightweightGeneration: true, runtimeEnvironment: { PATH: process.env.PATH ?? '' } });
+  const manager = createCodexAppServerManager({ codexHome: home, lightweightGeneration: true, runtimeEnvironment: { PATH: process.env.PATH ?? '', ASTRAGIT_CODEX_TEST_SIGNED_IN: '1' } });
   t.after(async () => { await manager.close(); await rm(root, { recursive: true, force: true }); });
   const capabilities = await manager.ensureReady({ commandPath: command });
   assert.deepEqual(capabilities.supportedModels, ['codex-test']);
   assert.equal((await stat(home)).mode & 0o777, 0o700);
   assert.equal(JSON.parse(await readFile(join(home, 'client-info.json'), 'utf8')).name, 'astragit');
   const account = await manager.readAccount();
-  assert.equal(account.signedIn, false);
+  assert.equal(account.signedIn, true);
   assert.equal(account.requiresOpenaiAuth, true);
+  const updated = await manager.readModels();
+  assert.equal(updated.generationId, capabilities.generationId);
+  assert.deepEqual(updated.supportedModels, ['codex-new']);
+  await assert.rejects(manager.refreshModels(), { code: 'ASTRAGIT_CODEX_MODEL_SYNC_FAILED' });
 });
 
 

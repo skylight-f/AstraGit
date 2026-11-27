@@ -517,6 +517,8 @@ export interface CodexAppServerManager {
   ensureReady(input: CodexRuntimeActivationInput): Promise<CodexCapabilitiesSnapshot>;
   /** 在运行身份不变时也激活新世代；多世代管理器保留旧活动轮次并让其自然排空。 */
   activateFreshGeneration?(input: CodexRuntimeActivationInput): Promise<CodexCapabilitiesSnapshot>;
+  /** 读取当前目录，临时故障时保留同一连接、同一账号的列表。 */
+  readModels(): Promise<CodexCapabilitiesSnapshot>;
   /** 刷新既有连接的完整目录，不重启进程或重放任何模型请求。 */
   refreshModels(): Promise<CodexCapabilitiesSnapshot>;
   readAccount(input?: { refreshToken?: boolean; allowCachedOnTransportFailure?: boolean; preferCached?: boolean; cachedOnly?: boolean }): Promise<CodexAccountSnapshot>;
@@ -739,9 +741,10 @@ export function createCodexAppServerManager(options: CreateCodexAppServerManager
   /** 仅保留最近的登录状态，不保存授权地址或账号凭据。 */
   const chatGptLoginStatuses = new Map<string, CodexChatGptLoginStatus>();
   /** 同一连接的目录刷新合并为一个请求。 */
-  let modelRefreshInFlight: Promise<CodexCapabilitiesSnapshot> | null = null;
+  let modelRefreshInFlight: { request: Promise<CodexCapabilitiesSnapshot>; verifySubscriptionCatalog: boolean } | null = null;
   /** 账号变化后拒绝迟到的目录回包。 */
   let modelAccountRevision = 0;
+  let modelCatalogAccountRevision = -1;
   /** 防止后台重试重复广播同一个同步错误。 */
   let lastModelSyncError: string | null = null;
 
@@ -853,6 +856,7 @@ export function createCodexAppServerManager(options: CreateCodexAppServerManager
       // 热更新替换守护进程后继续使用启动时探测值会把新模型目录误判成旧世代。
       const providerVersion = initializedProviderVersion ?? (remoteControlTransport ? null : providerVersionFallback);
       if (requireFreshModels) await waitForFreshSubscriptionModels(generationId, providerVersion, modelsFreshSince);
+      const catalogAccountRevision = modelAccountRevision;
       const models = await readModelCatalogPages(generationId);
       if (requireFreshModels) assertFreshModelCatalog(providerVersion, models, modelsFreshSince);
       const goals = options.lightweightGeneration ? { supported: false, enabled: false, stage: null } : await readGoalCapability(generationId);
@@ -883,6 +887,7 @@ export function createCodexAppServerManager(options: CreateCodexAppServerManager
         goals,
       };
       if (child !== spawned) throw managerError('ASTRAGIT_CODEX_GENERATION_EXITED', 'Codex app-server generation changed during initialization.');
+      modelCatalogAccountRevision = catalogAccountRevision;
       state = { type: 'ready', generationId, capabilities };
       restartAttempt = 0;
       return capabilities;
@@ -991,32 +996,43 @@ export function createCodexAppServerManager(options: CreateCodexAppServerManager
   }
 
   /** 合并同代际刷新并整体替换目录，发送中的调用仍持有原有快照。 */
-  function refreshModels(): Promise<CodexCapabilitiesSnapshot> {
-    if (modelRefreshInFlight) return modelRefreshInFlight;
+  function refreshModelCatalog(verifySubscriptionCatalog: boolean): Promise<CodexCapabilitiesSnapshot> {
+    if (modelRefreshInFlight) {
+      const pending = modelRefreshInFlight;
+      if (!verifySubscriptionCatalog || pending.verifySubscriptionCatalog) return pending.request;
+      // 后台读取遵循 CLI 的缓存策略，不能替代用户主动同步时的订阅目录校验。
+      const verify = () => refreshModelCatalog(true);
+      return pending.request.then(verify, verify);
+    }
     /** 请求创建时绑定当前账号变更次数。 */
     const accountRevision = modelAccountRevision;
     const request = (async () => {
       const capabilities = await awaitCapabilities();
       const account = parseAccountSnapshot(await retryableReadRpc(capabilities.generationId, 'account/read', { refreshToken: false }), capabilities.generationId, accountFingerprintSalt);
       const models = await readModelCatalogPages(capabilities.generationId);
-      if (account.signedIn && account.accountType === 'chatgpt') assertFreshModelCatalog(capabilities.providerVersion, models, Date.now() - MODEL_CATALOG_MAXIMUM_AGE_MS);
+      if (verifySubscriptionCatalog && account.signedIn && account.accountType === 'chatgpt') {
+        assertFreshModelCatalog(capabilities.providerVersion, models, Date.now() - MODEL_CATALOG_MAXIMUM_AGE_MS);
+      }
       const checkedAt = now();
-      const modelBudgets = await resolveModelBudgetSnapshotAfterBoundedRetry({ codexHome, generationId: capabilities.generationId, initializedAt: checkedAt, providerVersion: capabilities.providerVersion, models });
+      const modelBudgets = options.lightweightGeneration
+        ? {}
+        : await resolveModelBudgetSnapshotAfterBoundedRetry({ codexHome, generationId: capabilities.generationId, initializedAt: checkedAt, providerVersion: capabilities.providerVersion, models });
       if (preparingForShutdown || state.type !== 'ready' || state.generationId !== capabilities.generationId || modelAccountRevision !== accountRevision)
         throw managerError('ASTRAGIT_CODEX_STALE_GENERATION', '模型刷新结果所属的连接或账号已改变。');
       const updated = { ...state.capabilities, models, supportedModels: models.map((model) => model.model), modelBudgets };
+      modelCatalogAccountRevision = accountRevision;
       state = { type: 'ready', generationId: capabilities.generationId, capabilities: updated };
       lastModelSyncError = null;
       emitEvent(capabilities.generationId, 'astragit/models/updated', { checkedAt, modelCount: models.length });
       return updated;
     })();
-    modelRefreshInFlight = request;
+    modelRefreshInFlight = { request, verifySubscriptionCatalog };
     void request.then(
       () => {
-        if (modelRefreshInFlight === request) modelRefreshInFlight = null;
+        if (modelRefreshInFlight?.request === request) modelRefreshInFlight = null;
       },
       (error: unknown) => {
-        if (modelRefreshInFlight === request) modelRefreshInFlight = null;
+        if (modelRefreshInFlight?.request === request) modelRefreshInFlight = null;
         if (state.type !== 'ready' || preparingForShutdown || modelAccountRevision !== accountRevision) return;
         const message = summarizeStderr(asError(error).message);
         if (message === lastModelSyncError) return;
@@ -1468,7 +1484,20 @@ export function createCodexAppServerManager(options: CreateCodexAppServerManager
   }
 
   return {
-    refreshModels,
+    async readModels() {
+      const capabilities = await awaitCapabilities();
+      const accountRevision = modelAccountRevision;
+      try {
+        return await refreshModelCatalog(false);
+      } catch (error) {
+        if (!preparingForShutdown && state.type === 'ready' && state.generationId === capabilities.generationId
+          && modelAccountRevision === accountRevision && modelCatalogAccountRevision === accountRevision) {
+          return state.capabilities;
+        }
+        throw error;
+      }
+    },
+    refreshModels: () => refreshModelCatalog(true),
     ensureReady(input) {
       if (state.type === 'closed' || preparingForShutdown) return Promise.reject(managerError('ASTRAGIT_CODEX_CLOSED', 'Codex app-server manager is closing.'));
       if (commandPath !== null && commandPath !== input.commandPath) {

@@ -11249,11 +11249,10 @@ html[data-zeus-theme='dark'] .startup-failure-shell {
   border: 1px solid var(--zeus-select-line);
   border-radius: 14px;
   box-sizing: border-box;
-  box-shadow:
-    0 24px 70px oklch(20% 0.008 255 / 0.22),
-    0 2px 8px oklch(20% 0.008 255 / 0.08);
-  display: grid;
-  gap: 2px;
+  box-shadow: var(--zeus-popover-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   inline-size: max-content;
   max-inline-size: calc(100vw - 16px);
   overflow: visible;
@@ -11303,26 +11302,6 @@ html[data-zeus-theme='dark'] .startup-failure-shell {
   inline-size: max-content;
 }
 
-.macos-ai-app .zeus-select-popover::before {
-  /* 箭头沿用弹层边界色，深色主题不出现亮色接缝。 */
-  background: var(--zeus-select-popover-bg);
-  border-block-start: 1px solid var(--zeus-select-line);
-  border-inline-start: 1px solid var(--zeus-select-line);
-  block-size: 8px;
-  content: '';
-  inline-size: 8px;
-  inset-block-start: -5px;
-  inset-inline-start: var(--zeus-select-arrow-left, 42px);
-  position: absolute;
-  transform: rotate(45deg);
-}
-
-.macos-ai-app .zeus-select-popover[data-zeus-select-placement='top']::before {
-  inset-block-end: -5px;
-  inset-block-start: auto;
-  transform: rotate(225deg);
-}
-
 .macos-ai-app .zeus-select-popover[hidden] {
   display: none;
 }
@@ -11331,6 +11310,7 @@ html[data-zeus-theme='dark'] .startup-failure-shell {
   align-items: center;
   color: var(--zeus-select-search-placeholder);
   display: grid;
+  flex: 0 0 auto;
   gap: 8px;
   grid-template-columns: 14px minmax(0, 1fr);
   min-block-size: 32px;
@@ -11404,8 +11384,10 @@ html[data-zeus-theme='dark'] .startup-failure-shell {
 
 .macos-ai-app .zeus-select-listbox {
   display: grid;
-  gap: 0;
+  align-content: start;
+  gap: 2px;
   max-block-size: 340px;
+  min-block-size: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -11416,12 +11398,12 @@ html[data-zeus-theme='dark'] .startup-failure-shell {
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: 8px;
+  border-radius: 9px;
   box-shadow: none;
   color: var(--zeus-product-text);
   display: grid;
   font-size: 13px;
-  font-weight: 610;
+  font-weight: 500;
   gap: 8px;
   grid-template-columns: minmax(0, 1fr) 16px;
   inline-size: 100%;
@@ -11455,17 +11437,17 @@ html[data-zeus-theme='dark'] .startup-failure-shell {
 .macos-ai-app .zeus-select-option:hover:not(:disabled):not([aria-disabled='true']),
 .macos-ai-app .zeus-select-option:focus-visible {
   background: var(--zeus-select-option-hover-bg);
-  outline: 0;
 }
 
-.macos-ai-app .zeus-select-option[aria-selected='true'] {
-  background: transparent;
-  color: var(--zeus-product-text);
+.macos-ai-app .zeus-select-option:focus-visible {
+  outline: 1px solid var(--zeus-focus-line);
+  outline-offset: -1px;
 }
 
-.macos-ai-app .zeus-select-option[aria-selected='true']:hover:not(:disabled):not([aria-disabled='true']),
-.macos-ai-app .zeus-select-option[aria-selected='true']:focus-visible {
-  background: var(--zeus-select-option-hover-bg);
+.macos-ai-app .zeus-select-option[data-selected='true'] {
+  background: var(--zeus-product-selected);
+  color: var(--zeus-control-accent);
+  font-weight: 600;
 }
 
 .macos-ai-app .zeus-select-option-label {
@@ -20895,12 +20877,6 @@ html[data-zeus-theme='dark'] body > .macos-ai-app .native-switch-input {
   .macos-ai-app .task-table-workbench:has(.task-empty-state) > .task-list-workbench.task-list-protagonist.task-list-empty {
     grid-template-rows: minmax(0, 1fr);
   }
-}
-
-.macos-ai-app .zeus-select-popover::before {
-  /* 箭头沿用弹层边界色，深色主题不出现亮色接缝。 */
-  border-block-start-color: var(--zeus-select-line);
-  border-inline-start-color: var(--zeus-select-line);
 }
 
 @media (prefers-color-scheme: dark) {

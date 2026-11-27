@@ -6,7 +6,7 @@
 .git-flow-layout>aside,.git-flow-form { min-width:0; padding:12px; overflow:auto; }
 .git-flow-layout>aside>button { display:block; width:100%; box-sizing:border-box; padding:9px 6px; text-align:left; overflow-wrap:anywhere; font:inherit; color:inherit; background:transparent; border:0; border-bottom:1px solid var(--zeus-product-line); cursor:pointer; }
 .git-flow-layout>aside>button[aria-pressed=true] { background:var(--zeus-product-selected); }
-.git-flow-dialog input:not([type=checkbox]),.git-flow-dialog select,.git-flow-dialog textarea { font:inherit; color:inherit; background:var(--zeus-control-bg); width:100%; min-width:0; box-sizing:border-box; border:1px solid var(--zeus-control-border); border-radius:5px; padding:7px 8px; }
+.git-flow-dialog input:not([type=checkbox]),.git-flow-dialog textarea { font:inherit; color:inherit; background:var(--zeus-control-bg); width:100%; min-width:0; box-sizing:border-box; border:1px solid var(--zeus-control-border); border-radius:5px; padding:7px 8px; }
 .git-flow-dialog textarea { resize:vertical; min-height:70px; }
 .git-flow-form fieldset { border:0; margin:0; padding:0; display:grid; gap:12px; min-width:0; }
 .git-flow-form label:not(.git-flow-check) { display:grid; gap:5px; }

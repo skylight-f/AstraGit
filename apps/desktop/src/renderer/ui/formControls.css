@@ -1,4 +1,4 @@
-.macos-ai-app :is(input.zeus-text-input, select.zeus-native-select, .zeus-search-field) {
+.macos-ai-app :is(input.zeus-text-input, .zeus-search-field) {
   box-sizing: border-box;
   min-block-size: var(--zeus-control-height);
   min-inline-size: 0;
@@ -10,49 +10,43 @@
   font: inherit;
 }
 
-.macos-ai-app :is(select.zeus-native-select, .zeus-search-field)[data-control-density='compact'] {
+.macos-ai-app .zeus-search-field[data-control-density='compact'] {
   min-block-size: var(--zeus-control-compact-height);
   padding-inline: var(--zeus-space-2);
   font-size: var(--zeus-type-size-caption);
 }
 
-.macos-ai-app select.zeus-native-select:not([multiple], [size]) {
-  appearance: none;
-  padding-inline-end: var(--zeus-space-8);
-  background-image: var(--zeus-select-caret-icon);
-  background-repeat: no-repeat;
-  background-position: right var(--zeus-space-3) center;
-  background-size: 12px 12px;
+.macos-ai-app .zeus-form-select[data-zeus-primitive='select'] > .zeus-select-trigger {
+  min-block-size: var(--zeus-control-height);
+  padding-inline: var(--zeus-space-3);
+  color: var(--zeus-control-text);
+  border-radius: var(--zeus-control-radius);
+  font-weight: 450;
 }
 
-.macos-ai-app select.zeus-native-select[data-control-density='compact']:not([multiple], [size]) {
-  padding-inline-end: var(--zeus-space-7);
-  background-position: right var(--zeus-space-2) center;
+.macos-ai-app .zeus-form-select[data-zeus-primitive='select'] > .zeus-select-trigger:disabled {
+  color: var(--zeus-control-disabled-text);
+  border-color: var(--zeus-control-disabled-line);
 }
 
-.macos-ai-app select.zeus-native-select:is([multiple], [size]) {
-  appearance: auto;
-  background-image: none;
-}
-
-.macos-ai-app :is(input.zeus-text-input, select.zeus-native-select):hover:not(:disabled, [readonly]) {
+.macos-ai-app input.zeus-text-input:hover:not(:disabled, [readonly]) {
   border-color: var(--zeus-control-border-hover);
 }
 
-.macos-ai-app :is(input.zeus-text-input, select.zeus-native-select):focus-visible {
+.macos-ai-app input.zeus-text-input:focus-visible {
   border-color: var(--zeus-focus-line);
   box-shadow: inset 0 0 0 1px var(--zeus-focus-line);
 }
 
-.macos-ai-app :is(input.zeus-text-input, select.zeus-native-select):is([aria-invalid='true'], :user-invalid) {
+.macos-ai-app input.zeus-text-input:is([aria-invalid='true'], :user-invalid) {
   border-color: var(--zeus-control-error-line);
 }
 
-.macos-ai-app :is(input.zeus-text-input, select.zeus-native-select):is([aria-invalid='true'], :user-invalid):focus-visible {
+.macos-ai-app input.zeus-text-input:is([aria-invalid='true'], :user-invalid):focus-visible {
   box-shadow: inset 0 0 0 1px var(--zeus-control-error-line);
 }
 
-.macos-ai-app :is(input.zeus-text-input, select.zeus-native-select):disabled {
+.macos-ai-app input.zeus-text-input:disabled {
   color: var(--zeus-control-disabled-text);
   border-color: var(--zeus-control-disabled-line);
   background-color: var(--zeus-control-disabled-bg);
@@ -116,10 +110,5 @@
   .macos-ai-app .zeus-search-field:focus-within {
     outline: 2px solid Highlight;
     outline-offset: -2px;
-  }
-
-  .macos-ai-app select.zeus-native-select:not([multiple], [size]) {
-    appearance: auto;
-    background-image: none;
   }
 }

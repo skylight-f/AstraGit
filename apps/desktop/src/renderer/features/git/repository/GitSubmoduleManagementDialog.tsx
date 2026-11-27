@@ -88,11 +88,27 @@ export function GitSubmoduleManagementDialog(props: {
         <GitPaneSeparator name="submodule-list" label={text('调整子模块列表宽度', 'Resize submodule list')} initial={28} min={20} max={45} />
         <div className="git-submodule-content">
           <form onSubmit={event => { event.preventDefault(); void prepare(); }}>
-            <label>{text('操作', 'Operation')}<Select value={operation} disabled={locked} onChange={event => { const next = event.target.value as GitSubmoduleChange['operation']; setOperation(next); if (next === 'add') choose(''); else if (module) choose(module.path); else choose(state?.modules[0]?.path ?? ''); }}>{(['update', 'add', 'set_url', 'set_branch', 'sync', 'absorb', 'deinit', 'remove'] as const).map(value => <option key={value} value={value}>{operationLabel(value, props.zh)}</option>)}</Select></label>
-            <label>{text('模块路径', 'Module path')}{operation === 'add' ? <TextInput value={path} disabled={locked} onChange={event => setPath(event.target.value)} placeholder="apps/library" required /> : <Select value={path} disabled={locked} onChange={event => choose(event.target.value)}>{state?.modules.map(item => <option key={item.path} value={item.path}>{item.path}</option>)}</Select>}</label>
+            <label>{text('操作', 'Operation')}<Select
+              ariaLabel={text('操作', 'Operation')}
+              value={operation}
+              disabled={locked}
+              onChange={value => { const next = value as GitSubmoduleChange['operation']; setOperation(next); if (next === 'add') choose(''); else if (module) choose(module.path); else choose(state?.modules[0]?.path ?? ''); }}
+              options={(['update', 'add', 'set_url', 'set_branch', 'sync', 'absorb', 'deinit', 'remove'] as const).map(value => ({ value, label: operationLabel(value, props.zh) }))}
+            /></label>
+            <label>{text('模块路径', 'Module path')}{operation === 'add' ? <TextInput value={path} disabled={locked} onChange={event => setPath(event.target.value)} placeholder="apps/library" required /> : <Select ariaLabel={text('模块路径', 'Module path')} value={path} disabled={locked} onChange={choose} options={state?.modules.map(item => ({ value: item.path, label: item.path })) ?? []} />}</label>
             {operation === 'add' || operation === 'set_url' ? <label>{text('仓库地址', 'Repository URL')}<TextInput value={url} disabled={locked} onChange={event => setUrl(event.target.value)} spellCheck={false} required /></label> : null}
             {operation === 'add' || operation === 'set_branch' ? <label>{text('跟踪分支（留空使用远程默认）', 'Tracking branch (empty uses remote default)')}<TextInput value={branch} disabled={locked} onChange={event => setBranch(event.target.value)} spellCheck={false} />{operation === 'set_branch' ? <small>{text('“.” 跟随父仓库同名分支。本地 branch 配置优先于 .gitmodules；如有覆盖，请在本地配置中核对。', '“.” follows the parent branch name. A local branch setting takes precedence over .gitmodules; review any local override.')}</small> : null}</label> : null}
-            {operation === 'update' ? <><label>{text('更新策略', 'Update strategy')}<Select value={strategy} disabled={locked} onChange={event => setStrategy(event.target.value as typeof strategy)}><option value="checkout">{text('检出目标提交', 'Check out target commit')}</option><option value="merge">{text('合并到当前子模块分支', 'Merge into current module branch')}</option><option value="rebase">{text('变基当前子模块分支', 'Rebase current module branch')}</option></Select></label><label className="git-submodule-check"><input type="checkbox" checked={remote} disabled={locked} onChange={event => setRemote(event.target.checked)} />{text('获取跟踪分支的最新提交（不使用父仓库固定版本）', 'Fetch the latest tracking branch commit instead of the parent’s recorded version')}</label></> : null}
+            {operation === 'update' ? <><label>{text('更新策略', 'Update strategy')}<Select
+              ariaLabel={text('更新策略', 'Update strategy')}
+              value={strategy}
+              disabled={locked}
+              onChange={value => setStrategy(value as typeof strategy)}
+              options={[
+                { value: 'checkout', label: text('检出目标提交', 'Check out target commit') },
+                { value: 'merge', label: text('合并到当前子模块分支', 'Merge into current module branch') },
+                { value: 'rebase', label: text('变基当前子模块分支', 'Rebase current module branch') },
+              ]}
+            /></label><label className="git-submodule-check"><input type="checkbox" checked={remote} disabled={locked} onChange={event => setRemote(event.target.checked)} />{text('获取跟踪分支的最新提交（不使用父仓库固定版本）', 'Fetch the latest tracking branch commit instead of the parent’s recorded version')}</label></> : null}
             {operation === 'update' || operation === 'sync' ? <label className="git-submodule-check"><input type="checkbox" checked={recursive} disabled={locked} onChange={event => setRecursive(event.target.checked)} />{text('递归处理嵌套子模块', 'Include nested submodules recursively')}</label> : null}
             {operation === 'remove' ? <label className="git-submodule-check"><input type="checkbox" checked={keepFiles} disabled={locked} onChange={event => setKeepFiles(event.target.checked)} />{text('保留本地目录与其中的修改', 'Keep the local directory and its changes')}</label> : null}
             {operation === 'add' ? <label className="git-submodule-check"><input type="checkbox" checked={adoptExisting} disabled={locked} onChange={event => setAdoptExisting(event.target.checked)} />{text('目标已是 Git 仓库时，登记现有仓库', 'Register an existing Git repository at the destination')}</label> : null}

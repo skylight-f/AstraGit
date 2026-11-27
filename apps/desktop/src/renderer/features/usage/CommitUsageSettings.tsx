@@ -67,13 +67,16 @@ export function CommitUsageSettings({ client, zh }: { client: DashboardClient; z
     {rows === null ? !error && <p role="status">{zh ? '正在读取用量…' : 'Loading usage…'}</p> : <>
       <div className="gitapp-usage-filters">{dimensions.map(key => {
         const options = new Map(rows.map(row => [row[`${key}Id`], row[`${key}Name`]]));
-        return <label key={key}>{labels[key]}<Select value={filters[key]} onChange={event => setFilters({ ...filters, [key]: event.target.value })}>
-          <option value="">{zh ? '全部' : 'All'}</option>
-          {[...options].sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-        </Select></label>;
-      })}<label>{zh ? '分组方式' : 'Group by'}<Select value={dimension} onChange={event => setDimension(event.target.value as Dimension)}>
-        {dimensions.map(key => <option key={key} value={key}>{labels[key]}</option>)}
-      </Select></label></div>
+        return <label key={key}>{labels[key]}<Select
+          ariaLabel={labels[key]}
+          value={filters[key]}
+          onChange={value => setFilters({ ...filters, [key]: value })}
+          options={[
+            { value: '', label: zh ? '全部' : 'All' },
+            ...([...options].sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => ({ value: id, label: name }))),
+          ]}
+        /></label>;
+      })}<label>{zh ? '分组方式' : 'Group by'}<Select ariaLabel={zh ? '分组方式' : 'Group by'} value={dimension} onChange={value => setDimension(value as Dimension)} options={dimensions.map(key => ({ value: key, label: labels[key] }))} /></label></div>
       <div className="gitapp-usage-chart-card">
         <header><h3>{zh ? '过去一年' : 'Past year'}</h3><div className="gitapp-usage-metrics" role="group" aria-label={zh ? '热力图指标' : 'Heatmap metric'}>
           <Button variant="ghost" size="compact" aria-pressed={metric === 'generations'} onClick={() => setMetric('generations')}>{zh ? '生成次数' : 'Drafts'}</Button>

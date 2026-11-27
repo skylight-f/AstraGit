@@ -114,11 +114,29 @@ export function GitTagManagementDialog(props: {
         <label>{text('标签名称', 'Tag name')}<TextInput ref={tagNameInput} data-modal-initial-focus value={name} disabled={disabled} onChange={event => { setName(event.target.value); }} /></label>
         <label>{text('目标分支或提交', 'Target branch or commit')}<TextInput value={revision} disabled={disabled} onChange={event => { setRevision(event.target.value); }} /></label>
         {targetLoading ? <p role="status">{text('正在核对目标提交…', 'Reviewing target commit…')}</p> : target?.revision === revision ? <p className="git-tag-target"><code>{target.value.sha}</code><span>{target.value.subject}</span></p> : null}
-        <label>{text('标签类型', 'Tag type')}<Select value={annotated ? 'annotated' : 'lightweight'} disabled={disabled} onChange={event => { setAnnotated(event.target.value === 'annotated'); }}><option value="annotated">{text('附注标签', 'Annotated tag')}</option><option value="lightweight">{text('轻量标签', 'Lightweight tag')}</option></Select></label>
+        <label>{text('标签类型', 'Tag type')}<Select
+          ariaLabel={text('标签类型', 'Tag type')}
+          value={annotated ? 'annotated' : 'lightweight'}
+          disabled={disabled}
+          onChange={value => { setAnnotated(value === 'annotated'); }}
+          options={[
+            { value: 'annotated', label: text('附注标签', 'Annotated tag') },
+            { value: 'lightweight', label: text('轻量标签', 'Lightweight tag') },
+          ]}
+        /></label>
         {annotated ? <label>{text('标签说明（可选，默认使用标签名称）', 'Annotation (optional; defaults to tag name)')}<textarea rows={6} value={message} disabled={disabled} onChange={event => { setMessage(event.target.value); }} /></label> : <p>{text('轻量标签只记录目标版本，不包含附注。', 'A lightweight tag records the target revision without an annotation.')}</p>}
         <p>{text('创建后可在标签列表中选择远程并推送。', 'After creation, select a remote in the tag list to push the tag.')}</p><Button type="submit" variant="primary" disabled={disabled || !createReady} busy={running}>{text('创建标签', 'Create tag')}</Button>
       </form> : <>
-        <div className="git-tag-filters"><label>{text('标签来源', 'Tag source')}<Select value={location} disabled={disabled} onChange={event => { setLocation(event.target.value); setSelection(''); setReview(null); setNeedsReview(false); }}><option value="">{text('本地标签', 'Local tags')}</option>{repository.snapshot.remotes.map(item => <option key={item} value={item}>{text('远程', 'Remote')} · {item}</option>)}</Select></label><label>{text('筛选标签', 'Filter tags')}<TextInput type="search" value={search} disabled={disabled} onChange={event => { setSearch(event.target.value); setReview(null); }} placeholder={text('名称、对象版本或本地说明…', 'Name, object version or local subject…')} /></label></div>
+        <div className="git-tag-filters"><label>{text('标签来源', 'Tag source')}<Select
+          ariaLabel={text('标签来源', 'Tag source')}
+          value={location}
+          disabled={disabled}
+          onChange={value => { setLocation(value); setSelection(''); setReview(null); setNeedsReview(false); }}
+          options={[
+            { value: '', label: text('本地标签', 'Local tags') },
+            ...(repository.snapshot.remotes.map(item => ({ value: item, label: `${text('远程', 'Remote')} · ${item}` }))),
+          ]}
+        /></label><label>{text('筛选标签', 'Filter tags')}<TextInput type="search" value={search} disabled={disabled} onChange={event => { setSearch(event.target.value); setReview(null); }} placeholder={text('名称、对象版本或本地说明…', 'Name, object version or local subject…')} /></label></div>
         <div ref={split} className="git-tag-layout"><div className="git-tag-list" role="listbox" aria-label={text('标签列表', 'Tags')} aria-busy={loading} onKeyDown={event => {
           if (disabled || !page?.items.length || !(event.target instanceof HTMLElement) || !event.target.closest('[role="option"]')) return;
           const index = page.items.findIndex(item => item.name === selected?.name);
@@ -131,7 +149,13 @@ export function GitTagManagementDialog(props: {
         </div><GitPaneSeparator name="tag-list" label={text('调整标签列表宽度', 'Resize tag list')} initial={35} min={bounds.min} max={bounds.max} /><div className="git-tag-detail">
           {selected ? <><h3>{selected.name}</h3>{selected.local ? <><dl><dt>{text('本地标签对象', 'Local tag object')}</dt><dd><code>{selected.local.objectSha}</code></dd><dt>{text('对象类型', 'Object type')}</dt><dd>{selected.local.objectType}</dd>{selected.local.peeledSha ? <><dt>{text('指向对象', 'Tagged object')}</dt><dd><code>{selected.local.peeledSha}</code> · {selected.local.peeledType}</dd></> : null}{selected.local.subject ? <><dt>{text('本地说明', 'Local subject')}</dt><dd>{selected.local.subject}</dd></> : null}</dl>{selected.local.commitSha ? <Button variant="secondary" disabled={disabled} onClick={() => props.onOpenCommit(selected.local!.commitSha!)}>{text('查看目标提交', 'View target commit')}</Button> : null}</> : <p>{text('此标签仅存在于远程，尚无本地对象。', 'This tag exists only on the remote; its object is not available locally.')}</p>}
           {location && page ? <><h4>{text('远程推送目标', 'Remote push destinations')}</h4>{page.destinations.map((destination, index) => <div className="git-tag-version" key={index}><span>{destination}</span><code>{selected.targets[index]?.objectSha ?? text('此目标上不存在', 'Absent on this destination')}</code>{selected.targets[index]?.peeledSha ? <small>{text('指向：', 'Points to: ')}{selected.targets[index]?.peeledSha}</small> : null}</div>)}</> : null}
-          {!review ? <div className="git-tag-actions">{!location ? <><label>{text('推送到', 'Push to')}<Select value={remote} disabled={disabled || !repository.snapshot.remotes.length} onChange={event => setRemote(event.target.value)}>{repository.snapshot.remotes.map(item => <option key={item} value={item}>{item}</option>)}</Select></label><Button variant="secondary" disabled={disabled || needsReview || !remote || !selected.local} busy={preparing} onClick={() => void preparePush(selected)}>{text('推送标签…', 'Push tag…')}</Button></> : null}<Button variant="danger" disabled={disabled || needsReview || !page || loading} onClick={() => prepareDelete(selected)}>{location ? text('删除远程标签…', 'Delete remote tag…') : text('删除本地标签…', 'Delete local tag…')}</Button></div> : null}
+          {!review ? <div className="git-tag-actions">{!location ? <><label>{text('推送到', 'Push to')}<Select
+            ariaLabel={text('推送到', 'Push to')}
+            value={remote}
+            disabled={disabled || !repository.snapshot.remotes.length}
+            onChange={setRemote}
+            options={repository.snapshot.remotes.map(item => ({ value: item, label: item }))}
+          /></label><Button variant="secondary" disabled={disabled || needsReview || !remote || !selected.local} busy={preparing} onClick={() => void preparePush(selected)}>{text('推送标签…', 'Push tag…')}</Button></> : null}<Button variant="danger" disabled={disabled || needsReview || !page || loading} onClick={() => prepareDelete(selected)}>{location ? text('删除远程标签…', 'Delete remote tag…') : text('删除本地标签…', 'Delete local tag…')}</Button></div> : null}
           </> : !loading ? <p>{selection ? text('所选标签不在当前列表中，请重新选择或清除筛选。', 'The selected tag is not in this list. Select it again or clear the filter.') : text('选择标签查看版本及操作。', 'Select a tag to view its versions and actions.')}</p> : null}
           {review ? <section className="git-tag-review" aria-label={text('确认标签操作', 'Confirm tag action')}><h4>{review.title} · {review.name}</h4>{review.versions.map((version, index) => <div className="git-tag-version" key={index}><span>{version.destination}</span><code>{version.object ?? text('不存在，将跳过', 'Absent; will be skipped')}</code></div>)}<p>{review.action.type === 'delete_remote_tag' ? text('只删除所列服务器上核对过的标签版本，保留本地标签。此操作会影响其他使用者。', 'Delete the reviewed tag versions from the listed servers and keep the local tag. This affects other users.') : review.action.type === 'delete_tag' ? text('只删除本地标签，保留远程标签。', 'Delete only the local tag and keep remote tags.') : text('仅推送这个标签；已有的不同远程标签不会被覆盖。', 'Push only this tag; a different existing remote tag will not be overwritten.')}</p>{review.destructive ? <label className="git-tag-confirm"><input type="checkbox" checked={confirmed} disabled={disabled || needsReview} onChange={event => setConfirmed(event.target.checked)} />{text('确认删除以上标签引用', 'Confirm deleting these tag refs')}</label> : null}<div className="git-tag-actions"><Button variant="secondary" disabled={disabled} onClick={() => { setReview(null); setConfirmed(false); }}>{text('返回', 'Back')}</Button><Button variant={review.destructive ? 'danger' : 'primary'} disabled={disabled || needsReview || (review.destructive && !confirmed)} busy={running} onClick={() => void execute(review.action, review.title)}>{review.title}</Button></div></section> : null}
         </div></div>

@@ -4,6 +4,18 @@ export type GitCommitModelsClient = Pick<GitApiClient, 'loadGitCommitModels'>;
 
 const disabledCodexModelsKey = 'astragit.codex.disabled-models.v1';
 
+export function watchModelCatalog(refresh: () => void): () => void {
+  const refreshVisible = () => {
+    if (document.visibilityState === 'visible') refresh();
+  };
+  const timer = window.setInterval(refreshVisible, 60_000);
+  window.addEventListener('focus', refreshVisible);
+  return () => {
+    window.clearInterval(timer);
+    window.removeEventListener('focus', refreshVisible);
+  };
+}
+
 export function readDisabledCodexModels(): string[] {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(disabledCodexModelsKey) ?? '[]');

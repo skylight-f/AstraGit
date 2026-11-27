@@ -23,11 +23,16 @@ export function SubtreeManagementDialog(props: {
         <p>{props.zh ? '添加和拉取使用 squash 合并，需要干净的工作区。操作前会确认目标仓库与分支。' : 'Add and pull use squash and require a clean working tree. Confirm the target before executing.'}</p>
         <label>
           {props.zh ? '操作' : 'Action'}
-          <Select value={operation} onChange={(event) => setOperation(event.currentTarget.value as 'add' | 'pull' | 'push')}>
-            <option value="add">{props.zh ? '添加' : 'Add'}</option>
-            <option value="pull">{props.zh ? '拉取' : 'Pull'}</option>
-            <option value="push">{props.zh ? '推送' : 'Push'}</option>
-          </Select>
+          <Select
+            ariaLabel={props.zh ? '操作' : 'Action'}
+            value={operation}
+            onChange={value => setOperation(value as 'add' | 'pull' | 'push')}
+            options={[
+              { value: 'add', label: props.zh ? '添加' : 'Add' },
+              { value: 'pull', label: props.zh ? '拉取' : 'Pull' },
+              { value: 'push', label: props.zh ? '推送' : 'Push' },
+            ]}
+          />
         </label>
         <label>
           {props.zh ? '子树路径' : 'Subtree path'}
@@ -40,11 +45,7 @@ export function SubtreeManagementDialog(props: {
         </datalist>
         <label>
           {props.zh ? '远端' : 'Remote'}
-          <Select value={remote} onChange={(event) => setRemote(event.currentTarget.value)}>
-            {props.repository.snapshot.remotes.map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </Select>
+          <Select ariaLabel={props.zh ? '远端' : 'Remote'} value={remote} onChange={setRemote} options={props.repository.snapshot.remotes.map((value) => ({ value, label: value }))} />
         </label>
         <label>
           {props.zh ? '远端分支' : 'Remote branch'}

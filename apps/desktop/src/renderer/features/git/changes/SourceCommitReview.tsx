@@ -6,6 +6,7 @@ import { branchPushTarget, type PushDestinationDraft } from '../repository/pushT
 import type { SourceReviewRow } from './sourceGitBatch.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { Button } from '../../../ui/Button.js';
+import { Select } from '../../../ui/FormControls.js';
 
 export interface SourceReviewDraft extends Omit<SourceReviewRow, 'remote' | 'targetBranch' | 'setUpstream'> {
   snapshot: ProjectGitRepositorySnapshot;
@@ -55,12 +56,13 @@ export function SourceCommitReview(props: {
     <div className="source-git-review-list">
       <section className="source-git-review-message">
         {messageGroups.length > 1 && <label>{label('适用仓库', 'Repositories')}
-          <select value={selectedGroup} disabled={props.busy} onChange={event => setSelectedGroup(Number(event.target.value))}>
-            {messageGroups.map((group, index) => <option key={index} value={index}>
-              {group.map(i => props.rows[i].repositoryName).join(props.zh ? '、' : ', ')}
-              {props.rows[group[0]].message.trim() ? '' : label('（待填写）', ' (message required)')}
-            </option>)}
-          </select>
+          <Select
+            ariaLabel={label('适用仓库', 'Repositories')}
+            value={String(selectedGroup)}
+            disabled={props.busy}
+            onChange={value => setSelectedGroup(Number(value))}
+            options={messageGroups.map((group, index) => ({ value: String(index), label: `${group.map(i => props.rows[i].repositoryName).join(props.zh ? '、' : ', ')}${props.rows[group[0]].message.trim() ? '' : label('（待填写）', ' (message required)')}` }))}
+          />
         </label>}
         <label>{messageRows.length > 1 ? label('共用提交说明', 'Shared commit message') : label('提交说明', 'Commit message')}
           <textarea rows={4} value={messageRows[0].message} disabled={props.busy}

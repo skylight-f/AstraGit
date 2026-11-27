@@ -168,7 +168,9 @@ export async function generateCodexCommitMessage(
       progress('初始化服务');
       const capabilities = await manager.ensureReady({ commandPath: options.commandPath, ...(options.externalAgentHome ? { externalAgentHome: options.externalAgentHome } : {}) });
       if (cancelled) throw new Error(`${subject}已取消。`);
-      const model = capabilities.models.find((item) => item.model === modelId && item.raw.hidden !== true);
+      const matchesModel = (item: (typeof capabilities.models)[number]) => item.model === modelId && item.raw.hidden !== true;
+      const model = capabilities.models.find(matchesModel) ?? (await manager.readModels()).models.find(matchesModel);
+      if (cancelled) throw new Error(`${subject}已取消。`);
       if (!model) throw new Error('所选 Codex 模型已不可用，请刷新模型列表。');
       const effort = (options.task ? ['medium', 'low', 'minimal', 'none'] as const : ['low', 'minimal', 'none'] as const).find((value) => model.supportedReasoningEfforts.includes(value));
       if (model.supportedReasoningEfforts.length && !effort) throw new Error('所选模型不支持低思考深度，请选择支持 low 的模型生成提交说明。');

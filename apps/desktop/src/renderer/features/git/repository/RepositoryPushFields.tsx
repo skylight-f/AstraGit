@@ -33,9 +33,13 @@ export function RepositoryPushFields(props: {
       {props.children}
       <label>
         <span>{zh ? '推送到仓库' : 'Push to remote'}</span>
-        <Select value={draft.remote} onChange={event => props.onChange({ ...draft, remote: event.currentTarget.value })}>
-          {snapshot.remotes.map(name => <option key={name}>{name}</option>)}
-        </Select>
+        <Select
+          ariaLabel={zh ? '推送到仓库' : 'Push to remote'}
+          value={draft.remote}
+          disabled={props.disabled}
+          onChange={value => props.onChange({ ...draft, remote: value })}
+          options={snapshot.remotes.map(name => ({ value: name, label: name }))}
+        />
       </label>
       {pushUrl && <p className="project-git-remote-url">{pushUrl}</p>}
     </fieldset>

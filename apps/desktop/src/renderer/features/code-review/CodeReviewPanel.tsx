@@ -3,7 +3,7 @@ import { ShieldCheck } from '@phosphor-icons/react/dist/csr/ShieldCheck';
 import { Copy } from '@phosphor-icons/react/dist/csr/Copy';
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardClient, ProjectRecord, GitCodeReviewInput, GitCodeReviewScope, GitCodeReviewReport, GitCodeReviewFinding } from '../../api/apiClient.js';
-import { loadGitCommitModelOptions } from '../models/gitCommitModels.js';
+import { loadGitCommitModelOptions, watchModelCatalog } from '../models/gitCommitModels.js';
 import { readCachedProjectGitWorkbench, requestProjectGitWorkbench } from '../git/workbench/projectGitWorkbenchState.js';
 import { ZeusSelect } from '../../ui/ZeusSelect.js';
 import { ModelSelect } from '../models/ModelSelect.js';
@@ -58,15 +58,29 @@ export function CodeReviewPanel({ client, project, zh, active, modelSettingsRevi
     return () => { alive = false; };
   }, [client, project.id, active]);
   useEffect(() => {
+    if (!active) return;
     let alive = true;
+    let reading = false;
+    const read = async () => {
+      if (reading) return;
+      reading = true;
+      try {
+        const value = await loadGitCommitModelOptions(client, project.id);
+        if (!alive) return;
+        setModels(value.items);
+        setModelRef(current => value.items.some(item => item.id === current) ? current : value.modelRef);
+      } catch {
+        // Keep the last usable selection when a background read fails.
+      } finally {
+        reading = false;
+        if (alive) setModelsLoading(false);
+      }
+    };
     setModelsLoading(true);
-    void loadGitCommitModelOptions(client, project.id).then(value => {
-      if (!alive) return;
-      setModels(value.items);
-      setModelRef(current => value.items.some(item => item.id === current) ? current : value.modelRef);
-    }).catch(() => { if (alive) { setModels([]); setModelRef(''); } }).finally(() => { if (alive) setModelsLoading(false); });
-    return () => { alive = false; };
-  }, [client, project.id, modelSettingsRevision, modelRevision]);
+    void read();
+    const unwatch = watchModelCatalog(() => void read());
+    return () => { alive = false; unwatch(); };
+  }, [active, client, project.id, modelSettingsRevision, modelRevision]);
   useEffect(() => {
     if (!active || busy) return;
     let alive = true;

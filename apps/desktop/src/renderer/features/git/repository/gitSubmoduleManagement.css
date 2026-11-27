@@ -7,7 +7,7 @@
 .git-submodule-content { padding:14px 18px; overflow:auto; min-width:0; }
 .git-submodule-content form { display:grid; gap:12px; }
 .git-submodule-content label:not(.git-submodule-check) { display:grid; gap:5px; }
-.git-submodule-content input:not([type=checkbox]),.git-submodule-content select { width:100%; min-width:0; box-sizing:border-box; font:inherit; padding:7px 9px; border:1px solid var(--zeus-control-border,#dce0e9); border-radius:6px; background:var(--zeus-control-bg,#fff); color:inherit; }
+.git-submodule-content input:not([type=checkbox]) { width:100%; min-width:0; box-sizing:border-box; font:inherit; padding:7px 9px; border:1px solid var(--zeus-control-border,#dce0e9); border-radius:6px; background:var(--zeus-control-bg,#fff); color:inherit; }
 .git-submodule-check { display:flex; align-items:flex-start; gap:6px; line-height:1.6; }
 .git-submodule-check input { flex:none; margin-top:3px; }
 .git-submodule-content dl { display:grid; gap:5px; margin:0; font-size:11px; }

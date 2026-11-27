@@ -3,7 +3,7 @@
 .git-rebase-scroll { min-height:0; overflow:auto; padding:0 2px; }
 .git-rebase-bases { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
 .git-rebase-bases > label { flex:1 1 240px; }
-.git-rebase-bases input,.git-rebase-steps select,.git-rebase-scroll textarea { box-sizing:border-box; width:100%; min-width:0; font:inherit; padding:6px 8px; border:1px solid var(--zeus-control-border); border-radius:5px; color:inherit; background:var(--zeus-control-bg); }
+.git-rebase-bases input,.git-rebase-scroll textarea { box-sizing:border-box; width:100%; min-width:0; font:inherit; padding:6px 8px; border:1px solid var(--zeus-control-border); border-radius:5px; color:inherit; background:var(--zeus-control-bg); }
 .git-rebase-scroll label { display:grid; gap:6px; }
 .git-rebase-scroll textarea { resize:vertical; }
 .git-rebase-identity { overflow-wrap:anywhere; }
@@ -13,7 +13,7 @@
 .git-rebase-step-line { display:flex; align-items:center; gap:8px; }
 .git-rebase-drag { cursor:grab; user-select:none; padding:4px; }
 .git-rebase-order { min-width:2ch; color:var(--zeus-product-muted); }
-.git-rebase-step-line select { flex:1; }
+.git-rebase-step-line > .zeus-form-select { flex:1; }
 .git-rebase-step-line button { flex-shrink:0; border:1px solid var(--zeus-control-border); background:var(--zeus-control-bg); color:inherit; border-radius:4px; padding:3px 9px; cursor:pointer; }
 .git-rebase-steps summary { margin-top:8px; cursor:pointer; overflow-wrap:anywhere; }
 .git-rebase-steps small { color:var(--zeus-product-muted); }
@@ -23,4 +23,4 @@
 .git-rebase-check input { flex-shrink:0; margin-top:2px; }
 .git-rebase-warning { padding:10px; border-radius:5px; background:var(--zeus-warning-bg,#fff6e9); color:var(--zeus-warning-text,#876127); line-height:1.6; overflow-wrap:anywhere; }
 .git-rebase-warning ul { max-height:160px; overflow:auto; padding-left:20px; }
-@media (max-width:600px) { .git-rebase-step-line { flex-wrap:wrap; } .git-rebase-step-line select { flex-basis:100%; order:1; } }
+@media (max-width:600px) { .git-rebase-step-line { flex-wrap:wrap; } .git-rebase-step-line > .zeus-form-select { flex-basis:100%; order:1; } }

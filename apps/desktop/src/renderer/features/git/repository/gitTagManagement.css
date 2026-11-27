@@ -2,7 +2,7 @@
 .git-tag-dialog small,.git-tag-dialog p { color:var(--zeus-product-muted,#677389); }
 .git-tag-dialog>nav,.git-tag-filters { display:flex; gap:10px; padding:10px 16px; flex-wrap:wrap; border-bottom:1px solid var(--zeus-product-line,#dfe3ec); }
 .git-tag-dialog label { display:grid; gap:5px; min-width:0; }
-.git-tag-dialog input:not([type=checkbox]),.git-tag-dialog select,.git-tag-dialog textarea { box-sizing:border-box; min-width:0; width:100%; padding:7px 9px; border:1px solid var(--zeus-control-border,#dce1eb); border-radius:6px; background:var(--zeus-control-bg,#fff); color:inherit; font:inherit; }
+.git-tag-dialog input:not([type=checkbox]),.git-tag-dialog textarea { box-sizing:border-box; min-width:0; width:100%; padding:7px 9px; border:1px solid var(--zeus-control-border,#dce1eb); border-radius:6px; background:var(--zeus-control-bg,#fff); color:inherit; font:inherit; }
 .git-tag-filters label { flex:1; }
 .git-tag-filters label:last-child { flex:2; }
 .git-tag-layout { display:grid; grid-template-columns:minmax(0,var(--git-tag-list,35%)) 6px minmax(0,1fr); flex:1; min-width:0; min-height:0; }

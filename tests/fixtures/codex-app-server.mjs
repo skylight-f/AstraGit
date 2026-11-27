@@ -9,6 +9,7 @@ if (!home || !existsSync(home)) {
   process.exit(1);
 }
 const input = createInterface({ input: process.stdin });
+let modelReads = 0;
 input.on('line', (line) => {
   const request = JSON.parse(line);
   if (request.id === undefined) return;
@@ -17,9 +18,11 @@ input.on('line', (line) => {
     writeFileSync(join(home, 'client-info.json'), JSON.stringify(request.params.clientInfo));
     result = { userAgent: 'astragit-test', codexHome: home };
   } else if (request.method === 'model/list') {
-    result = { data: [{ id: 'codex-test', model: 'codex-test', displayName: 'Codex test', defaultReasoningEffort: 'medium', supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Medium' }] }], nextCursor: null };
+    const model = ++modelReads === 1 ? 'codex-test' : 'codex-new';
+    result = { data: [{ id: model, model, displayName: 'Codex test', defaultReasoningEffort: 'medium', supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Medium' }] }], nextCursor: null };
   } else if (request.method === 'account/read') {
-    result = { account: null, requiresOpenaiAuth: true };
+    const account = process.env.ASTRAGIT_CODEX_TEST_SIGNED_IN === '1' ? { type: 'chatgpt', planType: 'plus' } : null;
+    result = { account, requiresOpenaiAuth: true };
   } else {
     process.stdout.write(`${JSON.stringify({ id: request.id, error: { code: -32601, message: 'Unsupported method' } })}\n`);
     return;

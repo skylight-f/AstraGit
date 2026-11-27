@@ -82,12 +82,40 @@ export function GitExternalToolDialog(props: {
           <Button variant="secondary" disabled={locked || loading} onClick={() => void prepare()}>{text('读取并核对版本', 'Read and review versions')}</Button>
           {preview ? <section className="git-external-tool-preview"><strong>{preview.toolName}</strong>{preview.command ? <pre>{preview.command}</pre> : null}{preview.files.map(file => <article key={file.path}><strong>{file.path}</strong><small>{versionLabel(file.beforeLabel, props.zh)} ({file.beforeBytes} B) → {versionLabel(file.afterLabel, props.zh)} ({file.afterBytes} B)</small></article>)}<Button disabled={locked} onClick={() => void perform({ type: 'external_tool', input: preview.input, expectedFingerprint: preview.fingerprint }, true)}>{text('启动并等待工具退出', 'Launch and wait for the tool')}</Button></section> : null}
         </> : tab === 'settings' && settings ? <>
-          <div className="git-external-tool-grid"><label>{text('工具类型', 'Tool type')}<Select value={kind} disabled={locked} onChange={event => { const value = event.target.value as GitExternalToolKind; setKind(value); resetFields(settings, value, scope); }}><option value="diff">{text('差异比较', 'Diff')}</option><option value="merge">{text('冲突合并', 'Merge')}</option></Select></label><label>{text('保存范围', 'Save scope')}<Select value={scope} disabled={locked} onChange={event => { const value = event.target.value as typeof scope; setScope(value); resetFields(settings, kind, value); }}><option value="local">{text('当前仓库', 'This repository')}</option><option value="global">{text('全局 Git（影响其他仓库及 Git 应用）', 'Global Git (affects other repositories and Git apps)')}</option></Select></label></div>
+          <div className="git-external-tool-grid"><label>{text('工具类型', 'Tool type')}<Select
+            ariaLabel={text('工具类型', 'Tool type')}
+            value={kind}
+            disabled={locked}
+            onChange={nextValue => { const value = nextValue as GitExternalToolKind; setKind(value); resetFields(settings, value, scope); }}
+            options={[
+              { value: 'diff', label: text('差异比较', 'Diff') },
+              { value: 'merge', label: text('冲突合并', 'Merge') },
+            ]}
+          /></label><label>{text('保存范围', 'Save scope')}<Select
+            ariaLabel={text('保存范围', 'Save scope')}
+            value={scope}
+            disabled={locked}
+            onChange={nextValue => { const value = nextValue as typeof scope; setScope(value); resetFields(settings, kind, value); }}
+            options={[
+              { value: 'local', label: text('当前仓库', 'This repository') },
+              { value: 'global', label: text('全局 Git（影响其他仓库及 Git 应用）', 'Global Git (affects other repositories and Git apps)') },
+            ]}
+          /></label></div>
           <p>{text('当前生效工具：', 'Effective tool: ')}{settings.selected[kind] ?? text('未指定', 'Not selected')}</p>
           <label>{text('工具名称', 'Tool name')}<TextInput value={name} disabled={locked} list="git-external-setting-tools" onChange={event => { const value = event.target.value; if (activeTools.some(item => item.name === value)) resetFields(settings, kind, scope, value); else setName(value); }} placeholder="opendiff / vscode / custom-name" /><datalist id="git-external-setting-tools">{activeTools.map(item => <option key={item.name} value={item.name}>{item.available ? text('可用', 'Available') : text('未安装或路径未配置', 'Unavailable')}</option>)}</datalist></label>
           <label>{text('可执行路径覆盖（可选）', 'Executable path override (optional)')}<TextInput value={executable} disabled={locked} onChange={event => setExecutable(event.target.value)} spellCheck={false} /></label>
           <label>{text('自定义命令（可选）', 'Custom command (optional)')}<textarea rows={3} value={command} disabled={locked} onChange={event => setCommand(event.target.value)} spellCheck={false} placeholder={kind === 'diff' ? 'tool --wait --diff "$LOCAL" "$REMOTE"' : 'tool --wait --merge "$LOCAL" "$REMOTE" "$BASE" "$MERGED"'} /><small>{text('Git 按 Shell 命令运行；含空格的文件变量需要引号。使用内置工具时可留空，留空会移除此范围的命令或路径覆盖。', 'Git runs this as a shell command; quote file variables containing spaces. Leave empty for a built-in tool, or to remove this scope’s command/path override.')}</small></label>
-          {kind === 'merge' ? <label>{text('保留 .orig 备份', 'Keep .orig backups')}<Select value={backup} disabled={locked} onChange={event => setBackup(event.target.value)}><option value="inherit">{text('继承 Git 配置', 'Inherit Git configuration')}</option><option value="true">{text('保留', 'Keep')}</option><option value="false">{text('不保留', 'Do not keep')}</option></Select></label> : null}
+          {kind === 'merge' ? <label>{text('保留 .orig 备份', 'Keep .orig backups')}<Select
+            ariaLabel={text('保留 .orig 备份', 'Keep .orig backups')}
+            value={backup}
+            disabled={locked}
+            onChange={setBackup}
+            options={[
+              { value: 'inherit', label: text('继承 Git 配置', 'Inherit Git configuration') },
+              { value: 'true', label: text('保留', 'Keep') },
+              { value: 'false', label: text('不保留', 'Do not keep') },
+            ]}
+          /></label> : null}
           <div className="git-external-tool-actions"><Button disabled={locked || loading || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/u.test(name)} onClick={() => void perform({ type: 'configure_external_tool', configuration: configuration(), expectedFingerprint: settings.fingerprint }, false)}>{text('保存这组设置', 'Save these settings')}</Button><Button variant="secondary" disabled={locked || loading} onClick={() => void perform({ type: 'configure_external_tool', configuration: configuration(true), expectedFingerprint: settings.fingerprint }, false)}>{text('移除此范围的默认工具覆盖', 'Remove default tool override in this scope')}</Button></div>
           <details><summary>{text('当前配置与继承值', 'Current configuration and inherited values')}</summary>{settings.entries.filter(item => item.key.startsWith(`${kind}.`) || item.key.startsWith(`${kind}tool.`)).map(item => <div key={item.key} className="git-external-config-entry"><strong>{item.key}</strong><pre>{item.value ?? '—'}</pre><small>{text('当前范围：', 'In selected scope: ')}{item[scope] ?? text('未设置，使用继承值', 'Not set; inherited')}</small></div>)}</details>
         </> : null}

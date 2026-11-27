@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { loadGitCommitModelOptions, type GitCommitModelsClient } from './gitCommitModels.js';
+import { loadGitCommitModelOptions, watchModelCatalog, type GitCommitModelsClient } from './gitCommitModels.js';
 
 type ModelOptions = Pick<Awaited<ReturnType<typeof loadGitCommitModelOptions>>, 'items' | 'modelRef'>;
 
@@ -13,14 +13,25 @@ export function useGitCommitModels(client: GitCommitModelsClient, projectId: str
   const [result, setResult] = useState<{ request: typeof request; options: ModelOptions }>();
 
   useEffect(() => {
-    if (!request.projectId) return;
+    const { client, projectId } = request;
+    if (!projectId) return;
     let live = true;
-    void loadGitCommitModelOptions(request.client, request.projectId)
-      .then(({ items, modelRef }) => {
+    let reading = false;
+    const read = async () => {
+      if (reading) return;
+      reading = true;
+      try {
+        const { items, modelRef } = await loadGitCommitModelOptions(client, projectId);
         if (live) setResult({ request, options: { items, modelRef } });
-      })
-      .catch(() => { if (live) setResult({ request, options: emptyOptions }); });
-    return () => { live = false; };
+      } catch {
+        if (live) setResult(current => current?.request === request ? current : { request, options: emptyOptions });
+      } finally {
+        reading = false;
+      }
+    };
+    void read();
+    const unwatch = watchModelCatalog(() => void read());
+    return () => { live = false; unwatch(); };
   }, [request]);
 
   const options = result?.request === request ? result.options : emptyOptions;

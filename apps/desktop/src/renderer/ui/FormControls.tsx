@@ -1,9 +1,13 @@
 import { MagnifyingGlassIcon as MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
-import type { ComponentPropsWithRef, ReactNode } from 'react';
+import type { ComponentPropsWithRef, ReactNode, RefObject } from 'react';
+import { ZeusSelect, type ZeusSelectProps } from './ZeusSelect.js';
 
 type TextInputProps = ComponentPropsWithRef<'input'>;
 type ControlDensity = 'regular' | 'compact';
-type SelectProps = ComponentPropsWithRef<'select'> & { density?: ControlDensity };
+type SelectProps = Omit<ZeusSelectProps<string>, 'size' | 'triggerRef'> & {
+  density?: ControlDensity;
+  ref?: RefObject<HTMLButtonElement | null>;
+};
 type SearchInputProps = Omit<TextInputProps, 'type'> & { density?: ControlDensity };
 type CheckboxFieldProps = Omit<ComponentPropsWithRef<'input'>, 'type' | 'className' | 'children'> & {
   className?: string;
@@ -14,8 +18,21 @@ export function TextInput({ className, ...props }: TextInputProps) {
   return <input {...props} className={['zeus-text-input', className].filter(Boolean).join(' ')} />;
 }
 
-export function Select({ className, density, ...props }: SelectProps) {
-  return <select {...props} className={['zeus-native-select', className].filter(Boolean).join(' ')} data-control-density={density} />;
+export function Select({ className, density = 'regular', ref, ...props }: SelectProps) {
+  const selected = props.options.find(option => option.value === props.value) ?? props.options.find(option => !option.disabled);
+  return <ZeusSelect
+    {...props}
+    className={['zeus-form-select', className].filter(Boolean).join(' ')}
+    value={selected?.value ?? ''}
+    disabled={props.disabled || !props.options.some(option => !option.disabled)}
+    onChange={value => {
+      if (value !== props.value) props.onChange(value);
+    }}
+    triggerLabel={props.triggerLabel ?? selected?.label ?? props.ariaLabel}
+    triggerTitle={props.triggerTitle ?? selected?.label}
+    triggerRef={ref}
+    size={density}
+  />;
 }
 
 export function SearchInput({ className, density, ...props }: SearchInputProps) {

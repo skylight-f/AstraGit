@@ -107,6 +107,16 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     },
   } = useProjectGitWorkbench(props);
 
+  const historyReferences = tab === 'log' && selectedRepository ? ([
+    ['heads', zh ? '本地' : 'Local', selectedRepository.snapshot.localBranches],
+    ['remotes', zh ? '远程' : 'Remote', selectedRepository.snapshot.remoteBranches],
+    ['tags', zh ? '标签' : 'Tag', selectedRepository.snapshot.tags],
+  ] as const).flatMap(([namespace, label, refs]) => refs.map(ref => ({
+    value: `refs/${namespace}/${ref}`,
+    label: `${label} · ${ref}`,
+  }))) : [];
+  const missingHistoryRef = historyRef && historyRef !== 'HEAD' && !historyReferences.some(ref => ref.value === historyRef);
+
   let workbenchState: ReactNode = null;
   if (loadState === 'loading' && !snapshot) {
     workbenchState = (
@@ -548,29 +558,58 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
           <div className={`git-content-toolbar${tab === 'log' ? ' is-history-toolbar' : ''}`}>
             <strong>{tab === 'changes' || tab === 'ignored' ? (zh ? '文件状态' : 'File Status') : tab === 'log' ? (zh ? '提交历史' : 'Commit history') : tab === 'stash' ? (zh ? '贮藏' : 'Stashes') : zh ? '操作记录' : 'Operation history'}</strong>
             {tab === 'stash' ? <Button className="git-stash-back" variant="ghost" size="compact" onClick={() => setTab('log')}>{zh ? '返回提交历史' : 'Back to commit history'}</Button> : null}
-            {(tab === 'changes' || tab === 'ignored') && selectedRepository ? <Select density="compact" aria-label={zh ? '文件范围' : 'File scope'} value={tab} onChange={event => setTab(event.currentTarget.value === 'ignored' ? 'ignored' : 'changes')}><option value="changes">{zh ? '更改文件' : 'Changed files'}</option><option value="ignored">{zh ? '已忽略文件' : 'Ignored files'}</option></Select> : null}
+            {(tab === 'changes' || tab === 'ignored') && selectedRepository ? <Select
+              density="compact"
+              ariaLabel={zh ? '文件范围' : 'File scope'}
+              value={tab}
+              onChange={value => setTab(value === 'ignored' ? 'ignored' : 'changes')}
+              options={[
+                { value: 'changes', label: zh ? '更改文件' : 'Changed files' },
+                { value: 'ignored', label: zh ? '已忽略文件' : 'Ignored files' },
+              ]}
+            /> : null}
             {tab === 'log' && selectedRepository ? (
               <Select
                 density="compact"
-                aria-label={zh ? '历史分支范围' : 'History branch scope'}
+                ariaLabel={zh ? '历史分支范围' : 'History branch scope'}
+                searchPlaceholder={zh ? '搜索分支或标签…' : 'Search branches or tags…'}
                 value={historyRef}
-                onChange={(event) => {
-                  setHistoryRef(event.currentTarget.value);
+                onChange={value => {
+                  setHistoryRef(value);
                   setSelectedCommit(null);
                   setSelectedFilePath('');
                 }}
-              >
-                <option value="">{zh ? '全部分支' : 'All branches'}</option>
-                <option value="HEAD">{zh ? '当前分支' : 'Current branch'}</option>
-                {historyRef && historyRef !== 'HEAD' && ![...selectedRepository.snapshot.localBranches.map(ref => `refs/heads/${ref}`), ...selectedRepository.snapshot.remoteBranches.map(ref => `refs/remotes/${ref}`), ...selectedRepository.snapshot.tags.map(ref => `refs/tags/${ref}`)].includes(historyRef) ? <option value={historyRef}>{historyRef.replace(/^refs\/(?:heads|remotes|tags)\//u, '')}</option> : null}
-                {([['heads', zh ? '本地' : 'Local', selectedRepository.snapshot.localBranches], ['remotes', zh ? '远程' : 'Remote', selectedRepository.snapshot.remoteBranches], ['tags', zh ? '标签' : 'Tag', selectedRepository.snapshot.tags]] as const).flatMap(([namespace, label, refs]) => refs.map(ref => <option key={`${namespace}:${ref}`} value={`refs/${namespace}/${ref}`}>{label} · {ref}</option>))}
-              </Select>
+                options={[
+                  { value: '', label: zh ? '全部分支' : 'All branches' },
+                  { value: 'HEAD', label: zh ? '当前分支' : 'Current branch' },
+                  ...(missingHistoryRef ? [{ value: historyRef, label: historyRef.replace(/^refs\/(?:heads|remotes|tags)\//u, '') }] : []),
+                  ...historyReferences,
+                ]}
+              />
             ) : null}
             {tab === 'log' ? <>
-              <Select density="compact" aria-label={zh ? '历史搜索字段' : 'History search field'} value={historyField} onChange={event => setHistoryField(event.currentTarget.value as GitHistorySearchField)}>
-                <option value="all">{zh ? '全部字段' : 'All fields'}</option><option value="message">{zh ? '完整提交说明' : 'Full commit message'}</option><option value="author">{zh ? '作者' : 'Author'}</option><option value="hash">{zh ? '提交哈希' : 'Commit hash'}</option>
-              </Select>
-              <Select density="compact" aria-label={zh ? '历史排序' : 'History order'} value={historyOrder} onChange={event => setHistoryOrder(event.currentTarget.value === 'date' ? 'date' : 'topo')}><option value="topo">{zh ? '拓扑顺序' : 'Ancestor order'}</option><option value="date">{zh ? '日期顺序' : 'Date order'}</option></Select>
+              <Select
+                density="compact"
+                ariaLabel={zh ? '历史搜索字段' : 'History search field'}
+                value={historyField}
+                onChange={value => setHistoryField(value as GitHistorySearchField)}
+                options={[
+                  { value: 'all', label: zh ? '全部字段' : 'All fields' },
+                  { value: 'message', label: zh ? '完整提交说明' : 'Full commit message' },
+                  { value: 'author', label: zh ? '作者' : 'Author' },
+                  { value: 'hash', label: zh ? '提交哈希' : 'Commit hash' },
+                ]}
+              />
+              <Select
+                density="compact"
+                ariaLabel={zh ? '历史排序' : 'History order'}
+                value={historyOrder}
+                onChange={value => setHistoryOrder(value === 'date' ? 'date' : 'topo')}
+                options={[
+                  { value: 'topo', label: zh ? '拓扑顺序' : 'Ancestor order' },
+                  { value: 'date', label: zh ? '日期顺序' : 'Date order' },
+                ]}
+              />
             </> : null}
             {tab === 'changes' || tab === 'ignored' || tab === 'log' ? (
               <SearchInput

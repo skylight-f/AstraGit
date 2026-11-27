@@ -85,11 +85,17 @@ export function GitRevisionActionDialog(props: {
   const list = (items: string[], count: number) => <ul>{items.map(path => <li key={path}>{path}</li>)}{count > items.length ? <li>{text(`另有 ${count - items.length} 项`, `${count - items.length} more items`)}</li> : null}</ul>;
   return <GitOperationDialog className="project-git-menu-action-dialog git-revision-action-dialog" role="alertdialog" aria-label={title} onDismiss={props.onClose} dismissDisabled={props.busy}>
       <header><strong>{title}</strong><p>{request.repository.name}</p></header>
-      {request.type === 'reset' ? <label>{text('重置方式', 'Reset mode')}<Select value={mode} disabled={props.busy || loading} onChange={event => setMode(event.target.value as GitResetMode)}>
-        <option value="soft">{text('Soft：移动 HEAD，保留暂存区和工作区', 'Soft: move HEAD, keep index and working tree')}</option>
-        <option value="mixed">{text('Mixed：移动 HEAD，重置暂存区，保留工作区', 'Mixed: move HEAD and reset index, keep working tree')}</option>
-        <option value="hard">{text('Hard：移动 HEAD，重置暂存区和工作区', 'Hard: move HEAD and reset index and working tree')}</option>
-      </Select></label> : <p>{text(`将跳过当前${gitIntegrationLabel(request.kind, true)}提交，放弃本步骤的冲突处理结果，并继续处理余下提交；后续仍可能发生冲突。`, `Skip the current ${gitIntegrationLabel(request.kind, false)} commit, discard this step’s resolution and process remaining commits. Further conflicts may occur.`)}</p>}
+      {request.type === 'reset' ? <label>{text('重置方式', 'Reset mode')}<Select
+        ariaLabel={text('重置方式', 'Reset mode')}
+        value={mode}
+        disabled={props.busy || loading}
+        onChange={value => setMode(value as GitResetMode)}
+        options={[
+          { value: 'soft', label: text('Soft：移动 HEAD，保留暂存区和工作区', 'Soft: move HEAD, keep index and working tree') },
+          { value: 'mixed', label: text('Mixed：移动 HEAD，重置暂存区，保留工作区', 'Mixed: move HEAD and reset index, keep working tree') },
+          { value: 'hard', label: text('Hard：移动 HEAD，重置暂存区和工作区', 'Hard: move HEAD and reset index and working tree') },
+        ]}
+      /></label> : <p>{text(`将跳过当前${gitIntegrationLabel(request.kind, true)}提交，放弃本步骤的冲突处理结果，并继续处理余下提交；后续仍可能发生冲突。`, `Skip the current ${gitIntegrationLabel(request.kind, false)} commit, discard this step’s resolution and process remaining commits. Further conflicts may occur.`)}</p>}
       {loading ? <p role="status">{text('正在核对当前提交、暂存区与文件…', 'Reviewing current commit, index and files…')}</p> : null}
       {preview ? <>
         <dl><dt>{text('当前分支 / HEAD', 'Current branch / HEAD')}</dt><dd>{preview.detached ? text('游离 HEAD', 'Detached HEAD') : preview.branch} · <code>{preview.headSha.slice(0, 12) || text('无提交', 'Unborn')}</code></dd>

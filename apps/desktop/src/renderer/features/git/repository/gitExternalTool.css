@@ -4,7 +4,7 @@
 .git-external-tool-dialog>nav>button[aria-pressed=true] { background:var(--zeus-product-selected); border-color:var(--zeus-control-border,#dce0e9); }
 .git-external-tool-content { overflow:auto; padding:16px; min-height:0; line-height:1.65; }
 .git-external-tool-content label:not(.git-external-check) { display:grid; gap:5px; margin-bottom:12px; }
-.git-external-tool-content input:not([type=checkbox]),.git-external-tool-content select,.git-external-tool-content textarea { min-width:0; width:100%; box-sizing:border-box; padding:7px 9px; border:1px solid var(--zeus-control-border,#dce0e9); border-radius:6px; background:var(--zeus-control-bg,#fff); color:inherit; font:inherit; }
+.git-external-tool-content input:not([type=checkbox]),.git-external-tool-content textarea { min-width:0; width:100%; box-sizing:border-box; padding:7px 9px; border:1px solid var(--zeus-control-border,#dce0e9); border-radius:6px; background:var(--zeus-control-bg,#fff); color:inherit; font:inherit; }
 .git-external-tool-content textarea { resize:vertical; min-height:65px; }
 .git-external-tool-content small { display:block; color:var(--zeus-product-muted,#728096); }
 .git-external-check { display:flex; align-items:flex-start; gap:7px; }

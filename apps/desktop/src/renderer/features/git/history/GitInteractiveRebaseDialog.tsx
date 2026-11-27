@@ -103,9 +103,13 @@ export function GitInteractiveRebaseDialog(props: {
                 <div className="git-rebase-step-line">
                   <span draggable={!locked && !reviewRequired} className="git-rebase-drag" role="img" aria-label={text('拖拽调整顺序', 'Drag to reorder')} onDragStart={event => { dragging.current = step.sha; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', step.sha); }} onDragEnd={() => { dragging.current = null; }}>⠿</span>
                   <span className="git-rebase-order">{index + 1}</span><code>{step.sha.slice(0, 8)}</code>
-                  <Select aria-label={text(`提交 ${index + 1} 的操作`, `Action for commit ${index + 1}`)} value={step.action} disabled={locked || reviewRequired} onChange={event => { const action = event.target.value as GitRebasePlanAction; setSteps(current => current.map(value => value.sha === step.sha ? { sha: value.sha, action, ...(action === 'reword' ? { message: step.message ?? commit.message } : {}) } : value)); setConfirmed(false); }}>
-                    {actions.map(([value, cn, en]) => <option key={value} value={value}>{text(cn, en)}</option>)}
-                  </Select>
+                  <Select
+                    ariaLabel={text(`提交 ${index + 1} 的操作`, `Action for commit ${index + 1}`)}
+                    value={step.action}
+                    disabled={locked || reviewRequired}
+                    onChange={value => { const action = value as GitRebasePlanAction; setSteps(current => current.map(value => value.sha === step.sha ? { sha: value.sha, action, ...(action === 'reword' ? { message: step.message ?? commit.message } : {}) } : value)); setConfirmed(false); }}
+                    options={actions.map(([value, cn, en]) => ({ value, label: text(cn, en) }))}
+                  />
                   <button type="button" disabled={locked || reviewRequired || index === 0} aria-label={text(`上移提交 ${index + 1}`, `Move commit ${index + 1} up`)} onClick={() => move(step.sha, index - 1)}>↑</button>
                   <button type="button" disabled={locked || reviewRequired || index === steps.length - 1} aria-label={text(`下移提交 ${index + 1}`, `Move commit ${index + 1} down`)} onClick={() => move(step.sha, index + 1)}>↓</button>
                 </div>

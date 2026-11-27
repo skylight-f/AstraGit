@@ -229,7 +229,17 @@ export function GitBranchManagementDialog(props: {
           </div>)}</dl> : <small>{text('勾选分支后可查看推送地址。', 'Select a branch to see its push destinations.')}</small>}
         </section> : <>
           <p>{text('当前上游：', 'Current upstream: ')}{snapshot.branchUpstreamRefs?.[request.branchName]?.replace(/^refs\/(?:heads|remotes)\//u, '') || text('无', 'None')}</p>
-          <label>{text('新的上游分支', 'New upstream branch')}<Select value={upstream} disabled={disabled || review} onChange={event => setUpstream(event.target.value)}><option value="">{text('不跟踪上游', 'No upstream')}</option>{upstream && !choices.some(choice => choice.ref === upstream) ? <option value={upstream} disabled>{upstream} · {text('不可用', 'Unavailable')}</option> : null}{choices.map(choice => <option key={choice.ref} value={choice.ref}>{choice.label}</option>)}</Select></label>
+          <label>{text('新的上游分支', 'New upstream branch')}<Select
+            ariaLabel={text('新的上游分支', 'New upstream branch')}
+            value={upstream}
+            disabled={disabled || review}
+            onChange={setUpstream}
+            options={[
+              { value: '', label: text('不跟踪上游', 'No upstream') },
+              ...(upstream && !choices.some(choice => choice.ref === upstream) ? [{ value: upstream, label: `${upstream} · ${text('不可用', 'Unavailable')}`, disabled: true }] : []),
+              ...(choices.map(choice => ({ value: choice.ref, label: choice.label }))),
+            ]}
+          /></label>
           <p>{upstream ? text('更新该分支的跟踪关系，之后拉取与默认推送会使用此上游。', 'Update this branch’s tracking relationship for subsequent pulls and default pushes.') : text('清除该分支的上游跟踪关系。', 'Clear this branch’s upstream tracking relationship.')}</p>
         </>}
         {(running || error) && activeName ? <p role="status">{text('当前操作分支', 'Current branch operation')} · <code>{activeName}</code></p> : null}

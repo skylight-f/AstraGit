@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "sha256": {
-    "apps/desktop/build/icon.svg": "705f299bce360f444ced7d45ad6d39c1db8caf4294ab6c0a85b2320ef5772407",
+    "apps/desktop/build/icon.svg": "ac816d1cd8726c608b41d176cf15be410650e69294bbe02e69413faa79b2585a",
     "scripts/generate-icons.mjs": "e3ebe9cc6ef699511fd7f362ae4cbcfa1df988d1ff5da11714fa8f49eeb89e9f",
     "scripts/render-icon.swift": "aacf51754b9862adeb506efbfd4d3a1a6a989d247f8a2732bf583969fe189956",
-    "apps/desktop/build/icon.png": "d161d56907f735b914cad7e7f416ab70de0d6e82efe09922daf9d4db0688290c",
-    "apps/desktop/build/icon.icns": "2db2ffc067e71c61d4bed3b69a65a000831ef17548ebf46c41b2395c7dbc9f33"
+    "apps/desktop/build/icon.png": "58dddf8c1846cfdc817fb3056d49019d84519f7cafa72345771d95f6b93c9993",
+    "apps/desktop/build/icon.icns": "7b941e1cd9004a5f61fc0c364dbaa8996b43f8efe5ff79eef498f61bdb85b1ec"
   }
 }

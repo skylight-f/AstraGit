@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction, type RefObject, type KeyboardEvent, type MouseEvent, type Ref } from 'react';
 import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
-import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
-import { ListBullets } from '@phosphor-icons/react/dist/csr/ListBullets';
-import { TreeStructure } from '@phosphor-icons/react/dist/csr/TreeStructure';
+import { GitFileViewSelect } from './GitFileViewSelect.js';
 import { Archive } from '@phosphor-icons/react/dist/csr/Archive';
 import type { DashboardClient, GitDiffSummary, ProjectGitAction, ProjectGitWorkbenchSnapshot, ProjectGitRepositorySnapshot, ProjectGitRepositoryWorkbenchItem, ProjectRecord } from '../../../api/apiClient.js';
 import { GitCommitAiControls } from '../commits/GitCommitAiControls.js';
@@ -29,6 +27,7 @@ import type { BusyState, ExecutionOutcome } from '../workbench/gitWorkbenchTypes
 import { reportApplicationError, VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { gitConflictMessage, gitFailureText, gitFailureTitle, gitPostActionRefreshError } from '../workbench/gitOperationFeedback.js';
 import './sourceGit.css';
+import { Select } from '../../../ui/FormControls.js';
 
 type StashEntry = ProjectGitRepositoryWorkbenchItem['snapshot']['stashes'][number];
 
@@ -457,10 +456,7 @@ export function ProjectSourceChanges(props: {
       {tab === 'commit' ? <>
         <div className="source-git-file-tools">
           <label className="source-git-search"><MagnifyingGlass aria-hidden="true" /><input type="search" value={state.search} onChange={event => update({ search: event.target.value })} aria-label={label('筛选文件', 'Filter files')} placeholder={label('筛选文件…', 'Filter files…')} /></label>
-          <span className="project-git-file-view-control" title={state.fileView === 'flat' ? label('平铺结构', 'Flat view') : label('树状结构', 'Tree view')}>
-            {state.fileView === 'flat' ? <ListBullets aria-hidden="true" /> : <TreeStructure aria-hidden="true" />}<CaretDown aria-hidden="true" />
-            <select className="project-git-file-view-select" aria-label={label('更改文件显示方式', 'Changed file view')} value={state.fileView} onChange={event => update({ fileView: event.target.value === 'flat' ? 'flat' : 'tree' })}><option value="tree">{label('树状结构', 'Tree view')}</option><option value="flat">{label('平铺结构', 'Flat view')}</option></select>
-          </span>
+          <GitFileViewSelect zh={zh} value={state.fileView} onChange={fileView => update({ fileView })} />
           {state.stagedOnly ? <small className="source-git-scope-badge" title={label('仅显示已暂存文件', 'Showing staged files only')}>{label('仅已暂存', 'Staged only')}</small> : null}
         </div>
         <div ref={commitLayout} className="source-git-commit-layout">
@@ -489,13 +485,19 @@ export function ProjectSourceChanges(props: {
         </div>
         <GitPaneSeparator name="source-files" label={label('调整文件列表与提交说明区域高度', 'Resize file list and commit message')} axis="y" initial={82} min={paneBounds.min} max={paneBounds.max} />
         <section ref={composer} className="source-git-composer">
-          <div className="source-git-draft-repository"><label>{label('提交说明', 'Commit message')} <select aria-label={label('编辑仓库说明', 'Repository draft')} value={editorId} disabled={locked} onChange={event => {
-              if (event.target.value === batchSummaryId) setEditingSummary(true);
-              else selectRepository(event.target.value);
-            }}>
-            {repositories.map(repo => <option key={repo.id} value={repo.id}>{repo.name}</option>)}
-            {(units.length > 1 || summary || commitMessages.drafts[batchSummaryId]) && <option value={batchSummaryId}>{label('批次摘要', 'Batch summary')}</option>}
-          </select></label></div>
+          <div className="source-git-draft-repository"><label>{label('提交说明', 'Commit message')} <Select
+            ariaLabel={label('编辑仓库说明', 'Repository draft')}
+            value={editorId}
+            disabled={locked}
+            onChange={value => {
+              if (value === batchSummaryId) setEditingSummary(true);
+              else selectRepository(value);
+            }}
+            options={[
+              ...(repositories.map(repo => ({ value: repo.id, label: repo.name }))),
+              ...((units.length > 1 || summary || commitMessages.drafts[batchSummaryId]) ? [{ value: batchSummaryId, label: label('批次摘要', 'Batch summary') }] : []),
+            ]}
+          /></label></div>
           <GitCommitAiControls
             zh={zh}
             models={props.commitModels}

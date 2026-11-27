@@ -104,6 +104,7 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
   const codexAppServerManager: CodexAppServerManager | null = codexNativeEnabled
     ? createCodexAppServerManager({
         codexHome,
+        lightweightGeneration: true,
         onDiagnostic: ({ stderrSummary }) => {
           const categories = ['stream', 'timeout', 'connection', 'reconnect', '401', '403', '429', 'error'].filter((word) => stderrSummary.toLowerCase().includes(word));
           if (categories.length) console.info(JSON.stringify({ event: 'git_commit_transport_diagnostic', categories }));
@@ -664,16 +665,23 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     });
   }
 
+  async function readCodexConnection(manager: CodexAppServerManager, refresh = false) {
+    let capabilities = await manager.ensureReady({
+      commandPath: options.currentCodexRuntimeCommandPath?.() ?? '',
+      ...(options.codexExternalAgentHome ? { externalAgentHome: options.codexExternalAgentHome } : {}),
+    });
+    const account = await manager.readAccount();
+    const canUseModels = account.signedIn || !account.requiresOpenaiAuth;
+    if (canUseModels) {
+      capabilities = refresh ? await manager.refreshModels() : await manager.readModels();
+    }
+    return { capabilities, account, canUseModels };
+  }
+
   async function loadCodexAccount(refresh = false) {
     if (!codexAppServerManager) return { available: false, signedIn: false, code: 'ASTRAGIT_CODEX_DISABLED', message: 'Codex 尚未启用。' };
     try {
-      let capabilities = await codexAppServerManager.ensureReady({
-        commandPath: options.currentCodexRuntimeCommandPath?.() ?? '',
-        ...(options.codexExternalAgentHome ? { externalAgentHome: options.codexExternalAgentHome } : {}),
-      });
-      const account = await codexAppServerManager.readAccount();
-      const canUseModels = account.signedIn || !account.requiresOpenaiAuth;
-      if (refresh && canUseModels) capabilities = await codexAppServerManager.refreshModels();
+      const { capabilities, account, canUseModels } = await readCodexConnection(codexAppServerManager, refresh);
       const models = canUseModels ? codexModelOptions(capabilities.models) : [];
       return { available: true, signedIn: account.signedIn, requiresOpenaiAuth: account.requiresOpenaiAuth, modelCount: capabilities.models.length, codexHome, models };
     } catch (error) {
@@ -722,13 +730,8 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     let warning = '';
     try {
       if (!codexNativeEnabled || !codexAppServerManager) throw new Error('Codex 尚未启用。');
-      const commandPath = options.currentCodexRuntimeCommandPath?.() ?? '';
-      const capabilities = await codexAppServerManager.ensureReady({
-        commandPath,
-        ...(options.codexExternalAgentHome ? { externalAgentHome: options.codexExternalAgentHome } : {}),
-      });
-      const account = await codexAppServerManager.readAccount();
-      if (!account.signedIn && account.requiresOpenaiAuth) throw new Error('请先登录 Codex，再刷新模型列表。');
+      const { capabilities, canUseModels } = await readCodexConnection(codexAppServerManager);
+      if (!canUseModels) throw new Error('请先登录 Codex，再刷新模型列表。');
       items.push(...codexModelOptions(capabilities.models));
     } catch (error) {
       warning = redactSensitiveText(error instanceof Error ? error.message : 'Codex 模型加载失败。').text;

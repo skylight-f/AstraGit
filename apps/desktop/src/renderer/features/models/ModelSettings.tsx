@@ -8,7 +8,7 @@ import { PencilSimple } from '@phosphor-icons/react/dist/csr/PencilSimple';
 import { Plus } from '@phosphor-icons/react/dist/csr/Plus';
 import { Trash } from '@phosphor-icons/react/dist/csr/Trash';
 import type { CodexAccount, CodexLogin, DashboardClient, ModelConnection, ModelConnectionModel, ModelTemplateId } from '../../api/apiClient.js';
-import { readDisabledCodexModels, saveDisabledCodexModels } from './gitCommitModels.js';
+import { readDisabledCodexModels, saveDisabledCodexModels, watchModelCatalog } from './gitCommitModels.js';
 import { Button } from '../../ui/Button.js';
 
 type Protocol = ModelConnectionModel['protocolFamily'];
@@ -58,13 +58,29 @@ export function ModelSettings({ client, language, onChanged }: { client: Dashboa
     }).catch(error => {
       if (active) setMessage(errorText(error));
     });
-    void client.loadCodexAccount().then(nextAccount => {
-      if (active) setAccount(nextAccount);
-    }).catch(error => {
-      if (active) setAccount({ available: false, signedIn: false, message: errorText(error) });
-    });
     return () => { active = false; };
   }, [client]);
+
+  useEffect(() => {
+    if (!isCodex || login || busy) return;
+    let active = true;
+    let reading = false;
+    const read = async () => {
+      if (reading) return;
+      reading = true;
+      try {
+        const nextAccount = await client.loadCodexAccount();
+        if (active) setAccount(nextAccount);
+      } catch (error) {
+        if (active) setAccount(current => current ?? { available: false, signedIn: false, message: errorText(error) });
+      } finally {
+        reading = false;
+      }
+    };
+    void read();
+    const unwatch = watchModelCatalog(() => void read());
+    return () => { active = false; unwatch(); };
+  }, [client, isCodex, login, busy]);
 
   useEffect(() => {
     if (!login) return;
@@ -285,24 +301,36 @@ export function ModelSettings({ client, language, onChanged }: { client: Dashboa
                 ) : (
                   <label className="gitapp-model-field">
                     <span>{zh ? '供应商类型' : 'Provider type'}</span>
-                    <Select value={provider.templateId} disabled={busy} onChange={event => {
-                      const templateId = event.target.value as ModelTemplateId;
+                    <Select
+                      ariaLabel={zh ? '供应商类型' : 'Provider type'}
+                      value={provider.templateId}
+                      disabled={busy}
+                      onChange={value => {
+                      const templateId = value as ModelTemplateId;
                       const template = templateId === 'custom' ? null : templates?.[templateId];
                       updateProvider({ templateId, name: template?.name ?? '', baseUrl: template?.baseUrl ?? '', modelsPath: template?.modelsPath ?? '/models' });
-                    }}>
-                      <option value="custom">{zh ? '自定义兼容 API' : 'Custom compatible API'}</option>
-                      {templates ? Object.entries(templates).map(([id, template]) => <option key={id} value={id}>{template.name}</option>) : null}
-                    </Select>
+                    }}
+                      options={[
+                        { value: 'custom', label: zh ? '自定义兼容 API' : 'Custom compatible API' },
+                        ...(templates ? Object.entries(templates).map(([id, template]) => ({ value: id, label: template.name })) : []),
+                      ]}
+                    />
                   </label>
                 )}
                 <label className="gitapp-model-field"><span>{zh ? '名称' : 'Name'}</span><TextInput value={provider.name} disabled={busy} maxLength={80} onChange={event => updateProvider({ name: event.target.value })} /></label>
                 <label className="gitapp-model-field"><span>{zh ? '接口地址' : 'API URL'}</span><TextInput value={provider.baseUrl} disabled={busy} spellCheck={false} placeholder="https://example.com/v1" onChange={event => updateProvider({ baseUrl: event.target.value })} /></label>
                 <label className="gitapp-model-field">
                   <span>{zh ? '接口协议' : 'API protocol'}</span>
-                  <Select value={providerProtocol} disabled={busy} onChange={event => updateProvider({ protocolFamily: event.currentTarget.value as Protocol })}>
-                      {!providerProtocol ? <option value="" disabled>{zh ? '现有模型使用不同协议' : 'Existing models use different protocols'}</option> : null}
-                      {Object.entries(protocolNames).map(([protocol, name]) => <option key={protocol} value={protocol}>{name}</option>)}
-                    </Select>
+                  <Select
+                    ariaLabel={zh ? '接口协议' : 'API protocol'}
+                    value={providerProtocol}
+                    disabled={busy}
+                    onChange={value => updateProvider({ protocolFamily: value as Protocol })}
+                    options={[
+                      ...(!providerProtocol ? [{ value: '', label: zh ? '现有模型使用不同协议' : 'Existing models use different protocols', disabled: true }] : []),
+                      ...(Object.entries(protocolNames).map(([protocol, name]) => ({ value: protocol, label: name }))),
+                    ]}
+                  />
                 </label>
                 <div className="gitapp-model-field">
                   <label htmlFor="gitapp-model-key">API Key</label>

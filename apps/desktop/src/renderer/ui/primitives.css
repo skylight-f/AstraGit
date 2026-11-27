@@ -976,26 +976,23 @@ html[data-zeus-theme='dark'] body > .macos-ai-app {
   padding-inline: 10px 9px;
 }
 
+.macos-ai-app .zeus-select.zeus-form-select[data-control-size='compact'] > .zeus-select-trigger {
+  block-size: var(--zeus-control-compact-height);
+  min-block-size: var(--zeus-control-compact-height);
+  padding-inline: var(--zeus-space-2);
+  font-size: var(--zeus-type-size-caption);
+  font-weight: 450;
+}
+
 .macos-ai-app .zeus-select[data-zeus-primitive='select'][data-control-size='compact'] .zeus-select-chevron {
   background-size: 10px 10px;
   block-size: 12px;
   inline-size: 12px;
 }
 
-.macos-ai-app .zeus-select-portal-root[data-zeus-primitive='select-popover'][data-control-size='compact'] .zeus-select-popover {
-  border-radius: 10px;
-  box-shadow:
-    0 16px 42px oklch(20% 0.008 255 / 0.16),
-    0 1px 4px oklch(20% 0.008 255 / 0.08);
-  padding: 4px;
-}
-
 .macos-ai-app .zeus-select-portal-root[data-zeus-primitive='select-popover'][data-control-size='compact'] .zeus-select-option {
-  border-radius: 7px;
   font-size: 12px;
-  font-weight: 640;
-  min-block-size: 28px;
-  padding: 3px 7px 3px 10px;
+  min-block-size: 29px;
 }
 
 .macos-ai-app .zeus-select-portal-root[data-zeus-primitive='select-popover'][data-control-size='compact'] .zeus-select-option-check {

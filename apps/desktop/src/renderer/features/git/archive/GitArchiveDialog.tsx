@@ -45,7 +45,17 @@ export function GitArchiveDialog(props: { request: GitArchiveDialogRequest; proj
       <GitOperationDialogHeader title={text('导出源码存档', 'Export source archive')} detail={request.repository.name} zh={props.zh} onClose={props.onClose} closeDisabled={saving} />
       <form onSubmit={event => { event.preventDefault(); void save(); }}>
         <label>{text('修订版本', 'Revision')}<TextInput value={revision} disabled={saving} onChange={event => setRevision(event.target.value)} placeholder="HEAD" /></label>
-        <label>{text('存档格式', 'Archive format')}<Select value={format} disabled={saving} onChange={event => setFormat(event.target.value as GitArchiveFormat)}><option value="zip">ZIP (.zip)</option><option value="tar">TAR (.tar)</option><option value="tar.gz">TAR.GZ (.tar.gz)</option></Select></label>
+        <label>{text('存档格式', 'Archive format')}<Select
+          ariaLabel={text('存档格式', 'Archive format')}
+          value={format}
+          disabled={saving}
+          onChange={value => setFormat(value as GitArchiveFormat)}
+          options={[
+            { value: 'zip', label: 'ZIP (.zip)' },
+            { value: 'tar', label: 'TAR (.tar)' },
+            { value: 'tar.gz', label: 'TAR.GZ (.tar.gz)' },
+          ]}
+        /></label>
         <label>{text('归档内目录（可留空）', 'Folder inside archive (optional)')}<TextInput value={prefix} disabled={saving} onChange={event => setPrefix(event.target.value)} placeholder="project-v1.0/" /></label>
         <p>{text('导出该提交的源码文件，保留文件模式与符号链接；不包含暂存区、工作区修改或未跟踪文件。', 'Export the commit’s source files, preserving file modes and symbolic links. Staged, working tree and untracked changes are excluded.')}</p>
         <p>{text('遵循 Git 的导出属性；子模块中的文件不会递归打包。', 'Git export attributes apply. Files inside submodules are not included recursively.')}</p>

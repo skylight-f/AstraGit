@@ -14,6 +14,7 @@ import '../../../styles/styles.css';
 import '../../../ui/primitives.css';
 import '../../../styles/agentdesk-theme.css';
 import './gitTextDiff.css';
+import { Select } from '../../../ui/FormControls.js';
 
 type DiffViewMode = 'side-by-side' | 'unified';
 
@@ -217,7 +218,14 @@ export function SideBySideDiff(props: SideBySideDiffProps) {
   const { file, versions } = gitDiffFileVersions(props.diff, stage);
   const multipleVersions = versions.length > 1 && versions.every(version => version.stage);
   const stageNames = { staged: props.zh ? '已暂存' : 'Staged', unstaged: props.zh ? '未暂存' : 'Unstaged', untracked: props.zh ? '未跟踪' : 'Untracked' };
-  const versionControl = multipleVersions ? <select className="project-git-diff-stage" aria-label={props.zh ? '差异版本范围' : 'Diff version scope'} value={file?.stage} onChange={event => setStage(event.target.value as NonNullable<GitFileDiff['stage']>)}>{versions.map(version => <option key={version.stage} value={version.stage}>{stageNames[version.stage!]}</option>)}</select> : null;
+  const versionControl = multipleVersions ? <Select
+    className="project-git-diff-stage"
+    density="compact"
+    ariaLabel={props.zh ? '差异版本范围' : 'Diff version scope'}
+    value={file?.stage ?? ''}
+    onChange={value => setStage(value as NonNullable<GitFileDiff['stage']>)}
+    options={versions.flatMap(({ stage }) => stage ? [{ value: stage, label: stageNames[stage] }] : [])}
+  /> : null;
   const order = useMemo(() => file?.hunks.flatMap((hunk, hunkIndex) => mode === 'unified'
     ? hunk.lines.flatMap((line, index) => ['addition', 'deletion'].includes(line.type) ? [`${hunkIndex}:${index}`] : [])
     : alignedDiffRows(hunk).flatMap(row => [row.left, row.right].flatMap(cell => ['addition', 'deletion'].includes(cell.kind) && cell.lineIndex !== undefined ? [`${hunkIndex}:${cell.lineIndex}`] : []))) ?? [], [file, mode]);

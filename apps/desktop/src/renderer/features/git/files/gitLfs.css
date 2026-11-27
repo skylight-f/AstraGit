@@ -6,7 +6,7 @@
 .git-lfs-layout nav { display:flex; gap:6px; margin-bottom:10px; }
 .git-lfs-layout nav button { font:inherit; padding:5px 9px; border:1px solid var(--zeus-control-border); border-radius:5px; color:inherit; background:var(--zeus-control-bg); }
 .git-lfs-layout nav button[aria-pressed=true] { background:var(--zeus-product-selected); }
-.git-lfs-dialog input:not([type=checkbox]),.git-lfs-dialog select { font:inherit; color:inherit; background:var(--zeus-control-bg); width:100%; min-width:0; box-sizing:border-box; border:1px solid var(--zeus-control-border); border-radius:5px; padding:7px 8px; }
+.git-lfs-dialog input:not([type=checkbox]) { font:inherit; color:inherit; background:var(--zeus-control-bg); width:100%; min-width:0; box-sizing:border-box; border:1px solid var(--zeus-control-border); border-radius:5px; padding:7px 8px; }
 .git-lfs-item { display:block; width:100%; box-sizing:border-box; padding:9px 6px; text-align:left; overflow-wrap:anywhere; font:inherit; color:inherit; background:transparent; border:0; border-bottom:1px solid var(--zeus-product-line); }
 button.git-lfs-item { cursor:pointer; }
 button.git-lfs-item:hover:not(:disabled) { background:var(--zeus-interaction-hover); }

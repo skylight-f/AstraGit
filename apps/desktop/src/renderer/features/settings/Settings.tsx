@@ -29,11 +29,16 @@ export function Settings(props: { client: DashboardClient; language: AppLanguage
           <h2>{zh ? '语言' : 'Language'}</h2>
           <label className="gitapp-language-setting">
             <span>{zh ? '界面语言' : 'Interface language'}</span>
-            <Select value={props.languagePreference} onChange={event => props.onLanguageChange(event.target.value as LanguagePreference)}>
-              <option value="system">{zh ? '跟随系统' : 'Follow system'}</option>
-              <option value="zh-CN">简体中文</option>
-              <option value="en-US">English</option>
-            </Select>
+            <Select
+              ariaLabel={zh ? '界面语言' : 'Interface language'}
+              value={props.languagePreference}
+              onChange={value => props.onLanguageChange(value as LanguagePreference)}
+              options={[
+                { value: 'system', label: zh ? '跟随系统' : 'Follow system' },
+                { value: 'zh-CN', label: '简体中文' },
+                { value: 'en-US', label: 'English' },
+              ]}
+            />
           </label>
           <p>{zh ? '切换后立即生效，重新打开应用后保留。' : 'Changes apply immediately and are remembered when you reopen the app.'}</p>
         </section>

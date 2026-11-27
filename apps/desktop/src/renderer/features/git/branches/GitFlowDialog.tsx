@@ -94,11 +94,49 @@ export function GitFlowDialog(props: {
         </aside>
         <GitPaneSeparator name="flow-list" label={text('调整 Git Flow 分支列表宽度', 'Resize Git Flow branch list')} initial={32} min={20} max={55} />
         <div className="git-flow-form"><fieldset disabled={locked || loading || !state?.supported}>
-          <label>{text('操作', 'Action')}<Select value={operation} onChange={event => setOperation(event.target.value as GitFlowChange['operation'])}><option value="init">{text('初始化 / 调整 Git Flow 配置', 'Initialize / adjust Git Flow configuration')}</option><option value="start" disabled={!state?.initialized}>{text('开始分支', 'Start branch')}</option><option value="finish" disabled={!state?.initialized}>{text('完成分支', 'Finish branch')}</option></Select></label>
+          <label>{text('操作', 'Action')}<Select
+            ariaLabel={text('操作', 'Action')}
+            value={operation}
+            disabled={locked || loading || !state?.supported}
+            onChange={value => setOperation(value as GitFlowChange['operation'])}
+            options={[
+              { value: 'init', label: text('初始化 / 调整 Git Flow 配置', 'Initialize / adjust Git Flow configuration') },
+              { value: 'start', label: text('开始分支', 'Start branch'), disabled: !state?.initialized },
+              { value: 'finish', label: text('完成分支', 'Finish branch'), disabled: !state?.initialized },
+            ]}
+          /></label>
           {operation === 'init' ? <><div className="git-flow-config">{fields.map(([key, label]) => <label key={key}>{label}{!['production', 'develop', 'versionTag'].includes(key) ? text(' 前缀', ' prefix') : ''}<TextInput value={configuration[key]} spellCheck={false} onChange={event => setConfiguration(current => ({ ...current, [key]: event.target.value }))} /></label>)}</div><p>{text('只调整当前仓库的配置。开发分支不存在时从生产分支创建；无提交的仓库会创建空初始提交。已有提交的生产分支必须实际存在。', 'Changes repository configuration only. A missing development branch is created from production. An unborn repository gets an empty initial commit. In an existing history, production must be an existing local branch.')}</p></> : <>
-            <label>{text('分支类型', 'Branch type')}<Select value={kind} onChange={event => { setKind(event.target.value as GitFlowKind); setBase(''); setName(''); }}><option value="feature">Feature</option><option value="release">Release</option><option value="hotfix">Hotfix</option></Select></label>
-            <label>{text('名称（不含前缀）', 'Name (without prefix)')}{operation === 'finish' ? <Select value={branches.some(branch => branch.name === name) ? name : ''} onChange={event => setName(event.target.value)}><option value="">{text('请选择分支', 'Select a branch')}</option>{branches.map(branch => <option key={branch.branch} value={branch.name}>{branch.branch}</option>)}</Select> : <TextInput value={name} spellCheck={false} onChange={event => setName(event.target.value)} />}</label>
-            {operation === 'start' ? <label>{text('起点分支', 'Base branch')}<Select value={base} onChange={event => setBase(event.target.value)}><option value="">{text('默认', 'Default')} · {kind === 'hotfix' ? state?.configuration.production : state?.configuration.develop}</option>{state?.localBranches.map(branch => <option key={branch} value={branch}>{branch}</option>)}</Select></label> : <>
+            <label>{text('分支类型', 'Branch type')}<Select
+              ariaLabel={text('分支类型', 'Branch type')}
+              value={kind}
+              disabled={locked || loading || !state?.supported}
+              onChange={value => { setKind(value as GitFlowKind); setBase(''); setName(''); }}
+              options={[
+                { value: 'feature', label: 'Feature' },
+                { value: 'release', label: 'Release' },
+                { value: 'hotfix', label: 'Hotfix' },
+              ]}
+            /></label>
+            <label>{text('名称（不含前缀）', 'Name (without prefix)')}{operation === 'finish' ? <Select
+              ariaLabel={text('名称（不含前缀）', 'Name (without prefix)')}
+              value={branches.some(branch => branch.name === name) ? name : ''}
+              disabled={locked || loading || !state?.supported}
+              onChange={setName}
+              options={[
+                { value: '', label: text('请选择分支', 'Select a branch') },
+                ...(branches.map(branch => ({ value: branch.name, label: branch.branch }))),
+              ]}
+            /> : <TextInput value={name} spellCheck={false} onChange={event => setName(event.target.value)} />}</label>
+            {operation === 'start' ? <label>{text('起点分支', 'Base branch')}<Select
+              ariaLabel={text('起点分支', 'Base branch')}
+              value={base}
+              disabled={locked || loading || !state?.supported}
+              onChange={setBase}
+              options={[
+                { value: '', label: `${text('默认', 'Default')} · ${kind === 'hotfix' ? state?.configuration.production : state?.configuration.develop}` },
+                ...(state?.localBranches.map(branch => ({ value: branch, label: branch })) ?? []),
+              ]}
+            /></label> : <>
               <label className="git-flow-check"><input type="checkbox" checked={keep} onChange={event => setKeep(event.target.checked)} />{text('完成后保留本地分支', 'Keep the local branch after finishing')}</label>
               {!keep ? <label className="git-flow-check"><input type="checkbox" checked={forceDelete} onChange={event => setForceDelete(event.target.checked)} />{text('强制删除本地分支（需确认放弃其独有提交）', 'Force local branch deletion (confirm discarding unique commits)')}</label> : null}
               {kind === 'feature' ? <label className="git-flow-check"><input type="checkbox" checked={rebase} onChange={event => setRebase(event.target.checked)} />{text('合并前先变基到起点分支', 'Rebase onto the base branch before merging')}</label> : <><label className="git-flow-check"><input type="checkbox" checked={skipTag} onChange={event => setSkipTag(event.target.checked)} />{text('不创建版本标签', 'Do not create a version tag')}</label>{!skipTag ? <label>{text('版本标签说明', 'Version tag message')}<textarea rows={3} value={message} placeholder={text('创建新标签时必填；恢复时已有标签将核对并保留', 'Required for a new tag; an existing tag is checked and retained on resume')} onChange={event => setMessage(event.target.value)} /></label> : null}</>}

@@ -650,11 +650,13 @@ export function NewBranchDialog(props: {
       {props.repositories.length > 1 && !props.baseRef ? (
         <label>
           <span>{props.zh ? '仓库' : 'Repository'}</span>
-          <Select value={repositoryId} disabled={props.busy !== null} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
-            {props.repositories.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>{`${candidate.name} · ${currentRepositoryRefLabel(candidate, props.zh)}`}</option>
-            ))}
-          </Select>
+          <Select
+            ariaLabel={props.zh ? '仓库' : 'Repository'}
+            value={repositoryId}
+            disabled={props.busy !== null}
+            onChange={setRepositoryId}
+            options={props.repositories.map((candidate) => ({ value: candidate.id, label: `${candidate.name} · ${currentRepositoryRefLabel(candidate, props.zh)}` }))}
+          />
         </label>
       ) : null}
       <label>
@@ -682,7 +684,7 @@ export function RemoteBranchCheckoutDialog(props: {
   const [existingBranch, setExistingBranch] = useState(initialCandidates[0] ?? '');
   const [branchName, setBranchName] = useState(() => remoteBranchLeaf(props.initialRemoteRef, props.repository.snapshot.remotes));
   const [trackRemote, setTrackRemote] = useState(true);
-  const existingBranchInput = useRef<HTMLSelectElement>(null);
+  const existingBranchInput = useRef<HTMLButtonElement>(null);
   const newBranchInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     (mode === 'existing' ? existingBranchInput.current : newBranchInput.current)?.focus({ preventScroll: true });
@@ -717,24 +719,26 @@ export function RemoteBranchCheckoutDialog(props: {
         <main>
           <label>
             <span>{props.zh ? '检出远程分支' : 'Remote branch'}</span>
-            <Select value={remoteRef} onChange={(event) => selectRemote(event.currentTarget.value)} disabled={props.busy !== null}>
-              {props.repository.snapshot.remoteBranches.map((branch) => (
-                <option key={branch} value={branch}>
-                  {branch}
-                </option>
-              ))}
-            </Select>
+            <Select
+              ariaLabel={props.zh ? '检出远程分支' : 'Remote branch'}
+              value={remoteRef}
+              disabled={props.busy !== null}
+              onChange={selectRemote}
+              options={props.repository.snapshot.remoteBranches.map((branch) => ({ value: branch, label: branch }))}
+            />
           </label>
           {mode === 'existing' ? (
             <label>
               <span>{props.zh ? '现有本地分支' : 'Existing local branch'}</span>
-              <Select ref={existingBranchInput} value={existingBranch} onChange={(event) => setExistingBranch(event.currentTarget.value)} data-modal-initial-focus disabled={props.busy !== null}>
-                {existingCandidates.map((branch) => (
-                  <option key={branch} value={branch}>
-                    {branch}
-                  </option>
-                ))}
-              </Select>
+              <Select
+                ariaLabel={props.zh ? '现有本地分支' : 'Existing local branch'}
+                value={existingBranch}
+                disabled={props.busy !== null}
+                ref={existingBranchInput}
+                initialFocus
+                onChange={setExistingBranch}
+                options={existingCandidates.map((branch) => ({ value: branch, label: branch }))}
+              />
             </label>
           ) : (
             <>
@@ -820,13 +824,13 @@ export function CheckoutRevisionDialog(props: {
           {props.repositories.length > 1 ? (
             <label>
               <span>{props.zh ? '仓库' : 'Repository'}</span>
-              <Select value={repositoryId} disabled={props.busy !== null} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
-                {props.repositories.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.name}
-                  </option>
-                ))}
-              </Select>
+              <Select
+                ariaLabel={props.zh ? '仓库' : 'Repository'}
+                value={repositoryId}
+                disabled={props.busy !== null}
+                onChange={setRepositoryId}
+                options={props.repositories.map((candidate) => ({ value: candidate.id, label: candidate.name }))}
+              />
             </label>
           ) : null}
           <label>
@@ -1206,16 +1210,15 @@ export function PullDialog(props: {
             <label>
               <span>{props.zh ? '从仓库拉取' : 'Pull from remote'}</span>
               <Select
+                ariaLabel={props.zh ? '从仓库拉取' : 'Pull from remote'}
                 value={remote}
-                onChange={(event) => {
-                  setRemote(event.currentTarget.value);
+                disabled={locked}
+                onChange={value => {
+                  setRemote(value);
                   setBranch(props.repository.snapshot.branch);
                 }}
-              >
-                {props.repository.snapshot.remotes.map((name) => (
-                  <option key={name}>{name}</option>
-                ))}
-              </Select>
+                options={props.repository.snapshot.remotes.map((name) => ({ value: name, label: name }))}
+              />
             </label>
             <p className="project-git-remote-url">{props.repository.snapshot.remoteDetails?.find((item) => item.name === remote)?.fetchUrl}</p>
             <label>
@@ -1387,13 +1390,12 @@ export function PushDialog(props: {
                 {props.repositories.length > 1 ? (
                   <label>
                     <span>{props.zh ? '本地仓库' : 'Repository'}</span>
-                    <Select value={repositoryId} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
-                      {props.repositories.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.relativePath === '.' ? item.name : item.relativePath}
-                        </option>
-                      ))}
-                    </Select>
+                    <Select
+                      ariaLabel={props.zh ? '本地仓库' : 'Repository'}
+                      value={repositoryId}
+                      onChange={setRepositoryId}
+                      options={props.repositories.map((item) => ({ value: item.id, label: item.relativePath === '.' ? item.name : item.relativePath }))}
+                    />
                   </label>
                 ) : null}
               </RepositoryPushFields>

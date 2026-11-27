@@ -7,7 +7,6 @@
 .git-commit-replay-body p { margin:0; color:var(--zeus-product-muted); font-size:12px; line-height:1.6; }
 .git-commit-replay-body label { display:grid; gap:7px; }
 .git-commit-replay-body label.git-commit-replay-checkbox { display:flex; align-items:center; gap:8px; }
-.git-commit-replay-body select { width:100%; min-width:0; }
 .git-commit-replay-source { display:grid; gap:7px; min-width:0; padding:12px; border-radius:7px; background:var(--zeus-product-panel-muted); }
 .git-commit-replay-source code { overflow-wrap:anywhere; font-size:11px; user-select:text; }
 .git-commit-replay-source span { font-size:12px; color:var(--zeus-product-muted); }

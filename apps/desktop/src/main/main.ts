@@ -185,7 +185,7 @@ function applyApplicationDockIcon(): void {
   if (icon.isEmpty()) throw new Error('AstraGit 应用图标无法读取。');
   const dock = app.dock;
   if (!dock) throw new Error('AstraGit 无法访问 macOS Dock。');
-  // 与 Astra 一致：直接使用透明 PNG，保留几何轮廓，避免系统额外底板和缩放。
+  // 使用与应用包同源的 PNG，保留设计的圆角轮廓和透明边距。
   dock.setIcon(icon);
 }
 

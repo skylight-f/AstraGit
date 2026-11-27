@@ -13,12 +13,10 @@ import { GitCommitAiControls } from '../commits/GitCommitAiControls.js';
 import type { GitCommitModelState } from '../../models/useGitCommitModels.js';
 import { GitPaneSeparator } from '../components/GitPaneSeparator.js';
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { CaretRightIcon as CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/dist/csr/CheckCircle';
 import { FolderIcon as Folder } from '@phosphor-icons/react/dist/csr/Folder';
-import { ListBulletsIcon as ListBullets } from '@phosphor-icons/react/dist/csr/ListBullets';
-import { TreeStructureIcon as TreeStructure } from '@phosphor-icons/react/dist/csr/TreeStructure';
+import { GitFileViewSelect } from './GitFileViewSelect.js';
 import type { DashboardClient, ProjectGitAction, ProjectGitRepositorySnapshot, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
 import { SelectableRow } from '../../../ui/SelectableRow.js';
@@ -171,28 +169,14 @@ export function LocalChangesSurface(props: {
       <aside className="project-git-change-tree" data-empty={emptyVisibleChanges || undefined} onKeyDown={navigateGitFileRows}>
         <header>
           <strong>{props.zh ? '变更文件' : 'Changed files'}</strong>
-          <span className="project-git-file-view-control" title={fileView === 'flat' ? (props.zh ? '平铺结构' : 'Flat view') : props.zh ? '树状结构' : 'Tree view'}>
-            {fileView === 'flat' ? <ListBullets aria-hidden="true" /> : <TreeStructure aria-hidden="true" />}
-            <CaretDown aria-hidden="true" />
-            <select
-              className="project-git-file-view-select"
-              aria-label={props.zh ? `文件显示方式：${fileView === 'flat' ? '平铺结构' : '树状结构'}` : `File view: ${fileView === 'flat' ? 'Flat view' : 'Tree view'}`}
-              value={fileView}
-              disabled={!repository || visibleChangeCount === 0}
-              onChange={(event) => {
-                const next = event.currentTarget.value === 'flat' ? 'flat' : 'tree';
-                setFileView(next);
-                try {
-                  localStorage.setItem('astragit.git.file-view.v1', next);
-                } catch {
-                  /* 存储不可用时保留当前会话选择。 */
-                }
-              }}
-            >
-              <option value="tree">{props.zh ? '树状结构' : 'Tree view'}</option>
-              <option value="flat">{props.zh ? '平铺结构' : 'Flat view'}</option>
-            </select>
-          </span>
+          <GitFileViewSelect zh={props.zh} value={fileView} disabled={!repository || visibleChangeCount === 0} onChange={next => {
+            setFileView(next);
+            try {
+              localStorage.setItem('astragit.git.file-view.v1', next);
+            } catch {
+              /* 存储不可用时保留当前会话选择。 */
+            }
+          }} />
           <span>{visibleChangeCount}</span>
           {subtree?.repositoryId === props.selectedRepository?.id ? (
             <button type="button" onClick={props.onClearSubtree}>

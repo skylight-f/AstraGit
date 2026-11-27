@@ -16,6 +16,7 @@ import { useGitCommitParentComparison } from './useGitCommitParentComparison.js'
 import type { BusyState, GitContextEvent, GitDiffOptions } from '../workbench/gitWorkbenchTypes.js';
 import { CommitFileDirectoryTree } from '../components/CommitFileDirectoryTree.js';
 import { formatCommitHistoryTime } from './gitHistoryTime.js';
+import { Select } from '../../../ui/FormControls.js';
 
 const gitHistoryRowHeight = 24;
 
@@ -195,9 +196,12 @@ export function GitLogSurface(props: {
                 {detail.commit.shortHash} · {new Date(detail.commit.authoredAt).toLocaleString()}
               </small>
               {parentComparison.isMerge ? <div className="git-merge-parent-selection">
-                <label>{props.zh ? '比较基线' : 'Compare against'}<select aria-label={props.zh ? '合并提交父级' : 'Merge comparison parent'} value={parentComparison.parent} onChange={event => parentComparison.select(event.target.value)}>
-                  {detail.parentHashes.map((parent, index) => <option key={`${parent}-${index}`} value={parent}>{props.zh ? `父提交 ${index + 1}` : `Parent ${index + 1}`} · {parent.slice(0, 8)}</option>)}
-                </select></label>
+                <label>{props.zh ? '比较基线' : 'Compare against'}<Select
+                  ariaLabel={props.zh ? '合并提交父级' : 'Merge comparison parent'}
+                  value={parentComparison.parent}
+                  onChange={parentComparison.select}
+                  options={detail.parentHashes.map((parent, index) => ({ value: parent, label: `${props.zh ? `父提交 ${index + 1}` : `Parent ${index + 1}`} · ${parent.slice(0, 8)}` }))}
+                /></label>
                 <small>{props.zh ? '显示所选父提交到本次合并结果的差异。' : 'Shows changes from the selected parent to this merge result.'}</small>
                 {parentComparison.loading ? <p role="status">{props.zh ? '正在读取所选父提交差异…' : 'Loading the selected parent comparison…'}</p> : parentComparison.error ? <><VisibleApplicationError error={parentComparison.error} language={props.zh ? 'zh-CN' : 'en'} /><Button size="compact" onClick={parentComparison.reload}>{props.zh ? '重试比较' : 'Retry comparison'}</Button></> : null}
               </div> : null}
