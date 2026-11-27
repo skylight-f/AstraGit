@@ -144,7 +144,6 @@ export const operationActionLabels: Record<ProjectGitAction['type'], [string, st
   amend_commit: ['修订上次提交', 'Amend last commit'],
   set_identity_field: ['设置提交身份', 'Set commit identity'],
   configure_remote: ['设置远程仓库', 'Configure remote'],
-  configure_commit_template: ['设置提交模板', 'Configure commit template'],
   push: ['推送', 'Push'],
   pull: ['拉取', 'Pull'],
   update: ['更新', 'Update'],

@@ -1,0 +1,150 @@
+section.project-git-sync-dialog.project-git-push-layout {
+  & > main {
+    gap: var(--zeus-space-2);
+  }
+
+  & .project-git-sync-fields {
+    grid-template-columns: max-content minmax(0, 156px) minmax(0, 1fr);
+    align-items: center;
+    gap: var(--zeus-space-2);
+  }
+
+  & .project-git-sync-fields > label {
+    grid-column: 1 / 3;
+    grid-template-columns: subgrid;
+  }
+
+  & .project-git-remote-url {
+    grid-column: 3;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  & main > .project-git-sync-options {
+    padding: var(--zeus-space-2) var(--zeus-space-3);
+    gap: var(--zeus-space-2);
+    border: 1px solid var(--zeus-workspace-divider);
+    background: var(--zeus-product-panel-muted);
+  }
+
+  & .project-git-push-branch-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--zeus-space-1) var(--zeus-space-6);
+  }
+
+  & .project-git-push-branch-actions > small {
+    color: var(--zeus-product-muted);
+  }
+
+  & .project-git-sync-table-scroll {
+    max-block-size: 156px;
+    overflow: auto;
+    scroll-padding-block-start: 30px;
+    border: 1px solid var(--zeus-workspace-divider);
+    border-radius: var(--zeus-control-radius);
+    background: var(--zeus-product-panel);
+  }
+
+  & .project-git-sync-table {
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  & .project-git-sync-table thead th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 1;
+    border-block-end: 1px solid var(--zeus-workspace-divider);
+    background: var(--zeus-product-panel);
+  }
+
+  & .project-git-sync-table thead th + th {
+    border-inline-start: 1px solid var(--zeus-workspace-divider);
+  }
+
+  & .project-git-sync-table thead th:nth-child(2) {
+    width: 33%;
+  }
+
+  & .project-git-sync-table :is(th, td):is(:first-child, :last-child) {
+    width: 52px;
+    text-align: center;
+  }
+
+  & .project-git-sync-table tbody tr[data-selected='true'] {
+    background: var(--zeus-product-selected);
+  }
+
+  & .project-git-push-branch {
+    display: flex;
+    align-items: baseline;
+    gap: var(--zeus-space-1);
+    white-space: nowrap;
+  }
+
+  & .project-git-push-branch > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  & .project-git-push-branch > small {
+    margin: 0;
+  }
+
+  & .project-git-sync-table td > input[type='checkbox'] {
+    vertical-align: middle;
+  }
+
+  & .project-git-sync-table td > .zeus-text-input {
+    min-inline-size: 0;
+    block-size: var(--zeus-control-compact-height);
+    min-block-size: var(--zeus-control-compact-height);
+  }
+
+  & .project-git-push-conflict {
+    margin: 0;
+    color: var(--zeus-control-danger-text);
+  }
+
+  & > footer {
+    padding-block: var(--zeus-space-2) var(--zeus-space-4);
+    gap: var(--zeus-space-2) var(--zeus-space-4);
+  }
+
+  & .project-git-push-footer-details {
+    display: grid;
+    flex: 1 1 270px;
+    min-inline-size: 0;
+    gap: var(--zeus-space-1);
+  }
+
+  & .project-git-push-options {
+    gap: var(--zeus-space-1);
+    padding: 0;
+  }
+
+  & .project-git-push-options input {
+    margin: 0;
+  }
+
+  & .project-git-push-actions {
+    display: flex;
+    margin-inline-start: auto;
+    gap: var(--zeus-space-2);
+  }
+
+  @media (max-width: 620px) {
+    & .project-git-sync-fields {
+      grid-template-columns: max-content minmax(0, 1fr);
+    }
+
+    & .project-git-remote-url {
+      grid-column: 1 / -1;
+    }
+  }
+}

@@ -49,8 +49,6 @@ import {
   getProjectGitRepositorySnapshot,
   getProjectGitInitialChanges,
   getProjectGitRepositorySettings,
-  getProjectGitCommitTemplate,
-  parseGitCommitTemplateChange,
   getProjectGitResetPreview,
   getProjectGitSkipPreview,
   getProjectGitIgnorePreview,
@@ -300,13 +298,6 @@ export class ProjectGitWorkbenchService {
   async loadSettings(projectId: string, repositoryId: string) {
     const resolved = await this.resolveRepository(projectId, repositoryId);
     return getProjectGitRepositorySettings(resolved.repository.localPath);
-  }
-
-  async loadCommitTemplate(projectId: string, repositoryId: string, signal?: AbortSignal) {
-    return this.withReadQuery(signal, async combined => {
-      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
-      return this.withRepositoryGate(resolved, owned => getProjectGitCommitTemplate(resolved.repository.localPath, AbortSignal.any([owned, combined])));
-    });
   }
 
   async loadResetPreview(projectId: string, repositoryId: string, revision: string, mode: GitResetMode, signal?: AbortSignal) {
@@ -644,8 +635,6 @@ export function parseProjectGitAction(value: unknown): ProjectGitAction {
     case 'set_identity_field':
       if ((value.field !== 'name' && value.field !== 'email') || (value.value !== null && typeof value.value !== 'string')) throw projectError('ASTRAGIT_ACTION_INVALID', '提交身份设置无效。');
       return { type: value.type, field: value.field, value: value.value, expectedSettingsFingerprint: stringValue('expectedSettingsFingerprint') ?? '' };
-    case 'configure_commit_template':
-      return parseGitCommitTemplateChange(value);
     case 'configure_remote': {
       const operations = ['add', 'rename', 'remove', 'set_fetch_url', 'set_push_url', 'clear_push_url'] as const;
       if (!operations.includes(value.operation as typeof operations[number])) throw projectError('ASTRAGIT_ACTION_INVALID', '远程设置操作无效。');

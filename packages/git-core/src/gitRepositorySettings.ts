@@ -4,7 +4,6 @@ import { gitRemoteAddressIssue } from '@astragit/shared';
 export interface ProjectGitRepositorySettings {
   fingerprint: string;
   identity: { name: string; email: string; localName: string | null; localEmail: string | null };
-  commitTemplate: { path: string | null; localPath: string | null };
   remotes: Array<{ name: string; fetchUrls: string[]; pushUrls: string[]; editable: boolean }>;
 }
 
@@ -37,7 +36,6 @@ export async function readRepositorySettings(run: Run, redact: (text: string) =>
   return {
     fingerprint: createHash('sha256').update(JSON.stringify([local.stdout, effective.stdout])).digest('hex'),
     identity: { name: last(all.get('user.name')) ?? '', email: last(all.get('user.email')) ?? '', localName: last(localEntries.get('user.name')), localEmail: last(localEntries.get('user.email')) },
-    commitTemplate: { path: last(all.get('commit.template')), localPath: last(localEntries.get('commit.template')) },
     remotes: [...names].sort().map(name => {
       const belongs = (key: string) => /^remote\.(.+)\.[^.]+$/u.exec(key)?.[1] === name;
       return { name, fetchUrls: (all.get(`remote.${name}.url`) ?? []).map(redact), pushUrls: (all.get(`remote.${name}.pushurl`) ?? []).map(redact), editable: [...localEntries.keys()].some(belongs) && [...all].filter(([key]) => belongs(key)).every(([key, values]) => JSON.stringify(values) === JSON.stringify(localEntries.get(key))) };

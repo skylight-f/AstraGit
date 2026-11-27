@@ -18,7 +18,6 @@ export type { GitTrackedFileQuery, GitTrackedFilePage, GitFileHistoryQuery, GitF
 export type { GitHistorySearchQuery, GitHistorySearchPage, GitHistorySearchCommit, GitHistorySearchField } from '@astragit/git-core';
 export type { ProjectGitConflictFile, ProjectGitConflictIndexStage, SaveProjectGitConflictInput } from '@astragit/git-core';
 export type { ProjectGitRepositorySettings } from '@astragit/git-core';
-export type { GitCommitTemplate } from '@astragit/git-core';
 export type { GitResetMode, GitWritePreview } from '@astragit/git-core';
 export type { GitIgnoreInput, GitIgnorePreview, GitIgnoreScope } from '@astragit/git-core';
 export type { GitStopTrackingPreview, GitIgnoredItem, GitIgnoredPage, GitIgnoredQuery } from '@astragit/git-core';
@@ -207,7 +206,6 @@ export type ProjectGitAction =
   | { type: 'reset_revision'; targetSha: string; mode: import('@astragit/git-core').GitResetMode; expectedFingerprint: string; discardNestedRepositories?: boolean }
   | { type: 'skip_integration'; kind: 'rebase' | 'cherry_pick' | 'revert' | 'am'; expectedFingerprint: string; discardNestedRepositories?: boolean }
   | import('@astragit/git-core').RepositorySettingsAction
-  | import('@astragit/git-core').GitCommitTemplateChange
   | { type: 'amend_commit'; message: string; expectedHeadSha: string; expectedBranch: string; expectedIndexFingerprint: string }
   | { type: 'discard'; paths: string[] }
   | { type: 'rename_branch'; branchName: string; newName: string }

@@ -5,14 +5,13 @@ import { Button } from '../../../ui/Button.js';
 import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
-import { GitCommitTemplateSettings } from '../commits/GitCommitTemplateSettings.js';
 
 type RemoteAction = Extract<ProjectGitAction, { type: 'configure_remote' }>;
 type EditRemote = { operation: RemoteAction['operation']; name: string; value: string };
 type SettingsAction = Omit<Extract<ProjectGitAction, { type: 'set_identity_field' }>, 'expectedSettingsFingerprint'> | Omit<RemoteAction, 'expectedSettingsFingerprint'>;
 
 export function GitRepositorySettingsDialog(props: {
-  client: Pick<DashboardClient, 'loadProjectGitRepositorySettings' | 'loadProjectGitCommitTemplate'>;
+  client: Pick<DashboardClient, 'loadProjectGitRepositorySettings'>;
   projectId: string;
   repository: ProjectGitRepositoryWorkbenchItem;
   zh: boolean;
@@ -55,7 +54,6 @@ export function GitRepositorySettingsDialog(props: {
           <IdentityField field="name" local={settings.identity.localName} effective={settings.identity.name} zh={props.zh} disabled={disabled} onSave={value => perform({ type: 'set_identity_field', field: 'name', value })} />
           <IdentityField field="email" local={settings.identity.localEmail} effective={settings.identity.email} zh={props.zh} disabled={disabled} onSave={value => perform({ type: 'set_identity_field', field: 'email', value })} />
         </section>
-        <GitCommitTemplateSettings client={props.client} projectId={props.projectId} repository={props.repository} zh={props.zh} disabled={disabled} onExecute={props.onExecute} onChanged={load} />
         <section aria-label={text('远程仓库设置', 'Remote settings')}><h3>{text('远程仓库', 'Remotes')}</h3>
           {settings.remotes.map(remote => <article key={remote.name} className="git-settings-remote"><strong>{remote.name}</strong>{remote.fetchUrls.map((url, index) => <p key={`fetch:${index}`}>{text('获取', 'Fetch')} · {url}</p>)}{remote.pushUrls.length ? remote.pushUrls.map((url, index) => <p key={`push:${index}`}>{text('推送', 'Push')} · {url}</p>) : <p>{text('推送使用获取地址', 'Push uses the fetch address')}</p>}
             {!remote.editable ? <small>{text('继承自仓库外配置', 'Inherited from external configuration')}</small> : <div className="git-settings-actions">

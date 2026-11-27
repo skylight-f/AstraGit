@@ -1,10 +1,11 @@
-import { Select, TextInput } from '../../../ui/FormControls.js';
+import { CheckboxField, Select, TextInput } from '../../../ui/FormControls.js';
 import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { buildBranchTree, type BranchTreeNode } from '../branches/gitBranchTree.js';
 import '../workbench/gitWorkspace.css';
 import { gitBranchNameIssue, splitGitRemoteBranch } from '@astragit/shared';
 import type { GitBranchManagementRequest } from '../branches/GitBranchManagementDialog.js';
 import { RepositoryPushFields } from './RepositoryPushFields.js';
+import './repositoryPushDialog.css';
 import { branchPushTarget, createPushDraft, defaultRemote, type PushDestinationDraft } from './pushTarget.js';
 import { repositoryColor } from './repositoryColor.js';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
@@ -1341,11 +1342,15 @@ export function PushDialog(props: {
   const activePush = submitting && props.busy?.action === 'push' ? props.busy : null;
   const canSubmit = !locked && selections.length > 0 && !duplicateTarget && selections.every(item => item.remote && item.targetBranch.trim());
   const submitLabel = resultMode ? (props.zh ? '重试推送' : 'Retry push') : props.zh ? '推送' : 'Push';
+  const selectedRepositoryCount = new Set(selections.map(item => item.repositoryId)).size;
+  const selectionSummary = props.zh
+    ? `已选 ${selections.length} 个分支，涉及 ${selectedRepositoryCount} 个仓库`
+    : `${selections.length} branches selected across ${selectedRepositoryCount} repositories`;
   return (
-    <GitOperationDialog className="project-git-reference-dialog project-git-sync-dialog" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '推送' : 'Push'}>
+    <GitOperationDialog className="project-git-reference-dialog project-git-sync-dialog project-git-push-layout" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '推送' : 'Push'}>
         <header>
           <strong>{resultMode ? (props.zh ? '推送结果' : 'Push results') : props.zh ? '推送' : 'Push'}</strong>
-          <small>{props.zh ? '按仓库选择本地分支及远程目标；切换仓库会保留已勾选项。' : 'Select local branches and remote targets. Selections are retained when switching repositories.'}</small>
+          {!completed && props.repositories.length > 1 ? <small>{props.zh ? '切换本地仓库时会保留已勾选的分支。' : 'Branch selections are retained when switching local repositories.'}</small> : null}
         </header>
         <main>
           {resultMode ? (
@@ -1366,6 +1371,7 @@ export function PushDialog(props: {
                 snapshot={repository.snapshot}
                 draft={draft}
                 selectedBranches={checked.filter(item => item.repositoryId === repositoryId).map(item => item.sourceBranch)}
+                selectionSummary={selectionSummary}
                 onChange={next => setDrafts(current => ({ ...current, [repositoryId]: next }))}
                 onSelect={(branches, select) => {
                   setDrafts(current => ({ ...current, [repositoryId]: draft }));
@@ -1382,60 +1388,60 @@ export function PushDialog(props: {
                     <Select
                       ariaLabel={props.zh ? '本地仓库' : 'Repository'}
                       value={repositoryId}
+                      disabled={locked}
                       onChange={setRepositoryId}
                       options={props.repositories.map((item) => ({ value: item.id, label: item.relativePath === '.' ? item.name : item.relativePath }))}
                     />
                   </label>
                 ) : null}
               </RepositoryPushFields>
-              <fieldset disabled={locked} className="project-git-sync-options">
-                <label>
-                  <input type="checkbox" checked={pushTags} onChange={(event) => setPushTags(event.currentTarget.checked)} />
-                  {props.zh ? '推送所有标签' : 'Push all tags'}
-                </label>
-                <label>
-                  <input type="checkbox" checked={forceWithLease} onChange={(event) => setForceWithLease(event.currentTarget.checked)} />
-                  {props.zh ? '强制推送（仅当远端未被他人更新）' : 'Force push only if the remote has not changed'}
-                </label>
-              </fieldset>
-              <small>
-                {props.zh
-                  ? `已选 ${selections.length} 个分支，涉及 ${new Set(selections.map((item) => item.repositoryId)).size} 个仓库`
-                  : `${selections.length} branches selected across ${new Set(selections.map((item) => item.repositoryId)).size} repositories`}
-              </small>
-              {duplicateTarget ? <p role="alert">{props.zh ? '同一仓库的多个本地分支不能推送到同一远程目标，请调整目标分支。' : 'Multiple local branches cannot target the same remote branch. Choose distinct targets.'}</p> : null}
+              {duplicateTarget ? <p className="project-git-push-conflict" role="alert">{props.zh ? '同一仓库的多个本地分支不能推送到同一远程目标，请调整目标分支。' : 'Multiple local branches cannot target the same remote branch. Choose distinct targets.'}</p> : null}
             </>
           ) : null}
         </main>
         <footer>
-          {submitting ? <GitOperationProgress
-            repositoryName={props.repositories.find(item => item.id === activePush?.repositoryId)?.name}
-            action={props.zh ? '推送' : 'Push'}
-          /> : null}
-          <Button variant="secondary" disabled={locked} onClick={props.onClose}>
-            {resultMode ? (props.zh ? '关闭' : 'Close') : props.zh ? '取消' : 'Cancel'}
-          </Button>
-          {submitting ? <GitOperationStopButton zh={props.zh} onStop={props.onStop} stopping={props.stopping} /> : !completed ? (
-            <Button
-              variant="primary"
-              disabled={!canSubmit}
-              onClick={async () => {
-                if (!canSubmit) return;
-                setSubmitting(true);
-                try {
-                  await props.onPush(
-                    selections.map((item) => ({ ...item, targetBranch: item.targetBranch.trim() })),
-                    forceWithLease,
-                    pushTags,
-                  );
-                } finally {
-                  setSubmitting(false);
-                }
-              }}
-            >
-              {submitLabel}
-            </Button>
+          {!completed ? (
+            <div className="project-git-push-footer-details">
+              <fieldset disabled={locked} className="project-git-sync-options project-git-push-options">
+                <CheckboxField checked={pushTags} onChange={(event) => setPushTags(event.currentTarget.checked)}>
+                  {props.zh ? '推送所有标签' : 'Push all tags'}
+                </CheckboxField>
+                <CheckboxField checked={forceWithLease} onChange={(event) => setForceWithLease(event.currentTarget.checked)}>
+                  {props.zh ? '强制推送（仅当远端未被他人更新）' : 'Force push only if the remote has not changed'}
+                </CheckboxField>
+              </fieldset>
+              {submitting ? <GitOperationProgress
+                repositoryName={props.repositories.find(item => item.id === activePush?.repositoryId)?.name}
+                action={props.zh ? '推送' : 'Push'}
+              /> : null}
+            </div>
           ) : null}
+          <div className="project-git-push-actions">
+            <Button variant="secondary" disabled={locked} onClick={props.onClose}>
+              {resultMode ? (props.zh ? '关闭' : 'Close') : props.zh ? '取消' : 'Cancel'}
+            </Button>
+            {submitting ? <GitOperationStopButton zh={props.zh} onStop={props.onStop} stopping={props.stopping} /> : !completed ? (
+              <Button
+                variant="primary"
+                disabled={!canSubmit}
+                onClick={async () => {
+                  if (!canSubmit) return;
+                  setSubmitting(true);
+                  try {
+                    await props.onPush(
+                      selections.map((item) => ({ ...item, targetBranch: item.targetBranch.trim() })),
+                      forceWithLease,
+                      pushTags,
+                    );
+                  } finally {
+                    setSubmitting(false);
+                  }
+                }}
+              >
+                {submitLabel}
+              </Button>
+            ) : null}
+          </div>
         </footer>
       </GitOperationDialog>
   );

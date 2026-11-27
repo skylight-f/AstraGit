@@ -8,7 +8,6 @@ import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
 import type { BusyState } from '../workbench/gitWorkbenchTypes.js';
 import { repositoryDraftScope, type GitCommitDrafts } from '../commits/useGitCommitDrafts.js';
 import { commitPushTarget, type CommitPushTarget } from '../commits/commitThenPush.js';
-import { GitCommitTemplateControl } from '../commits/GitCommitTemplateControl.js';
 import { GitCommitAiControls } from '../commits/GitCommitAiControls.js';
 import type { GitCommitModelState } from '../../models/useGitCommitModels.js';
 import { GitPaneSeparator } from '../components/GitPaneSeparator.js';
@@ -25,7 +24,7 @@ import { GitConflictEditor } from '../conflicts/GitConflictEditor.js';
 import type { ChangeStage, GitContextEvent, GitContextTarget, GitDiffOptions } from '../workbench/gitWorkbenchTypes.js';
 
 export function LocalChangesSurface(props: {
-  client: Pick<DashboardClient, 'loadProjectGitLineDiff' | 'readProjectGitConflict' | 'saveProjectGitConflict' | 'loadProjectGitCommitTemplate'>;
+  client: Pick<DashboardClient, 'loadProjectGitLineDiff' | 'readProjectGitConflict' | 'saveProjectGitConflict'>;
   query: string;
   commitRequest: number;
   /** 刷新时即使二进制补丁相同，也重新读取当前文件。 */
@@ -296,7 +295,6 @@ export function LocalChangesSurface(props: {
               <div className="project-git-commit-message-heading">
                 <label htmlFor="project-git-commit-message">{props.zh ? '提交说明' : 'Commit message'}</label>
                 <div className="project-git-commit-generation-controls">
-                  {repository ? <GitCommitTemplateControl key={`${props.projectId}:${repository.id}`} client={props.client} projectId={props.projectId} repositoryId={repository.id} repositoryName={repository.name} value={message} zh={props.zh} disabled={props.busy !== null || generating} onApply={(next, expected) => props.commitMessages.write(repository.id, next, scope ?? undefined, expected)} /> : null}
                   <small className="project-git-commit-generation-feedback" role="status">{staleDraft ? (props.zh ? '提交范围已变化，可重新生成。' : 'Staged content changed. You can regenerate the message.') : props.generationFeedback}</small>
                   <GitCommitAiControls
                     zh={props.zh}

@@ -1,17 +1,14 @@
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
 import type { BusyState } from '../workbench/gitWorkbenchTypes.js';
 import { repositoryDraftScope, type GitCommitDrafts } from './useGitCommitDrafts.js';
-import { GitCommitTemplateControl } from './GitCommitTemplateControl.js';
 import { stagedCommitUnits } from '../changes/sourceGitState.js';
-import type { DashboardClient, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
+import type { ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
 import { GitOperationDialog } from '../components/GitOperationDialog.js';
 
 export function CommitDialog(props: {
   commitMessages: GitCommitDrafts;
   open: boolean;
-  client: Pick<DashboardClient, 'loadProjectGitCommitTemplate'>;
-  projectId: string;
   zh: boolean;
   repositories: ProjectGitRepositoryWorkbenchItem[];
   busy: BusyState;
@@ -37,9 +34,6 @@ export function CommitDialog(props: {
                 <textarea value={message} disabled={props.busy !== null} onChange={event => props.commitMessages.write(repository.id, event.target.value, scope)} />
               </label>
               {draft?.scope && draft.scope !== scope && <small role="status">{props.zh ? '提交范围已变化，请核对提交说明。' : 'The commit scope changed. Review the message.'}</small>}
-              <GitCommitTemplateControl client={props.client} projectId={props.projectId} repositoryId={repository.id} repositoryName={repository.name} value={message} zh={props.zh}
-                disabled={props.busy !== null} active={props.open} autoFill={staged.length === 1}
-                onApply={(next, expected) => props.commitMessages.write(repository.id, next, scope, expected)} />
             </div>;
           })}
         </main>

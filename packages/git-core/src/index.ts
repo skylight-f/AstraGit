@@ -50,7 +50,6 @@ import { promisify } from 'node:util';
 import { hasUnresolvedGitConflictMarkers, gitRemoteAddressIssue, type RepositorySetupInput, type UserFacingErrorCause } from '@astragit/shared';
 import { commitSelectedPaths } from './gitSelectedCommit.js';
 import { executeRepositorySettings, readRepositorySettings, type RepositorySettingsAction } from './gitRepositorySettings.js';
-import { configureCommitTemplate, readCommitTemplate, type GitCommitTemplateChange } from './gitCommitTemplate.js';
 import { readGitWritePreview, type GitResetMode, type GitWritePreview } from './gitDestructivePreview.js';
 import { readGitCommitReplayPreview, parseGitCommitReplayInput, gitCommitReplayArguments, gitCommitReplayFailure, type GitCommitReplayInput } from './gitCommitReplay.js';
 export { parseGitCommitReplayInput } from './gitCommitReplay.js';
@@ -70,8 +69,6 @@ export type { GitIgnoreInput, GitIgnorePreview, GitIgnoreScope } from './gitIgno
 export type { GitFileIntent, GitFileLocation } from './gitFileLocation.js';
 export type { GitResetMode, GitWritePreview } from './gitDestructivePreview.js';
 export type { ProjectGitRepositorySettings, RepositorySettingsAction } from './gitRepositorySettings.js';
-export { parseGitCommitTemplateChange } from './gitCommitTemplate.js';
-export type { GitCommitTemplate, GitCommitTemplateChange } from './gitCommitTemplate.js';
 import { readConflictWorktreeRevision, readProjectConflict, saveProjectConflict, type ProjectGitConflictFile, type ProjectGitConflictWriteResult, type SaveProjectGitConflictInput } from './gitProjectConflict.js';
 export type { ProjectGitConflictFile, ProjectGitConflictIndexStage, ProjectGitConflictWriteResult, SaveProjectGitConflictInput } from './gitProjectConflict.js';
 export { readSelectedCommitFingerprint, readSelectedGitCommitChanges, type GitCommitSelectionMode } from './gitCommitSelectionContext.js';
@@ -209,7 +206,6 @@ export type ProjectGitAction =
   | { type: 'reset_revision'; targetSha: string; mode: GitResetMode; expectedFingerprint: string; discardNestedRepositories?: boolean }
   | { type: 'skip_integration'; kind: 'rebase' | 'cherry_pick' | 'revert' | 'am'; expectedFingerprint: string; discardNestedRepositories?: boolean }
   | RepositorySettingsAction
-  | GitCommitTemplateChange
   | { type: 'amend_commit'; message: string; expectedHeadSha: string; expectedBranch: string; expectedIndexFingerprint: string }
   | { type: 'discard'; paths: string[] }
   | { type: 'rename_branch'; branchName: string; newName: string }
@@ -1071,14 +1067,6 @@ export async function getProjectGitRepositorySettings(cwd: string) {
   return readRepositorySettings(args => runGit(context.topLevel, args), redactGitOutput);
 }
 
-export async function getProjectGitCommitTemplate(cwd: string, signal?: AbortSignal) {
-  return projectGitExecution.run({ signal }, async () => {
-    const context = await getGitRepositoryContext(cwd);
-    if (!context.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是 Git 仓库。');
-    return readCommitTemplate(context.topLevel, (args, input) => runGit(context.topLevel, args, input), redactGitOutput);
-  });
-}
-
 export async function getProjectGitFileLocation(cwd: string, path: string, intent: GitFileIntent) {
   const context = await getGitRepositoryContext(cwd);
   if (!context.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '所选目录不是 Git 仓库。');
@@ -1629,8 +1617,6 @@ async function executeProjectGitActionInternal(cwd: string, action: ProjectGitAc
     case 'set_identity_field':
     case 'configure_remote':
       return finishProjectGitAction(repositoryPath, action.type, await executeRepositorySettings(args => runGit(repositoryPath, args), redactGitOutput, action));
-    case 'configure_commit_template':
-      return finishProjectGitAction(repositoryPath, action.type, await configureCommitTemplate(repositoryPath, (args, input) => runGit(repositoryPath, args, input), redactGitOutput, action));
     case 'amend_commit': {
       const refuse = (code: string, message: string) => Object.assign(gitCoreError(code, message), { operationStatus: 'failed_before_write' });
       if (!context.headSha) throw refuse('ASTRAGIT_GIT_AMEND_HEAD_REQUIRED', '仓库还没有提交，无法修订上次提交。');

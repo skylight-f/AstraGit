@@ -313,14 +313,6 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     try { return await workbench.loadSettings(request.params.projectId, request.params.repositoryId); }
     catch (error) { return sendNativeQueryRouteError(reply, error); }
   });
-  server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/commit-template', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string } }>, reply) => {
-    const controller = new AbortController();
-    const disconnected = () => { if (!reply.raw.writableFinished) controller.abort(); };
-    reply.raw.once('close', disconnected);
-    try { return await workbench.loadCommitTemplate(request.params.projectId, request.params.repositoryId, controller.signal); }
-    catch (error) { return sendNativeQueryRouteError(reply, error); }
-    finally { reply.raw.off('close', disconnected); }
-  });
   server.get('/api/projects/:projectId/git/workbench', async (request: FastifyRequest<{ Params: { projectId: string } }>, reply) => {
     try {
       return await workbench.loadWorkbench(request.params.projectId);

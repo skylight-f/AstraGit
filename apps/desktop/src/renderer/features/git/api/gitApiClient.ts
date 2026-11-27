@@ -20,7 +20,6 @@ import type {
   GitRevisionComparison,
   ProjectGitWorkbenchSnapshot,
   ProjectGitRepositorySettings,
-  GitCommitTemplate,
   GitResetMode,
   GitWritePreview,
   GitIgnoreScope,
@@ -70,7 +69,6 @@ export interface GitApiClient {
   loadProjectGitResetPreview: (projectId: string, repositoryId: string, revision: string, mode: GitResetMode, signal?: AbortSignal) => Promise<GitWritePreview>;
   loadProjectGitSkipPreview: (projectId: string, repositoryId: string, kind: 'rebase' | 'cherry_pick' | 'revert' | 'am', signal?: AbortSignal) => Promise<GitWritePreview>;
   loadProjectGitRepositorySettings: (projectId: string, repositoryId: string) => Promise<ProjectGitRepositorySettings>;
-  loadProjectGitCommitTemplate: (projectId: string, repositoryId: string, signal?: AbortSignal) => Promise<GitCommitTemplate>;
   previewGitCommitSelection: (projectId: string, selection: GitCommitSelectionTarget[], selectionMode: GitCommitSelectionMode, signal?: AbortSignal) => Promise<GitCommitSelectionPreview>;
   validateGitPushTargets: (projectId: string, targets: Array<{ repositoryId: string; relativePath: string; remote: string; sourceBranch: string; targetBranch: string }>) => Promise<{ ok: true }>;
   /** 操作账本属于桌面实例，不能回退到独立执行宿主的其他记录。 */
@@ -157,7 +155,6 @@ export function createGitApiClient(transport: LocalApiTransport): GitApiClient {
     loadProjectGitResetPreview: (projectId, repositoryId, revision, mode, signal) => transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/reset-preview?revision=${encodeURIComponent(revision)}&mode=${mode}`, { signal }),
     loadProjectGitSkipPreview: (projectId, repositoryId, kind, signal) => transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/skip-preview?kind=${kind}`, { signal }),
     loadProjectGitRepositorySettings: (projectId, repositoryId) => transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/settings`),
-    loadProjectGitCommitTemplate: (projectId, repositoryId, signal) => transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/commit-template`, { signal }),
     previewGitCommitSelection: (projectId, selection, selectionMode, signal) => transport.request(`${projectGitPath(projectId)}/commit-selection`, { ...jsonRequest('POST', { selection, selectionMode }), signal }),
     validateGitPushTargets: (projectId, targets) => transport.request(`${projectGitPath(projectId)}/commit-selection/push-targets`, jsonRequest('POST', { targets })),
     loadProjectGitOperations: (projectId, cursor) => transport.request(`${projectGitPath(projectId)}/operations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
