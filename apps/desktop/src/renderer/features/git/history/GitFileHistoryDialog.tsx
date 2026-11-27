@@ -1,7 +1,8 @@
+import { TextInput } from '../../../ui/FormControls.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitFileHistoryEntry, GitFileHistoryPage, GitFileOriginLine, GitFileRevision, GitTrackedFilePage, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { GitOperationDialog, GitOperationDialogHeader } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { GitPaneSeparator } from '../components/GitPaneSeparator.js';
 import { SideBySideDiff } from '../diff/ProjectGitDiffViewer.js';
@@ -148,13 +149,12 @@ export function GitFileHistoryDialog(props: { request: GitFileHistoryRequest; pr
     uncommitted_file: ['此文件尚无已提交版本，以下行标记为未提交。', 'This file has no committed version. Its lines are marked uncommitted.'],
     no_commits: ['此仓库尚无提交；工作区内容仍可查看，行归属标记为未提交。', 'This repository has no commits. Working contents remain readable, with uncommitted attribution.'],
   };
-  return <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" role="dialog" aria-label={text('文件历史与代码归属', 'File history and blame')} onDismiss={props.onClose}>
-    <section className="git-file-history-dialog" data-modal-surface="dialog">
-      <header><div><strong>{text('文件历史与代码归属', 'File history and blame')}</strong><small>{request.repository.name} · {request.ref ? text(`所选版本 ${request.ref.slice(0, 12)}`, `Selected revision ${request.ref.slice(0, 12)}`) : text('当前仓库', 'Current repository')}</small></div><Button variant="secondary" size="compact" onClick={() => setReload(value => value + 1)}>{text('重新载入', 'Reload')}</Button><Button variant="secondary" size="compact" onClick={props.onClose}>{text('关闭', 'Close')}</Button></header>
+  return <GitOperationDialog className="git-file-history-dialog" role="dialog" aria-label={text('文件历史与代码归属', 'File history and blame')} onDismiss={props.onClose}>
+      <GitOperationDialogHeader title={text('文件历史与代码归属', 'File history and blame')} detail={<>{request.repository.name} · {request.ref ? text('所选版本', 'Selected revision') + ' ' + request.ref.slice(0, 12) : text('当前仓库', 'Current repository')}</>} zh={props.zh} onClose={props.onClose} actions={<Button size="compact" onClick={() => setReload(value => value + 1)}>{text('重新载入', 'Reload')}</Button>} />
       <div ref={layout} className="git-file-history-layout">
         <aside ref={navigation} className="git-file-history-navigation">
           <section className="git-file-history-files" aria-label={text('全部已跟踪文件', 'All tracked files')}>
-            <header><strong>{text('已跟踪文件', 'Tracked files')}{list ? ` (${list.total})` : ''}</strong><input autoFocus={!request.path} type="search" aria-label={text('搜索仓库内文件', 'Search repository files')} placeholder={text('搜索文件，包含未修改文件…', 'Search files, including unchanged files…')} value={search} onChange={event => setSearch(event.target.value)} /></header>
+            <header><strong>{text('已跟踪文件', 'Tracked files')}{list ? ` (${list.total})` : ''}</strong><TextInput data-modal-initial-focus={!request.path ? '' : undefined} type="search" aria-label={text('搜索仓库内文件', 'Search repository files')} placeholder={text('搜索文件，包含未修改文件…', 'Search files, including unchanged files…')} value={search} onChange={event => setSearch(event.target.value)} /></header>
             <div className="git-file-history-file-list">{list?.paths.map(item => <button type="button" className={item === path ? 'is-current' : ''} key={item} title={item} onClick={() => setPath(item)}>{item}</button>)}{list && !list.paths.length ? <p>{text('没有匹配的已跟踪文件。未跟踪文件可从文件状态菜单打开。', 'No tracked files match. Open untracked files from their File Status menu.')}</p> : null}{listLoading ? <p role="status">{text('正在读取文件列表…', 'Loading files…')}</p> : null}{listError ? <VisibleApplicationError error={listError} language={props.zh ? 'zh-CN' : 'en'} /> : null}{list?.nextOffset !== null && list ? <Button size="compact" variant="secondary" disabled={listLoading || Boolean(listError)} onClick={() => void moreFiles()}>{text('更多文件', 'More files')}</Button> : null}</div>
           </section>
           <GitPaneSeparator name="file-history-log" label={text('调整文件列表与历史高度', 'Resize files and history')} axis="y" initial={36} min={bounds.log.min} max={bounds.log.max} />
@@ -179,8 +179,7 @@ export function GitFileHistoryDialog(props: { request: GitFileHistoryRequest; pr
           </> : <p>{text('从左侧选择文件或提交。', 'Choose a file or commit on the left.')}</p>}
         </section>
       </div>
-    </section>
-  </ModalPortal>;
+    </GitOperationDialog>;
 }
 
 /** Keep large blame files responsive; all rows retain their real line identities. */

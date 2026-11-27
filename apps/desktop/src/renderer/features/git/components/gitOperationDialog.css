@@ -1,0 +1,73 @@
+.macos-ai-app .zeus-modal-backdrop > .git-operation-dialog {
+  box-sizing: border-box;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  max-block-size: calc(100dvh - 2 * clamp(12px, 2.4vw, 20px));
+  border: 1px solid var(--zeus-product-line);
+  border-radius: var(--zeus-dialog-radius);
+  background: var(--zeus-solid-surface-bg, var(--zeus-product-panel));
+  color: var(--zeus-product-text);
+  box-shadow: var(--agentdesk-modal-shadow);
+}
+
+.git-operation-dialog > header {
+  flex-shrink: 0;
+}
+
+.git-operation-dialog > header > :where(strong, h2, h3) {
+  font-size: var(--zeus-type-size-heading);
+  font-weight: var(--zeus-type-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.git-operation-dialog > footer {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.git-operation-dialog > .git-operation-dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--zeus-dialog-section-gap);
+  padding: var(--zeus-space-4) var(--zeus-space-5);
+  border-block-end: 1px solid var(--zeus-workspace-divider);
+}
+
+.git-operation-dialog-heading > div:first-child {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.git-operation-dialog-heading h2 {
+  margin: 0;
+  font-size: var(--zeus-type-size-heading);
+  font-weight: var(--zeus-type-weight-semibold);
+}
+
+.git-operation-dialog-heading p {
+  margin: var(--zeus-space-1) 0 0;
+  color: var(--zeus-product-muted);
+  font-size: var(--zeus-type-size-label);
+}
+
+.git-operation-dialog-heading-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--zeus-space-2);
+}
+
+.git-operation-dialog > .git-operation-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--zeus-space-2);
+  padding: var(--zeus-dialog-footer-padding-block) var(--zeus-space-5);
+  border-block-start: 1px solid var(--zeus-workspace-divider);
+}
+
+.git-operation-dialog > .git-operation-dialog-actions:empty {
+  display: none;
+}

@@ -2,7 +2,6 @@
  * 独立应用 Renderer 公共类型入口：只暴露 Git 工作台所需契约。
  * 不引入会话、任务、数字团队等 Zeus 全站类型。
  */
-export type { GitBlameLine, GitFileBlame } from '../features/git/api/gitContracts.js';
 export type * from '../features/git/api/gitContracts.js';
 
 export interface ProjectRecord {

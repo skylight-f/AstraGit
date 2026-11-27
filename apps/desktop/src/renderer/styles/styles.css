@@ -1681,7 +1681,7 @@ a {
 }
 
 .macos-ai-app .skills-catalog-heading > input,
-.macos-ai-app .zeus-form-fields input:not([type='checkbox']):not([type='radio']),
+.macos-ai-app .zeus-form-fields input:not([type='checkbox'], [type='radio'], .zeus-text-input),
 .macos-ai-app .zeus-form-fields textarea {
   appearance: none;
   background: var(--zeus-control-bg);
@@ -2075,6 +2075,10 @@ a {
   display: grid;
   gap: var(--zeus-space-2);
   min-inline-size: 0;
+}
+
+.macos-ai-app .zeus-form-fields .zeus-check-field {
+  display: flex;
 }
 
 .macos-ai-app .zeus-form-description,
@@ -3679,7 +3683,6 @@ a {
 }
 .project-git-changed-files button.is-current {
   background: var(--zeus-source-list-selected);
-  box-shadow: inset 2px 0 var(--zeus-brand-primary);
 }
 .git-commit-file-name {
   overflow: hidden;
@@ -4053,14 +4056,6 @@ a {
   position: fixed;
   z-index: 100;
 }
-.project-git-modal-backdrop {
-  align-items: center;
-  background: var(--ag-modal-backdrop);
-  display: flex;
-  inset: 0;
-  justify-content: center;
-  position: absolute;
-}
 .project-git-branch-dialog,
 .project-git-commit-dialog,
 .project-git-push-dialog,
@@ -4331,60 +4326,6 @@ a {
   max-height: 500px;
   overflow: auto;
   padding: 8px 20px;
-}
-.project-git-reference-dialog.project-git-stash-dialog {
-  width: min(620px, calc(100vw - 40px));
-}
-.project-git-stash-dialog main {
-  gap: 18px;
-  max-height: none;
-  padding: 22px 28px 12px;
-}
-.project-git-stash-introduction {
-  line-height: 1.55;
-  margin: 0;
-}
-.project-git-reference-dialog.project-git-stash-dialog main > .project-git-stash-message {
-  align-items: center;
-  display: grid;
-  flex: none;
-  gap: 12px;
-  grid-template-columns: 86px minmax(0, 1fr);
-}
-.project-git-stash-message > span {
-  font-weight: 600;
-}
-.project-git-stash-message > input {
-  min-width: 0;
-  width: 100%;
-}
-.project-git-reference-dialog.project-git-stash-dialog main > .project-git-stash-keep-index {
-  align-items: center;
-  display: flex;
-  flex: none;
-  flex-direction: row;
-  gap: 9px;
-  margin-left: 98px;
-}
-.project-git-stash-keep-index > input {
-  block-size: 16px;
-  flex: 0 0 16px;
-  inline-size: 16px;
-  margin: 0;
-  min-block-size: 0;
-  padding: 0;
-}
-.project-git-stash-dialog > footer {
-  padding: 14px 28px 22px;
-}
-@media (max-width: 620px) {
-  .project-git-reference-dialog.project-git-stash-dialog main > .project-git-stash-message {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
-  }
-  .project-git-reference-dialog.project-git-stash-dialog main > .project-git-stash-keep-index {
-    margin-left: 0;
-  }
 }
 .project-git-update-strategies {
   border: 0;

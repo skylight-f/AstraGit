@@ -1,7 +1,8 @@
+import { Select } from '../../../ui/FormControls.js';
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitCommitReplaySeriesPreview, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
 import './gitCommitReplay.css';
@@ -41,15 +42,14 @@ export function GitCommitReplaySeriesDialog(props: {
     finally { submitting.current = false; }
   }
   const title = text('拣选所选提交', 'Cherry-pick selected commits');
-  return <ModalPortal role="dialog" aria-label={title} rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" onDismiss={props.onClose} dismissDisabled={props.busy}>
-    <section className="git-commit-replay-dialog" data-modal-surface="dialog">
+  return <GitOperationDialog className="git-commit-replay-dialog" role="dialog" aria-label={title} onDismiss={props.onClose} dismissDisabled={props.busy}>
       <header><strong>{title}</strong><span>{request.repository.name}</span><Button size="compact" disabled={props.busy} onClick={props.onClose}>{text('关闭', 'Close')}</Button></header>
       <div className="git-commit-replay-body">
         <p>{text('按下列顺序应用所选提交，祖先提交在先。中间未选中的提交不会自动加入。', 'Apply only the selected commits in the order below, with ancestors first. Unselected intermediate commits are not included.')}</p>
         {metadata ? <>
           <p>{text('应用到', 'Apply to')} {metadata.detached ? 'HEAD' : metadata.branch} · {metadata.headSha.slice(0, 12) || text('尚无提交', 'Unborn branch')}</p>
           <details open><summary>{text(`${metadata.commits.length} 个提交，按应用顺序排列`, `${metadata.commits.length} commits in application order`)}</summary><ol>{metadata.commits.map(item => <li key={item.sha}><code>{item.sha.slice(0, 8)}</code> {item.subject}{item.parentCount > 1 ? text('（合并提交）', ' (merge commit)') : ''}</li>)}</ol></details>
-          {metadata.hasMerges ? <label>{text('合并提交的父级来源', 'Mainline parent for merge commits')}<select disabled={props.busy} value={mainline ?? metadata.input.mainline ?? 1} onChange={event => setMainline(Number(event.target.value))}>{Array.from({ length: metadata.maximumMainline }, (_, index) => <option key={index + 1} value={index + 1}>{text(`父提交 ${index + 1}`, `Parent ${index + 1}`)}</option>)}</select><small>{text('原生批量拣选使用相同的父级序号；需要不同来源的合并请分别拣选。', 'Native batch cherry-pick uses one mainline number. Cherry-pick merges separately when they need different mainline parents.')}</small></label> : null}
+          {metadata.hasMerges ? <label>{text('合并提交的父级来源', 'Mainline parent for merge commits')}<Select disabled={props.busy} value={mainline ?? metadata.input.mainline ?? 1} onChange={event => setMainline(Number(event.target.value))}>{Array.from({ length: metadata.maximumMainline }, (_, index) => <option key={index + 1} value={index + 1}>{text(`父提交 ${index + 1}`, `Parent ${index + 1}`)}</option>)}</Select><small>{text('原生批量拣选使用相同的父级序号；需要不同来源的合并请分别拣选。', 'Native batch cherry-pick uses one mainline number. Cherry-pick merges separately when they need different mainline parents.')}</small></label> : null}
         </> : null}
         <label className="git-commit-replay-checkbox"><input type="checkbox" checked={commit} disabled={props.busy} onChange={event => { setCommit(event.target.checked); if (!event.target.checked) setIncludeSourceId(false); }} />{text('成功应用每个提交后立即提交', 'Commit immediately after each successful application')}</label>
         <label className="git-commit-replay-checkbox"><input type="checkbox" checked={includeSourceId} disabled={props.busy || !commit} onChange={event => setIncludeSourceId(event.target.checked)} />{text('在提交说明中记录来源提交 ID', 'Record the source commit IDs in messages')}</label>
@@ -60,6 +60,5 @@ export function GitCommitReplaySeriesDialog(props: {
         {current?.error || failed ? <VisibleApplicationError error={failed ?? current?.error} language={props.zh ? 'zh-CN' : 'en'} /> : null}
       </div>
       <footer>{props.busy ? <Button onClick={() => void props.onAbort().catch(error => { if (alive.current) setFailure({ key, error }); })}>{text('中止操作', 'Stop operation')}</Button> : null}<Button variant="secondary" disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新核对', 'Recheck')}</Button><Button variant="primary" busy={props.busy} disabled={!preview || props.busy || Boolean(failed)} onClick={() => void submit()}>{text('拣选所选提交', 'Cherry-pick selected commits')}</Button></footer>
-    </section>
-  </ModalPortal>;
+    </GitOperationDialog>;
 }

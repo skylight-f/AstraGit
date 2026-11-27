@@ -1,3 +1,4 @@
+import { TextInput } from '../../ui/FormControls.js';
 import { CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { FolderOpen } from '@phosphor-icons/react/dist/csr/FolderOpen';
 import { Folders } from '@phosphor-icons/react/dist/csr/Folders';
@@ -113,7 +114,7 @@ export function ProjectList({ projects, zh, actions, children, onOpen, onRemove 
       }}
     >
       <label>{text('分组名称', 'Group name')}
-        <input autoFocus value={draft.name} required onChange={event => setDraft({ ...draft, name: event.target.value })} />
+        <TextInput data-modal-initial-focus value={draft.name} required onChange={event => setDraft({ ...draft, name: event.target.value })} />
       </label>
       {duplicate && <span role="alert">{text('已有同名分组', 'A group with this name already exists')}</span>}
       {projects && projects.length > 0 && <fieldset className="gitapp-group-members">

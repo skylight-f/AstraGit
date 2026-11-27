@@ -29,7 +29,7 @@ export function useModalFocus(ref: RefObject<HTMLElement | null>, open: boolean)
     /** 首选显式自动聚焦的控件；无控件时落在模态根层。 */
     const focusFirst = () => {
       const elements = focusableElements(root);
-      (elements.find((element) => element.hasAttribute('autofocus')) ?? elements[0] ?? root).focus({ preventScroll: true });
+      (elements.find((element) => element.matches('[data-modal-initial-focus], [autofocus]')) ?? elements[0] ?? root).focus({ preventScroll: true });
     };
     focusFirst();
     /** 仅最上层阻止程序性焦点穿透。 */

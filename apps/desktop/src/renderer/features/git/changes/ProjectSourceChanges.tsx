@@ -12,7 +12,7 @@ import type { GitCommitModelState } from '../../models/useGitCommitModels.js';
 import { ProjectGitDiffWindow, SideBySideDiff } from '../diff/ProjectGitDiffViewer.js';
 import { GitConflictEditor } from '../conflicts/GitConflictEditor.js';
 import { GitContextMenu, GitMenuActionDialog, type GitMenuConfirmation, type GitMenuItem } from '../components/GitContextMenu.js';
-import { createApplyStashConfirmation } from '../workbench/applyStashConfirmation.js';
+import { createApplyStashConfirmation } from '../stash/applyStashConfirmation.js';
 import { notifyProjectGitChanged, projectGitWorkbenchCacheEntry, requestProjectGitWorkbench, subscribeProjectGitRefresh } from '../workbench/projectGitWorkbenchState.js';
 import { SourceRepositoryLabel, SourceRepositoryTree } from './SourceFileTree.js';
 import { stagedCommitUnits, type SourceCommitUnit, readSourceGitState, sourceRepositoryFiles, writeSourceGitState, type SourceGitState } from './sourceGitState.js';

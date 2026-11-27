@@ -1,7 +1,8 @@
+import { Select, TextInput } from '../../../ui/FormControls.js';
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitArchiveFormat, GitArchivePreview, GitArchiveResult, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { GitOperationDialog, GitOperationDialogHeader } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import './gitArchive.css';
 
@@ -40,20 +41,18 @@ export function GitArchiveDialog(props: { request: GitArchiveDialogRequest; proj
     finally { if (exportId.current === id) exportId.current = null; if (alive.current) setSaving(false); }
   }
 
-  return <ModalPortal role="dialog" aria-label={text('导出源码存档', 'Export source archive')} rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" onDismiss={props.onClose} dismissDisabled={saving}>
-    <section className="git-archive-dialog" data-modal-surface="dialog">
-      <header><strong>{text('导出源码存档', 'Export source archive')}</strong><span>{request.repository.name}</span><Button size="compact" disabled={saving} onClick={props.onClose}>{text('关闭', 'Close')}</Button></header>
+  return <GitOperationDialog className="git-archive-dialog" role="dialog" aria-label={text('导出源码存档', 'Export source archive')} onDismiss={props.onClose} dismissDisabled={saving}>
+      <GitOperationDialogHeader title={text('导出源码存档', 'Export source archive')} detail={request.repository.name} zh={props.zh} onClose={props.onClose} closeDisabled={saving} />
       <form onSubmit={event => { event.preventDefault(); void save(); }}>
-        <label>{text('修订版本', 'Revision')}<input value={revision} disabled={saving} onChange={event => setRevision(event.target.value)} placeholder="HEAD" /></label>
-        <label>{text('存档格式', 'Archive format')}<select value={format} disabled={saving} onChange={event => setFormat(event.target.value as GitArchiveFormat)}><option value="zip">ZIP (.zip)</option><option value="tar">TAR (.tar)</option><option value="tar.gz">TAR.GZ (.tar.gz)</option></select></label>
-        <label>{text('归档内目录（可留空）', 'Folder inside archive (optional)')}<input value={prefix} disabled={saving} onChange={event => setPrefix(event.target.value)} placeholder="project-v1.0/" /></label>
+        <label>{text('修订版本', 'Revision')}<TextInput value={revision} disabled={saving} onChange={event => setRevision(event.target.value)} placeholder="HEAD" /></label>
+        <label>{text('存档格式', 'Archive format')}<Select value={format} disabled={saving} onChange={event => setFormat(event.target.value as GitArchiveFormat)}><option value="zip">ZIP (.zip)</option><option value="tar">TAR (.tar)</option><option value="tar.gz">TAR.GZ (.tar.gz)</option></Select></label>
+        <label>{text('归档内目录（可留空）', 'Folder inside archive (optional)')}<TextInput value={prefix} disabled={saving} onChange={event => setPrefix(event.target.value)} placeholder="project-v1.0/" /></label>
         <p>{text('导出该提交的源码文件，保留文件模式与符号链接；不包含暂存区、工作区修改或未跟踪文件。', 'Export the commit’s source files, preserving file modes and symbolic links. Staged, working tree and untracked changes are excluded.')}</p>
         <p>{text('遵循 Git 的导出属性；子模块中的文件不会递归打包。', 'Git export attributes apply. Files inside submodules are not included recursively.')}</p>
         {loading ? <p role="status">{text('正在核对修订版本…', 'Checking revision…')}</p> : preview ? <section className="git-archive-revision" aria-label={text('将要存档的提交', 'Commit to archive')}><strong>{preview.subject}</strong><code>{preview.commitHash}</code><small>{preview.suggestedName}</small></section> : null}
         {error ? <VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /> : null}
         {receipt ? <section className="git-archive-receipt" role="status"><strong>{text(`已保存 ${receipt.name}`, `Saved ${receipt.name}`)}</strong><span>{receipt.byteLength.toLocaleString()} {text('字节', 'bytes')}</span><code title="SHA-256">{receipt.sha256}</code></section> : feedback ? <p role="status">{feedback}</p> : null}
       </form>
-      <footer>{saving ? <><span role="status">{text('正在生成并保存源码存档…', 'Creating and saving source archive…')}</span><Button onClick={() => { if (exportId.current) void window.astraGit?.cancelSourceArchive?.(exportId.current).catch(setError); }}>{text('取消导出', 'Cancel export')}</Button></> : <><Button variant="secondary" onClick={() => setRefresh(value => value + 1)}>{text('重新核对', 'Recheck')}</Button><Button variant="primary" disabled={!preview || loading} onClick={() => void save()}>{text('选择位置并存档…', 'Choose location and archive…')}</Button></>}</footer>
-    </section>
-  </ModalPortal>;
+      <footer className="git-operation-dialog-actions">{saving ? <><span role="status">{text('正在生成并保存源码存档…', 'Creating and saving source archive…')}</span><Button onClick={() => { if (exportId.current) void window.astraGit?.cancelSourceArchive?.(exportId.current).catch(setError); }}>{text('取消导出', 'Cancel export')}</Button></> : <><Button variant="secondary" onClick={() => setRefresh(value => value + 1)}>{text('重新核对', 'Recheck')}</Button><Button variant="primary" disabled={!preview || loading} onClick={() => void save()}>{text('选择位置并存档…', 'Choose location and archive…')}</Button></>}</footer>
+    </GitOperationDialog>;
 }

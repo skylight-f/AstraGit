@@ -24,11 +24,15 @@
 | `ui/` | 与业务无关的按钮、选择器、弹窗、菜单及其交互逻辑 |
 | `styles/` | 全局样式、品牌和主题 |
 | `features/` | 按功能组织的界面，如 `projects/`、`search/`、`models/` 和 `code-review/`。功能专用的组件、状态、样式和图片放在一起 |
-| `features/git/` | 按 Git 操作归类，如 `changes/` 放工作区变更与暂存，`history/` 放历史与提交重放，`conflicts/` 放冲突编辑器。工作台在 `workbench/`，Git 专用共享控件在 `components/`，请求与契约在 `api/` |
+| `features/git/` | `changes/` 放本地变更与暂存，`history/` 放提交历史与重放，`stash/` 放贮藏详情与操作，`conflicts/` 放冲突编辑器。工作台在 `workbench/`，Git 专用共享控件在 `components/`，请求与契约在 `api/` |
+
+`ProjectGitWorkbench` 组装导航、各面板和操作弹窗，`useProjectGitWorkbench` 协调跨面板的仓库选择、刷新与 Git 操作。面板自己的展开、选中和滚动状态留在功能目录。
 
 组件先放在使用它的功能目录。例如，分支删除选择器与分支管理弹窗同放在 `features/git/branches/`。多个 Git 功能共用且含有 Git 语义的控件放在 `features/git/components/`，如文件状态图标。跨功能使用、通过属性和回调即可工作的基础控件放在 `ui/`，如 `Button` 和 `FormDialog`。业务界面可以组合这些基础控件，`ui/` 不引用业务页面。
 
 ## 开发
+
+界面设计、组件复用、样式实现和验收遵循 [AstraGit 界面设计与样式指南](docs/DESIGN.md)。
 
 需要 Node.js 24、pnpm 10，以及本机 Git。使用 Codex 订阅模型时，需要另行安装可用的 Codex CLI。
 

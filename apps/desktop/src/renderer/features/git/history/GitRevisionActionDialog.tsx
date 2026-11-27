@@ -1,8 +1,9 @@
+import { Select } from '../../../ui/FormControls.js';
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitResetMode, GitWritePreview, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { describeUserFacingError, userFacingErrorCause } from '@astragit/shared';
 import { Button } from '../../../ui/Button.js';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { gitFailureCode, gitIntegrationLabel } from '../workbench/gitOperationFeedback.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
@@ -82,14 +83,13 @@ export function GitRevisionActionDialog(props: {
     } finally { submitting.current = false; }
   }
   const list = (items: string[], count: number) => <ul>{items.map(path => <li key={path}>{path}</li>)}{count > items.length ? <li>{text(`另有 ${count - items.length} 项`, `${count - items.length} more items`)}</li> : null}</ul>;
-  return <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" role="alertdialog" aria-label={title} onDismiss={props.onClose} dismissDisabled={props.busy}>
-    <section className="project-git-menu-action-dialog git-revision-action-dialog" data-modal-surface="dialog">
+  return <GitOperationDialog className="project-git-menu-action-dialog git-revision-action-dialog" role="alertdialog" aria-label={title} onDismiss={props.onClose} dismissDisabled={props.busy}>
       <header><strong>{title}</strong><p>{request.repository.name}</p></header>
-      {request.type === 'reset' ? <label>{text('重置方式', 'Reset mode')}<select value={mode} disabled={props.busy || loading} onChange={event => setMode(event.target.value as GitResetMode)}>
+      {request.type === 'reset' ? <label>{text('重置方式', 'Reset mode')}<Select value={mode} disabled={props.busy || loading} onChange={event => setMode(event.target.value as GitResetMode)}>
         <option value="soft">{text('Soft：移动 HEAD，保留暂存区和工作区', 'Soft: move HEAD, keep index and working tree')}</option>
         <option value="mixed">{text('Mixed：移动 HEAD，重置暂存区，保留工作区', 'Mixed: move HEAD and reset index, keep working tree')}</option>
         <option value="hard">{text('Hard：移动 HEAD，重置暂存区和工作区', 'Hard: move HEAD and reset index and working tree')}</option>
-      </select></label> : <p>{text(`将跳过当前${gitIntegrationLabel(request.kind, true)}提交，放弃本步骤的冲突处理结果，并继续处理余下提交；后续仍可能发生冲突。`, `Skip the current ${gitIntegrationLabel(request.kind, false)} commit, discard this step’s resolution and process remaining commits. Further conflicts may occur.`)}</p>}
+      </Select></label> : <p>{text(`将跳过当前${gitIntegrationLabel(request.kind, true)}提交，放弃本步骤的冲突处理结果，并继续处理余下提交；后续仍可能发生冲突。`, `Skip the current ${gitIntegrationLabel(request.kind, false)} commit, discard this step’s resolution and process remaining commits. Further conflicts may occur.`)}</p>}
       {loading ? <p role="status">{text('正在核对当前提交、暂存区与文件…', 'Reviewing current commit, index and files…')}</p> : null}
       {preview ? <>
         <dl><dt>{text('当前分支 / HEAD', 'Current branch / HEAD')}</dt><dd>{preview.detached ? text('游离 HEAD', 'Detached HEAD') : preview.branch} · <code>{preview.headSha.slice(0, 12) || text('无提交', 'Unborn')}</code></dd>
@@ -106,7 +106,6 @@ export function GitRevisionActionDialog(props: {
       </> : null}
       {error ? <VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /> : null}
       {needsReview ? <p role="alert">{text('请重新载入并核对当前状态，不能直接重复此操作。', 'Reload and review the current state before attempting this operation again.')}</p> : null}
-      <footer>{props.busy ? <Button variant="secondary" onClick={() => void props.onAbort().catch(reason => { if (alive.current) setError(reason); })}>{text('中止操作', 'Stop operation')}</Button> : null}<Button variant="secondary" autoFocus disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新载入', 'Reload')}</Button><Button disabled={!ready} busy={props.busy} onClick={() => void submit()}>{request.type === 'reset' ? text('重置', 'Reset') : text('跳过', 'Skip')}</Button></footer>
-    </section>
-  </ModalPortal>;
+      <footer>{props.busy ? <Button variant="secondary" onClick={() => void props.onAbort().catch(reason => { if (alive.current) setError(reason); })}>{text('中止操作', 'Stop operation')}</Button> : null}<Button variant="secondary" data-modal-initial-focus disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新载入', 'Reload')}</Button><Button disabled={!ready} busy={props.busy} onClick={() => void submit()}>{request.type === 'reset' ? text('重置', 'Reset') : text('跳过', 'Skip')}</Button></footer>
+    </GitOperationDialog>;
 }

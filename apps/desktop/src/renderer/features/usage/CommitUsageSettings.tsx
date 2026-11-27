@@ -1,8 +1,11 @@
+import { Select } from '../../ui/FormControls.js';
 import { useEffect, useState } from 'react';
 import { CommitUsageCalendar, usageCalendarDays, type UsageTotals as Totals } from './CommitUsageCalendar.js';
 import type { CommitUsageRow } from '@astragit/shared';
 import type { DashboardClient } from '../../api/apiClient.js';
+import { Button } from '../../ui/Button.js';
 import { VisibleApplicationError } from '../../ui/ApplicationErrorDialog.js';
+import './commitUsageSettings.css';
 
 const dimensions = ['project', 'model', 'provider'] as const;
 type Dimension = typeof dimensions[number];
@@ -58,28 +61,28 @@ export function CommitUsageSettings({ client, zh }: { client: DashboardClient; z
   </>;
   return <section className="gitapp-settings-section gitapp-commit-usage">
     <header><h2>{zh ? 'AI 提交说明用量' : 'AI commit message usage'}</h2>
-      <button type="button" onClick={() => setRevision(value => value + 1)}>{zh ? '刷新' : 'Refresh'}</button></header>
+      <Button size="compact" onClick={() => setRevision(value => value + 1)}>{zh ? '刷新' : 'Refresh'}</Button></header>
     <p>{zh ? '从升级后开始统计。每生成一份提交说明计一次，Token 合计采用供应商实际返回的用量。' : 'Tracking starts with this version. Each generated draft counts once. Token totals use the usage reported by providers.'}</p>
     {error ? <div role="alert"><VisibleApplicationError error={error} language={zh ? 'zh-CN' : 'en'} /></div> : null}
     {rows === null ? !error && <p role="status">{zh ? '正在读取用量…' : 'Loading usage…'}</p> : <>
       <div className="gitapp-usage-filters">{dimensions.map(key => {
         const options = new Map(rows.map(row => [row[`${key}Id`], row[`${key}Name`]]));
-        return <label key={key}>{labels[key]}<select value={filters[key]} onChange={event => setFilters({ ...filters, [key]: event.target.value })}>
+        return <label key={key}>{labels[key]}<Select value={filters[key]} onChange={event => setFilters({ ...filters, [key]: event.target.value })}>
           <option value="">{zh ? '全部' : 'All'}</option>
           {[...options].sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-        </select></label>;
-      })}<label>{zh ? '分组方式' : 'Group by'}<select value={dimension} onChange={event => setDimension(event.target.value as Dimension)}>
+        </Select></label>;
+      })}<label>{zh ? '分组方式' : 'Group by'}<Select value={dimension} onChange={event => setDimension(event.target.value as Dimension)}>
         {dimensions.map(key => <option key={key} value={key}>{labels[key]}</option>)}
-      </select></label></div>
+      </Select></label></div>
       <div className="gitapp-usage-chart-card">
         <header><h3>{zh ? '过去一年' : 'Past year'}</h3><div className="gitapp-usage-metrics" role="group" aria-label={zh ? '热力图指标' : 'Heatmap metric'}>
-          <button type="button" aria-pressed={metric === 'generations'} onClick={() => setMetric('generations')}>{zh ? '生成次数' : 'Drafts'}</button>
-          <button type="button" aria-pressed={metric === 'totalTokens'} onClick={() => setMetric('totalTokens')}>Token</button>
+          <Button variant="ghost" size="compact" aria-pressed={metric === 'generations'} onClick={() => setMetric('generations')}>{zh ? '生成次数' : 'Drafts'}</Button>
+          <Button variant="ghost" size="compact" aria-pressed={metric === 'totalTokens'} onClick={() => setMetric('totalTokens')}>Token</Button>
         </div></header>
         <CommitUsageCalendar days={days} totals={daily} metric={metric} zh={zh} selected={selectedDay} onSelect={setSelectedDay} />
       </div>
       <header><h3>{selectedDay || (zh ? '全年明细' : 'Year breakdown')}</h3>
-        {selectedDay && <button type="button" onClick={() => setSelectedDay('')}>{zh ? '查看全年' : 'Show full year'}</button>}
+        {selectedDay && <Button size="compact" onClick={() => setSelectedDay('')}>{zh ? '查看全年' : 'Show full year'}</Button>}
       </header>
       <table><thead><tr><th scope="col">{labels[dimension]}</th><th scope="col">{zh ? '生成次数' : 'Drafts'}</th>
         <th scope="col">{zh ? '已报告 Token' : 'Reported tokens'}</th><th scope="col">{zh ? '未报告用量的次数' : 'Drafts without usage'}</th></tr></thead>

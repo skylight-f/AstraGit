@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { describeUserFacingError, userFacingErrorCause } from '@astragit/shared';
 import type { DashboardClient, GitStopTrackingPreview, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
 
@@ -42,8 +42,7 @@ export function GitStopTrackingDialog(props: {
     } catch (reason) { if (alive.current) { setError(reason); setNeedsReview(true); setConfirmed(false); } }
     finally { submitting.current = false; }
   }
-  return <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" role="alertdialog" aria-label={text('停止跟踪', 'Stop tracking')} onDismiss={props.onClose} dismissDisabled={props.busy}>
-    <section className="project-git-menu-action-dialog git-stop-tracking-dialog" data-modal-surface="dialog">
+  return <GitOperationDialog className="project-git-menu-action-dialog git-stop-tracking-dialog" role="alertdialog" aria-label={text('停止跟踪', 'Stop tracking')} onDismiss={props.onClose} dismissDisabled={props.busy}>
       <header><strong>{text('停止跟踪', 'Stop tracking')}</strong><p>{request.repository.name}{preview ? ` · ${preview.detached ? 'HEAD' : preview.branch} · ${preview.headSha.slice(0, 12)}` : ''}</p></header>
       <p>{text('仅从索引移除所选路径，现有磁盘文件保留。已提交过的路径会显示为暂存删除，新添加的路径会取消暂存。不会自动提交、修改忽略规则或恢复已不存在的文件。', 'Remove selected paths from the index while keeping existing disk files. Previously committed paths become staged deletions; newly added paths are unstaged. No commit is created, ignore rules are unchanged, and missing files are not restored.')}</p>
       {loading ? <p role="status">{text('正在读取索引与目录范围…', 'Reading the index and directory scope…')}</p> : null}
@@ -57,7 +56,6 @@ export function GitStopTrackingDialog(props: {
       </> : null}
       {error ? <VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /> : null}
       {needsReview ? <p role="alert">{text('请重新载入并核对索引，不要直接重复执行。', 'Reload and review the index before attempting this again.')}</p> : null}
-      <footer><Button variant="secondary" autoFocus disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新载入', 'Reload')}</Button><Button disabled={!ready} busy={props.busy} onClick={() => void submit()}>{text('停止跟踪', 'Stop tracking')}</Button></footer>
-    </section>
-  </ModalPortal>;
+      <footer><Button variant="secondary" data-modal-initial-focus disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新载入', 'Reload')}</Button><Button disabled={!ready} busy={props.busy} onClick={() => void submit()}>{text('停止跟踪', 'Stop tracking')}</Button></footer>
+    </GitOperationDialog>;
 }

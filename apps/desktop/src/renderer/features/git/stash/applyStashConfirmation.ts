@@ -1,6 +1,6 @@
 import type { ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import type { GitMenuConfirmation } from '../components/GitContextMenu.js';
-import type { ExecutionOutcome } from './gitWorkbenchTypes.js';
+import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
 
 export function createApplyStashConfirmation(
   repository: ProjectGitRepositoryWorkbenchItem,

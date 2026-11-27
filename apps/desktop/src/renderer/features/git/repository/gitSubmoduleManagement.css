@@ -1,10 +1,8 @@
-.git-submodule-management { width:min(1000px,94vw); height:min(760px,88vh); display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--zeus-product-panel,#fff); color:var(--zeus-product-text,#263247); border:1px solid var(--zeus-product-line,#dce0e9); border-radius:12px; overflow:hidden; font-size:12px; }
-.git-submodule-management>header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:14px 18px; border-bottom:1px solid var(--zeus-product-line,#dce0e9); }
-.git-submodule-management>header p { margin:6px 0 0; color:var(--zeus-product-muted,#728096); }
+.git-submodule-management { width:min(1000px,94vw); height:min(760px,88vh); display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
 .git-submodule-layout { display:grid; grid-template-columns:minmax(0,var(--git-submodule-list,28%)) 6px minmax(0,1fr); flex:1; min-height:0; min-width:0; }
 .git-submodule-layout>aside { display:flex; flex-direction:column; gap:6px; overflow:auto; padding:10px; min-width:0; }
 .git-submodule-layout>aside>button { font:inherit; padding:8px; border:1px solid transparent; border-radius:6px; background:transparent; color:inherit; text-align:left; cursor:pointer; overflow-wrap:anywhere; }
-.git-submodule-layout>aside>button[aria-pressed=true] { border-color:var(--zeus-control-accent,#7946e5); background:var(--zeus-source-list-selected,#efe7fd); }
+.git-submodule-layout>aside>button[aria-pressed=true] { border-color:var(--zeus-product-accent); background:var(--zeus-product-selected); }
 .git-submodule-layout>aside small { display:block; color:var(--zeus-product-muted,#728096); margin-top:4px; }
 .git-submodule-content { padding:14px 18px; overflow:auto; min-width:0; }
 .git-submodule-content form { display:grid; gap:12px; }
@@ -19,4 +17,3 @@
 .git-submodule-preview h3 { font-size:13px; margin:0; }
 .git-submodule-preview ul { padding-left:18px; }
 .git-submodule-preview>button { margin-top:10px; }
-.git-submodule-management>footer { display:flex; justify-content:flex-end; gap:8px; flex-wrap:wrap; padding:10px 16px; border-top:1px solid var(--zeus-product-line,#dce0e9); }

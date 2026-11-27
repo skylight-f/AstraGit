@@ -1,7 +1,8 @@
+import { TextInput } from '../../../ui/FormControls.js';
 import { MenuSurface } from '../../../ui/MenuSurface.js';
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { GitOperationDialog } from './GitOperationDialog.js';
 import { Button } from '../../../ui/Button.js';
 
 export interface GitMenuItem {
@@ -61,8 +62,7 @@ export function GitMenuActionDialog(props: { value: GitMenuConfirmation; zh: boo
   const submitting = useRef(false);
   const paths = props.value.paths;
   return (
-    <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" onDismiss={props.onClose} dismissDisabled={busy} role="alertdialog" aria-label={props.value.title}>
-      <section className="project-git-menu-action-dialog project-git-menu-confirmation" data-modal-surface="alertdialog">
+    <GitOperationDialog className="project-git-menu-action-dialog project-git-menu-confirmation" onDismiss={props.onClose} dismissDisabled={busy} role="alertdialog" aria-label={props.value.title}>
         <header>
           <strong>{props.value.title}</strong>
         </header>
@@ -72,7 +72,7 @@ export function GitMenuActionDialog(props: { value: GitMenuConfirmation; zh: boo
           {props.value.field ? (
             <label>
               {props.value.field}
-              <input autoFocus value={text} disabled={busy} onChange={(event) => setText(event.currentTarget.value)} />
+              <TextInput data-modal-initial-focus value={text} disabled={busy} onChange={(event) => setText(event.currentTarget.value)} />
             </label>
           ) : null}
           {props.value.messageField ? (
@@ -116,7 +116,6 @@ export function GitMenuActionDialog(props: { value: GitMenuConfirmation; zh: boo
             {props.zh ? '确认' : 'Confirm'}
           </Button>
         </footer>
-      </section>
-    </ModalPortal>
+      </GitOperationDialog>
   );
 }

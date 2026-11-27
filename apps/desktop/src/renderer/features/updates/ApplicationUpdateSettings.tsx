@@ -25,7 +25,7 @@ export function ApplicationUpdateSettings(props: { zh: boolean; update: Applicat
     : state?.phase === 'downloaded' ? text('安装包已下载并通过校验，请查看安装方式完成替换。', 'The installer is downloaded and verified. See Installation options to replace the app.')
     : state?.phase === 'available' ? homebrew ? text('发现新版本，将通过 Homebrew 后台升级。', 'A new version is available and will be upgraded through Homebrew in the background.') : text('发现新版本，可在后台下载更新。', 'A new version is available to download in the background.') : null;
   return <section className="gitapp-settings-section gitapp-update-settings" aria-label={text('应用更新', 'App updates')}>
-    <header><h3>{text('应用更新', 'App updates')}</h3><span>AstraGit {state?.currentVersion ?? '—'}</span></header>
+    <header><h2>{text('应用更新', 'App updates')}</h2><span>AstraGit {state?.currentVersion ?? '—'}</span></header>
     <p>{text('自动检查新版本并在后台准备更新，就绪后由你决定何时重启。', 'New versions are checked and prepared in the background. Choose when to restart once the update is ready.')}</p>
     {!update.supported ? <p>{text('当前环境未连接桌面更新服务。', 'The desktop update service is unavailable in this environment.')}</p> : <>
       {notesVersion ? <ApplicationReleaseNotes key={notesVersion} requested={notesVersion} zh={zh} /> : null}
@@ -46,9 +46,9 @@ export function ApplicationUpdateSettings(props: { zh: boolean; update: Applicat
       {update.error ? <p role="alert"><VisibleApplicationError error={update.error} language={zh ? 'zh-CN' : 'en'} /></p> : null}
       {props.disabled ? <p>{text('当前 Git 操作结束后可检查或安装更新。', 'Finish the current Git operation before checking or installing updates.')}</p> : null}
       <footer>
-        <Button variant="secondary" disabled={locked || downloading} onClick={() => void update.perform('check')}>{text('检查更新', 'Check for updates')}</Button>
-        {state?.phase === 'ready' ? <Button disabled={locked} onClick={() => void update.perform('restart')}>{homebrew ? text('重启生效', 'Restart to update') : text('重启并更新', 'Restart and update')}</Button>
-          : canPrepareApplicationUpdate(state) ? <Button disabled={locked} onClick={() => void update.perform('prepare')}>{homebrew ? text('更新', 'Update') : text('后台下载更新', 'Download in background')}</Button> : null}
+        <Button variant="secondary" busy={update.busy === 'check'} disabled={locked || downloading} onClick={() => void update.perform('check')}>{text('检查更新', 'Check for updates')}</Button>
+        {state?.phase === 'ready' ? <Button variant="primary" disabled={locked} onClick={() => void update.perform('restart')}>{homebrew ? text('重启生效', 'Restart to update') : text('重启并更新', 'Restart and update')}</Button>
+          : canPrepareApplicationUpdate(state) ? <Button variant="primary" disabled={locked} onClick={() => void update.perform('prepare')}>{homebrew ? text('更新', 'Update') : text('后台下载更新', 'Download in background')}</Button> : null}
         {hasUpdate || state?.phase === 'failed' ? <Button variant="secondary" disabled={locked} onClick={() => void update.openDetails()}>{state?.phase === 'manual' || state?.phase === 'downloaded' ? text('查看安装方式', 'Installation options') : text('更新详情', 'Update details')}</Button> : null}
       </footer>
     </>}

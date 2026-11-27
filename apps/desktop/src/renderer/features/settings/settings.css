@@ -1,0 +1,110 @@
+.gitapp-settings-page.macos-ai-app.zeus-shell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--ag-bg);
+  color: var(--ag-ink);
+  font: var(--zeus-type-size-control)/var(--zeus-type-line-default) var(--zeus-font-family-ui);
+}
+
+.gitapp-settings-body {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  gap: var(--zeus-space-2);
+  padding: var(--zeus-space-2);
+}
+
+.gitapp-settings-tabs,
+.gitapp-settings-panel {
+  min-width: 0;
+  border: 1px solid var(--ag-line);
+  border-radius: var(--ag-card-radius);
+  background: var(--ag-panel);
+}
+
+.gitapp-settings-tabs {
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+  gap: var(--zeus-space-1);
+  padding: var(--zeus-space-1);
+}
+
+.gitapp-settings-page .gitapp-settings-tabs > .zeus-button {
+  justify-content: flex-start;
+  font-size: var(--zeus-type-size-label);
+}
+
+.gitapp-settings-panel {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--zeus-space-5);
+}
+
+.gitapp-settings-panel.gitapp-model-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.gitapp-settings-section {
+  display: grid;
+  gap: var(--zeus-space-3);
+  padding-block: var(--zeus-space-4);
+}
+
+.gitapp-settings-section:first-child {
+  padding-block-start: 0;
+}
+
+.gitapp-settings-section + .gitapp-settings-section {
+  border-block-start: 1px solid var(--zeus-workspace-divider);
+}
+
+.gitapp-settings-section :is(h2, h3) {
+  margin: 0;
+  font-weight: var(--zeus-type-weight-semibold);
+}
+
+.gitapp-settings-section h2 {
+  font-size: var(--zeus-type-size-heading);
+}
+
+.gitapp-settings-section h3 {
+  font-size: var(--zeus-type-size-control);
+}
+
+.gitapp-settings-section p {
+  margin: 0;
+  color: var(--ag-muted);
+  overflow-wrap: anywhere;
+}
+
+.gitapp-settings-panel .gitapp-settings-message {
+  margin: 0;
+  padding: var(--zeus-space-2) var(--zeus-space-3);
+  border-radius: var(--ag-control-radius);
+  background: var(--ag-brand-selected);
+  color: var(--ag-brand-ink);
+}
+
+.gitapp-language-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 260px);
+  align-items: center;
+  gap: var(--zeus-space-4);
+}
+
+@media (max-width: 620px) {
+  .gitapp-settings-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .gitapp-settings-tabs {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}

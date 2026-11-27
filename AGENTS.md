@@ -2,6 +2,7 @@
 
 @/Users/skylight/.codex/RTK.md
 
+- 新增或修改界面、组件、样式和交互前，必须阅读并遵守 [AstraGit 界面设计与样式指南](docs/DESIGN.md)，交付前按其中的界面验收要求检查受影响的入口。
 - 日常开发和界面验证优先使用 `pnpm dev` 的真实 Electron 应用与热更新。
 - 不要直接打开 `.tmp/development-runtime` 下的 Electron 运行壳；它缺少 AstraGit 的项目入口，会显示 Electron 默认欢迎页。
 - Renderer 使用 Vite / React Fast Refresh；Main、preload 和 `packages/*` 修改编译成功后自动重启开发应用。编译失败时保留正在运行的应用，修复保存后重试。

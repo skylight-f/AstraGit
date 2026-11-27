@@ -1,7 +1,4 @@
-.git-tag-dialog { display:flex; flex-direction:column; width:min(900px,94vw); height:min(720px,90vh); min-width:0; min-height:0; background:var(--zeus-product-panel,#fff); color:var(--zeus-product-text,#263247); border:1px solid var(--zeus-product-line,#dfe3ec); border-radius:12px; box-shadow:0 20px 70px #18203b33; overflow:hidden; font-size:12px; }
-.git-tag-dialog>header { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; gap:12px; border-bottom:1px solid var(--zeus-product-line,#dfe3ec); }
-.git-tag-dialog>header>div { display:grid; gap:4px; min-width:0; }
-.git-tag-dialog>header strong { font-size:16px; }
+.git-tag-dialog { display:flex; flex-direction:column; width:min(900px,94vw); height:min(720px,90vh); min-width:0; min-height:0; overflow:hidden; }
 .git-tag-dialog small,.git-tag-dialog p { color:var(--zeus-product-muted,#677389); }
 .git-tag-dialog>nav,.git-tag-filters { display:flex; gap:10px; padding:10px 16px; flex-wrap:wrap; border-bottom:1px solid var(--zeus-product-line,#dfe3ec); }
 .git-tag-dialog label { display:grid; gap:5px; min-width:0; }
@@ -12,7 +9,8 @@
 .git-tag-list,.git-tag-detail { min-width:0; min-height:0; overflow:auto; padding:12px; }
 .git-tag-list { display:flex; flex-direction:column; align-items:stretch; gap:4px; }
 .git-tag-list>button[role=option] { display:grid; gap:5px; text-align:left; padding:9px; border:1px solid transparent; border-radius:5px; background:transparent; color:inherit; font:inherit; overflow-wrap:anywhere; cursor:pointer; }
-.git-tag-list>button[role=option]:hover,.git-tag-list>button.is-current { background:var(--zeus-control-accent-soft,#f0e8ff); border-color:var(--zeus-control-accent,#7846dc); }
+.git-tag-list>button[role=option]:hover:not(.is-current) { background:var(--zeus-interaction-hover); }
+.git-tag-list>button.is-current { background:var(--zeus-product-selected); border-color:var(--zeus-product-accent); }
 .git-tag-detail h3 { margin-top:0; overflow-wrap:anywhere; }
 .git-tag-detail dl { display:grid; gap:5px; }
 .git-tag-detail dt { color:var(--zeus-product-muted,#677389); }
@@ -27,6 +25,6 @@
 .git-tag-create textarea { resize:vertical; min-height:72px; }
 .git-tag-create>button { align-self:flex-start; }
 .git-tag-target { display:grid; gap:4px; margin:0; }
-.git-tag-dialog>footer { flex-shrink:0; max-height:25%; overflow:auto; padding:0 16px; border-top:1px solid var(--zeus-product-line,#dfe3ec); }
+.git-tag-dialog>footer { flex-shrink:0; max-height:25%; overflow:auto; padding:0 var(--zeus-space-5); border-top:1px solid var(--zeus-workspace-divider); }
 .git-tag-dialog>footer:empty { display:none; }
 .git-tag-dialog>footer>button { margin-block:8px; }

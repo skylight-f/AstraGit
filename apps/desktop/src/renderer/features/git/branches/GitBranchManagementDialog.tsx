@@ -1,10 +1,11 @@
+import { Select } from '../../../ui/FormControls.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { describeUserFacingError, splitGitRemoteBranch, userFacingErrorCause } from '@astragit/shared';
 import { GitBranchIcon } from '@phosphor-icons/react/dist/csr/GitBranch';
 import { TrashIcon } from '@phosphor-icons/react/dist/csr/Trash';
 import type { ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
 
@@ -189,8 +190,7 @@ export function GitBranchManagementDialog(props: {
     catch (reason) { if (alive.current) setError(reason); }
     finally { if (alive.current) setAborting(false); }
   }
-  return <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" role="alertdialog" aria-label={title} onDismiss={props.onClose} dismissDisabled={disabled}>
-    <section className="project-git-menu-action-dialog git-branch-management" data-modal-surface="alertdialog">
+  return <GitOperationDialog className="project-git-menu-action-dialog git-branch-management" role="alertdialog" aria-label={title} onDismiss={props.onClose} dismissDisabled={disabled}>
       <header className="git-branch-management-heading">
         <span className="git-branch-management-icon" data-danger={request.kind !== 'upstream' || undefined} aria-hidden="true">{request.kind === 'upstream' ? <GitBranchIcon size={20} /> : <TrashIcon size={20} />}</span>
         <div><h2>{title}</h2><p>{repository.name}{request.kind === 'upstream' && ` · ${request.branchName}`}</p></div>
@@ -229,7 +229,7 @@ export function GitBranchManagementDialog(props: {
           </div>)}</dl> : <small>{text('勾选分支后可查看推送地址。', 'Select a branch to see its push destinations.')}</small>}
         </section> : <>
           <p>{text('当前上游：', 'Current upstream: ')}{snapshot.branchUpstreamRefs?.[request.branchName]?.replace(/^refs\/(?:heads|remotes)\//u, '') || text('无', 'None')}</p>
-          <label>{text('新的上游分支', 'New upstream branch')}<select value={upstream} disabled={disabled || review} onChange={event => setUpstream(event.target.value)}><option value="">{text('不跟踪上游', 'No upstream')}</option>{upstream && !choices.some(choice => choice.ref === upstream) ? <option value={upstream} disabled>{upstream} · {text('不可用', 'Unavailable')}</option> : null}{choices.map(choice => <option key={choice.ref} value={choice.ref}>{choice.label}</option>)}</select></label>
+          <label>{text('新的上游分支', 'New upstream branch')}<Select value={upstream} disabled={disabled || review} onChange={event => setUpstream(event.target.value)}><option value="">{text('不跟踪上游', 'No upstream')}</option>{upstream && !choices.some(choice => choice.ref === upstream) ? <option value={upstream} disabled>{upstream} · {text('不可用', 'Unavailable')}</option> : null}{choices.map(choice => <option key={choice.ref} value={choice.ref}>{choice.label}</option>)}</Select></label>
           <p>{upstream ? text('更新该分支的跟踪关系，之后拉取与默认推送会使用此上游。', 'Update this branch’s tracking relationship for subsequent pulls and default pushes.') : text('清除该分支的上游跟踪关系。', 'Clear this branch’s upstream tracking relationship.')}</p>
         </>}
         {(running || error) && activeName ? <p role="status">{text('当前操作分支', 'Current branch operation')} · <code>{activeName}</code></p> : null}
@@ -247,12 +247,11 @@ export function GitBranchManagementDialog(props: {
           {running && request.kind !== 'upstream' && <Button disabled={stopped && (request.kind === 'delete-local' || aborting)} onClick={() => void stopDeletion()}>
             {request.kind === 'delete-remote' ? text('中止删除', 'Abort deletion') : text('停止后续删除', 'Stop further deletions')}
           </Button>}
-          <Button autoFocus disabled={disabled} onClick={props.onClose}>{review || completed.length ? text('关闭', 'Close') : text('取消', 'Cancel')}</Button>
+          <Button data-modal-initial-focus disabled={disabled} onClick={props.onClose}>{review || completed.length ? text('关闭', 'Close') : text('取消', 'Cancel')}</Button>
           <Button variant={request.kind === 'upstream' ? 'primary' : 'danger'} disabled={disabled || !ready} busy={running} onClick={() => void accept()}>
             {request.kind === 'upstream' ? text('保存跟踪关系', 'Save tracking') : running ? text('正在删除…', 'Deleting…') : deleteLabel}
           </Button>
         </div>
       </footer>
-    </section>
-  </ModalPortal>;
+    </GitOperationDialog>;
 }

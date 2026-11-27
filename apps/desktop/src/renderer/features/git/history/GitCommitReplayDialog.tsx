@@ -1,7 +1,8 @@
+import { Select } from '../../../ui/FormControls.js';
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitCommitReplayInput, GitCommitReplayPreview, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
 import './gitCommitReplay.css';
@@ -48,13 +49,12 @@ export function GitCommitReplayDialog(props: {
     } catch (error) { if (alive.current) setFailure({ key, error }); }
     finally { submitting.current = false; }
   }
-  return <ModalPortal role="dialog" aria-label={title} rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" onDismiss={props.onClose} dismissDisabled={props.busy}>
-    <section className="git-commit-replay-dialog" data-modal-surface="dialog">
+  return <GitOperationDialog className="git-commit-replay-dialog" role="dialog" aria-label={title} onDismiss={props.onClose} dismissDisabled={props.busy}>
       <header><strong>{title}</strong><span>{request.repository.name}</span><Button size="compact" disabled={props.busy} onClick={props.onClose}>{text('关闭', 'Close')}</Button></header>
       <div className="git-commit-replay-body">
         <p>{request.kind === 'cherry_pick' ? text('将选定提交相对所选父级的更改应用到当前仓库。', 'Apply changes from the selected commit, relative to the chosen parent, to this repository.') : text('反向应用选定提交相对所选父级的更改。', 'Reverse the selected commit’s changes relative to the chosen parent.')}</p>
         {metadata ? <section className="git-commit-replay-source"><strong>{metadata.sourceSubject}</strong><code>{metadata.sourceSha}</code><span>{text('应用到', 'Apply to')} {metadata.detached ? text('游离 HEAD', 'Detached HEAD') : metadata.branch} · {metadata.headSha.slice(0, 12) || text('尚无提交', 'Unborn branch')}</span></section> : null}
-        {metadata && metadata.parents.length > 1 ? <label>{text('合并提交的父级来源', 'Mainline parent of the merge')}<select disabled={props.busy} value={mainline ?? metadata.input.mainline ?? 1} onChange={event => setMainline(Number(event.target.value))}>{metadata.parents.map(parent => <option key={parent.number} value={parent.number}>{text(`父提交 ${parent.number}`, `Parent ${parent.number}`)} · {parent.hash.slice(0, 8)} · {parent.subject}</option>)}</select></label> : null}
+        {metadata && metadata.parents.length > 1 ? <label>{text('合并提交的父级来源', 'Mainline parent of the merge')}<Select disabled={props.busy} value={mainline ?? metadata.input.mainline ?? 1} onChange={event => setMainline(Number(event.target.value))}>{metadata.parents.map(parent => <option key={parent.number} value={parent.number}>{text(`父提交 ${parent.number}`, `Parent ${parent.number}`)} · {parent.hash.slice(0, 8)} · {parent.subject}</option>)}</Select></label> : null}
         <label className="git-commit-replay-checkbox"><input type="checkbox" checked={commit} disabled={props.busy} onChange={event => { setCommit(event.target.checked); if (!event.target.checked) setIncludeSourceId(false); }} />{text('成功应用后立即提交', 'Commit immediately after applying successfully')}</label>
         {request.kind === 'cherry_pick' ? <label className="git-commit-replay-checkbox"><input type="checkbox" checked={includeSourceId} disabled={props.busy || !commit} onChange={event => setIncludeSourceId(event.target.checked)} />{text('在提交说明中记录来源提交 ID', 'Record the source commit ID in the message')}</label> : null}
         <p>{commit ? text('成功后创建新提交；发生冲突时进入已有的冲突编辑与继续／终止流程。', 'Create a new commit on success. Conflicts use the existing resolution and Continue/Abort flow.') : request.kind === 'revert' ? text('只应用到暂存区和工作区，保留现有暂存内容，不立即提交。冲突解决并暂存后可手动提交；选择“继续”会创建新提交，“终止”可取消本次反向应用。', 'Apply to the index and working tree, retaining existing staged contents without committing immediately. After resolving and staging conflicts, commit manually or choose Continue to create a commit. Abort cancels the revert.') : text('只应用到暂存区和工作区，保留现有暂存内容，不创建提交；发生冲突时解决、暂存后手动提交。', 'Apply to the index and working tree, retaining existing staged contents without committing. Resolve and stage any conflicts, then commit manually.')}</p>
@@ -68,6 +68,5 @@ export function GitCommitReplayDialog(props: {
         {failed ? <p role="alert">{text('请重新核对当前状态后再操作。', 'Reload and review the current state before trying again.')}</p> : null}
       </div>
       <footer>{props.busy ? <Button onClick={() => void props.onAbort().catch(error => { if (alive.current) setFailure({ key, error }); })}>{text('中止操作', 'Stop operation')}</Button> : null}<Button variant="secondary" disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新核对', 'Recheck')}</Button><Button variant="primary" busy={props.busy} disabled={!ready} onClick={() => void submit()}>{commit ? title : text('应用到暂存区', 'Apply without committing')}</Button></footer>
-    </section>
-  </ModalPortal>;
+    </GitOperationDialog>;
 }

@@ -1,3 +1,4 @@
+import { Select, TextInput } from '../../../ui/FormControls.js';
 import { useId, useMemo, type ReactNode } from 'react';
 import { splitGitRemoteBranch } from '@astragit/shared';
 import type { ProjectGitRepositorySnapshot } from '../../../api/apiClient.js';
@@ -32,9 +33,9 @@ export function RepositoryPushFields(props: {
       {props.children}
       <label>
         <span>{zh ? '推送到仓库' : 'Push to remote'}</span>
-        <select value={draft.remote} onChange={event => props.onChange({ ...draft, remote: event.currentTarget.value })}>
+        <Select value={draft.remote} onChange={event => props.onChange({ ...draft, remote: event.currentTarget.value })}>
           {snapshot.remotes.map(name => <option key={name}>{name}</option>)}
-        </select>
+        </Select>
       </label>
       {pushUrl && <p className="project-git-remote-url">{pushUrl}</p>}
     </fieldset>
@@ -55,7 +56,7 @@ export function RepositoryPushFields(props: {
               {onSelect && <td><input type="checkbox" aria-label={(zh ? '推送分支 ' : 'Push branch ') + branch}
                 checked={selected.has(branch)} onChange={event => onSelect([branch], event.currentTarget.checked)} /></td>}
               <th scope="row">{branch}{branch === snapshot.branch && !snapshot.detached && <small>{zh ? '当前' : 'Current'}</small>}</th>
-              <td><input aria-label={(zh ? '远程目标 ' : 'Remote target ') + branch} list={optionsId} value={showTarget ? targetBranch : ''}
+              <td><TextInput aria-label={(zh ? '远程目标 ' : 'Remote target ') + branch} list={optionsId} value={showTarget ? targetBranch : ''}
                 onChange={event => props.onChange(changePushDestination(draft, branch, { targetBranch: event.currentTarget.value, setUpstream }))} /></td>
               <td><input type="checkbox" aria-label={(zh ? '设置跟踪 ' : 'Set upstream ') + branch} checked={setUpstream}
                 onChange={event => props.onChange(changePushDestination(draft, branch, { targetBranch, setUpstream: event.currentTarget.checked }))} /></td>

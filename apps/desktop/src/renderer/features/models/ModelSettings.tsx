@@ -1,6 +1,6 @@
+import { Select, TextInput } from '../../ui/FormControls.js';
 import { useEffect, useState } from 'react';
 import { ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
-import { CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { Copy } from '@phosphor-icons/react/dist/csr/Copy';
 import { Eye } from '@phosphor-icons/react/dist/csr/Eye';
 import { EyeSlash } from '@phosphor-icons/react/dist/csr/EyeSlash';
@@ -281,36 +281,33 @@ export function ModelSettings({ client, language, onChanged }: { client: Dashboa
             <>
               <form key={selection} id="gitapp-provider-form" className="gitapp-model-card gitapp-model-provider-form" onSubmit={event => { event.preventDefault(); if (canSave && !busy) saveProvider(); }}>
                 {connection ? (
-                  <label className="gitapp-model-field"><span>{zh ? '供应商 ID' : 'Provider ID'}</span><input className="gitapp-model-provider-id" value={connection.id} readOnly /></label>
+                  <label className="gitapp-model-field"><span>{zh ? '供应商 ID' : 'Provider ID'}</span><TextInput className="gitapp-model-provider-id" value={connection.id} readOnly /></label>
                 ) : (
                   <label className="gitapp-model-field">
                     <span>{zh ? '供应商类型' : 'Provider type'}</span>
-                    <select value={provider.templateId} disabled={busy} onChange={event => {
+                    <Select value={provider.templateId} disabled={busy} onChange={event => {
                       const templateId = event.target.value as ModelTemplateId;
                       const template = templateId === 'custom' ? null : templates?.[templateId];
                       updateProvider({ templateId, name: template?.name ?? '', baseUrl: template?.baseUrl ?? '', modelsPath: template?.modelsPath ?? '/models' });
                     }}>
                       <option value="custom">{zh ? '自定义兼容 API' : 'Custom compatible API'}</option>
                       {templates ? Object.entries(templates).map(([id, template]) => <option key={id} value={id}>{template.name}</option>) : null}
-                    </select>
+                    </Select>
                   </label>
                 )}
-                <label className="gitapp-model-field"><span>{zh ? '名称' : 'Name'}</span><input value={provider.name} disabled={busy} maxLength={80} onChange={event => updateProvider({ name: event.target.value })} /></label>
-                <label className="gitapp-model-field"><span>{zh ? '接口地址' : 'API URL'}</span><input value={provider.baseUrl} disabled={busy} spellCheck={false} placeholder="https://example.com/v1" onChange={event => updateProvider({ baseUrl: event.target.value })} /></label>
+                <label className="gitapp-model-field"><span>{zh ? '名称' : 'Name'}</span><TextInput value={provider.name} disabled={busy} maxLength={80} onChange={event => updateProvider({ name: event.target.value })} /></label>
+                <label className="gitapp-model-field"><span>{zh ? '接口地址' : 'API URL'}</span><TextInput value={provider.baseUrl} disabled={busy} spellCheck={false} placeholder="https://example.com/v1" onChange={event => updateProvider({ baseUrl: event.target.value })} /></label>
                 <label className="gitapp-model-field">
                   <span>{zh ? '接口协议' : 'API protocol'}</span>
-                  <span className="gitapp-model-protocol">
-                    <select value={providerProtocol} disabled={busy} onChange={event => updateProvider({ protocolFamily: event.currentTarget.value as Protocol })}>
+                  <Select value={providerProtocol} disabled={busy} onChange={event => updateProvider({ protocolFamily: event.currentTarget.value as Protocol })}>
                       {!providerProtocol ? <option value="" disabled>{zh ? '现有模型使用不同协议' : 'Existing models use different protocols'}</option> : null}
                       {Object.entries(protocolNames).map(([protocol, name]) => <option key={protocol} value={protocol}>{name}</option>)}
-                    </select>
-                    <CaretDown size={14} aria-hidden="true" />
-                  </span>
+                    </Select>
                 </label>
                 <div className="gitapp-model-field">
                   <label htmlFor="gitapp-model-key">API Key</label>
                   <div className="gitapp-model-key">
-                    <input id="gitapp-model-key" type={showKey ? 'text' : 'password'} disabled={busy} autoComplete="off" spellCheck={false} placeholder={savedKeyHint} value={provider.apiKey} onChange={event => updateProvider({ apiKey: event.target.value })} />
+                    <TextInput id="gitapp-model-key" type={showKey ? 'text' : 'password'} disabled={busy} autoComplete="off" spellCheck={false} placeholder={savedKeyHint} value={provider.apiKey} onChange={event => updateProvider({ apiKey: event.target.value })} />
                     <Button size="compact" className="gitapp-model-icon gitapp-model-plain" disabled={!provider.apiKey || busy} aria-label={showKey ? (zh ? '隐藏新密钥' : 'Hide new API key') : (zh ? '显示新密钥' : 'Show new API key')} onClick={() => setShowKey(value => !value)}>{showKey ? <EyeSlash size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}</Button>
                   </div>
                 </div>
@@ -326,7 +323,7 @@ export function ModelSettings({ client, language, onChanged }: { client: Dashboa
                 </div>
                 <details className="gitapp-model-advanced">
                   <summary>{zh ? '高级设置' : 'Advanced settings'}</summary>
-                  <label className="gitapp-model-field"><span>{zh ? '模型目录路径' : 'Model catalog path'}</span><input value={provider.modelsPath} disabled={busy} spellCheck={false} onChange={event => updateProvider({ modelsPath: event.target.value })} /></label>
+                  <label className="gitapp-model-field"><span>{zh ? '模型目录路径' : 'Model catalog path'}</span><TextInput value={provider.modelsPath} disabled={busy} spellCheck={false} onChange={event => updateProvider({ modelsPath: event.target.value })} /></label>
                   <label className="gitapp-model-checkbox"><input type="checkbox" checked={provider.enabled} disabled={busy} onChange={event => updateProvider({ enabled: event.currentTarget.checked })} />{zh ? '启用供应商' : 'Enable provider'}</label>
                 </details>
               </form>
@@ -410,8 +407,8 @@ function ModelEditorForm({ value, onChange, onSubmit, onCancel, zh, busy }: {
 }) {
   return (
     <form className="gitapp-model-editor" onSubmit={event => { event.preventDefault(); if (!busy && value.modelId.trim()) onSubmit(); }}>
-      <label>{zh ? '模型 ID' : 'Model ID'}<input value={value.modelId} readOnly={Boolean(value.existingId)} disabled={busy} maxLength={200} onChange={event => onChange({ ...value, modelId: event.target.value })} /></label>
-      <label>{zh ? '显示名称' : 'Display name'}<input value={value.displayName} disabled={busy} maxLength={200} onChange={event => onChange({ ...value, displayName: event.target.value })} /></label>
+      <label>{zh ? '模型 ID' : 'Model ID'}<TextInput value={value.modelId} readOnly={Boolean(value.existingId)} disabled={busy} maxLength={200} onChange={event => onChange({ ...value, modelId: event.target.value })} /></label>
+      <label>{zh ? '显示名称' : 'Display name'}<TextInput value={value.displayName} disabled={busy} maxLength={200} onChange={event => onChange({ ...value, displayName: event.target.value })} /></label>
       <div className="gitapp-model-editor-actions">
         <label className="gitapp-model-checkbox"><input type="checkbox" checked={value.enabled} disabled={busy} onChange={event => onChange({ ...value, enabled: event.currentTarget.checked })} />{zh ? '启用模型' : 'Enable model'}</label>
         <Button size="compact" disabled={busy} onClick={onCancel}>{zh ? '取消' : 'Cancel'}</Button>

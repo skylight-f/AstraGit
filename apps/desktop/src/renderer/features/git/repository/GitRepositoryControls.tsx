@@ -1,3 +1,5 @@
+import { Select, TextInput } from '../../../ui/FormControls.js';
+import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { buildBranchTree, type BranchTreeNode } from '../branches/gitBranchTree.js';
 import '../workbench/gitWorkspace.css';
 import { gitBranchNameIssue, splitGitRemoteBranch } from '@astragit/shared';
@@ -12,7 +14,7 @@ import { MotionPresence } from '../../../ui/MotionPresence.js';
 import { useMotionPresence } from '../../../ui/useMotionPresence.js';
 import { Button } from '../../../ui/Button.js';
 import { ZeusSelect } from '../../../ui/ZeusSelect.js';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { FormDialog } from '../../../ui/FormDialog.js';
 import type { ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import type { BusyState, OperationTone, BranchKind, ExecutionOutcome, ProjectGitUpdateStrategy, PushSelection } from '../workbench/gitWorkbenchTypes.js';
 import { CircleNotch } from '@phosphor-icons/react/dist/csr/CircleNotch';
@@ -510,8 +512,7 @@ export function UpdateProjectDialog(props: {
   const localCommitCount = props.repositories.reduce((total, repository) => total + repository.snapshot.outgoingCommits.length, 0);
   const resetNeedsConfirmation = strategy === 'reset' && localCommitCount > 0;
   return (
-    <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '更新项目' : 'Update project'}>
-      <section className="project-git-update-dialog" data-modal-surface="dialog">
+    <GitOperationDialog className="project-git-update-dialog" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '更新项目' : 'Update project'}>
         <header>
           <strong>{props.zh ? '更新项目' : 'Update Project'}</strong>
           <small>
@@ -598,8 +599,7 @@ export function UpdateProjectDialog(props: {
             {strategy === 'reset' ? (props.zh ? '重置全部仓库' : 'Reset all repositories') : props.zh ? '更新全部仓库' : 'Update all repositories'}
           </Button>
         </footer>
-      </section>
-    </ModalPortal>
+      </GitOperationDialog>
   );
 }
 
@@ -632,48 +632,37 @@ export function NewBranchDialog(props: {
   const repository = props.repositories.find((candidate) => candidate.id === repositoryId) ?? null;
   const baseRef = props.baseRef || repository?.snapshot.headSha || '';
   return (
-    <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" onDismiss={props.onClose} dismissDisabled={props.busy !== null} role="dialog" aria-label={props.zh ? '新建分支' : 'New branch'}>
-      <section className="project-git-reference-dialog" data-modal-surface="dialog">
-        <header>
-          <strong>{props.zh ? '新建并签出分支' : 'Create and Checkout Branch'}</strong>
-          <small>{props.zh ? `起点：${shortRef(baseRef)}` : `Starting point: ${shortRef(baseRef)}`}</small>
-        </header>
-        <main>
-          {props.repositories.length > 1 && !props.baseRef ? (
-            <label>
-              <span>{props.zh ? '仓库' : 'Repository'}</span>
-              <select value={repositoryId} disabled={props.busy !== null} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
-                {props.repositories.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>{`${candidate.name} · ${currentRepositoryRefLabel(candidate, props.zh)}`}</option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <label>
-            <span>{props.zh ? '分支名称' : 'Branch name'}</span>
-            <input value={branchName} disabled={props.busy !== null} onChange={(event) => setBranchName(event.currentTarget.value)} autoFocus placeholder="feature/example" aria-invalid={Boolean(branchName && issue)} aria-describedby={branchName && issue ? issueId : undefined} />
-            {branchName && issue ? <small id={issueId} role="alert">{issueMessage}</small> : null}
-          </label>
-        </main>
-        <footer>
-          <Button variant="secondary" onClick={props.onClose} disabled={props.busy !== null}>
-            {props.zh ? '取消' : 'Cancel'}
-          </Button>
-          <Button
-            variant="primary"
-            busy={props.busy?.action === 'create_branch'}
-            disabled={!repository || Boolean(issue) || props.busy !== null}
-            onClick={async () => {
-              if (!repository) return;
-              const outcome = await props.onExecute(repository, { type: 'create_branch', branchName: branchName.trim(), baseRef }, props.zh ? '新建并签出分支' : 'Create and checkout branch');
-              if (outcome === 'completed') props.onClose();
-            }}
-          >
-            {props.zh ? '创建并签出' : 'Create and Checkout'}
-          </Button>
-        </footer>
-      </section>
-    </ModalPortal>
+    <FormDialog
+      title={props.zh ? '新建并签出分支' : 'Create and checkout branch'}
+      description={props.zh ? `起点：${shortRef(baseRef)}` : `Starting point: ${shortRef(baseRef)}`}
+      zh={props.zh}
+      busy={props.busy !== null}
+      submitLabel={props.zh ? '创建并签出' : 'Create and checkout'}
+      submitDisabled={!repository || Boolean(issue)}
+      onClose={props.onClose}
+      onSubmit={async event => {
+        event.preventDefault();
+        if (!repository || issue || props.busy !== null) return;
+        const outcome = await props.onExecute(repository, { type: 'create_branch', branchName: branchName.trim(), baseRef }, props.zh ? '新建并签出分支' : 'Create and checkout branch');
+        if (outcome === 'completed') props.onClose();
+      }}
+    >
+      {props.repositories.length > 1 && !props.baseRef ? (
+        <label>
+          <span>{props.zh ? '仓库' : 'Repository'}</span>
+          <Select value={repositoryId} disabled={props.busy !== null} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
+            {props.repositories.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>{`${candidate.name} · ${currentRepositoryRefLabel(candidate, props.zh)}`}</option>
+            ))}
+          </Select>
+        </label>
+      ) : null}
+      <label>
+        <span>{props.zh ? '分支名称' : 'Branch name'}</span>
+        <TextInput value={branchName} disabled={props.busy !== null} onChange={(event) => setBranchName(event.currentTarget.value)} data-modal-initial-focus placeholder="feature/example" aria-invalid={Boolean(branchName && issue)} aria-describedby={branchName && issue ? issueId : undefined} />
+        {branchName && issue ? <small id={issueId} role="alert">{issueMessage}</small> : null}
+      </label>
+    </FormDialog>
   );
 }
 
@@ -693,6 +682,11 @@ export function RemoteBranchCheckoutDialog(props: {
   const [existingBranch, setExistingBranch] = useState(initialCandidates[0] ?? '');
   const [branchName, setBranchName] = useState(() => remoteBranchLeaf(props.initialRemoteRef, props.repository.snapshot.remotes));
   const [trackRemote, setTrackRemote] = useState(true);
+  const existingBranchInput = useRef<HTMLSelectElement>(null);
+  const newBranchInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    (mode === 'existing' ? existingBranchInput.current : newBranchInput.current)?.focus({ preventScroll: true });
+  }, [mode]);
   const existingCandidates = matchingLocalBranches(props.repository, remoteRef);
   const normalizedBranchName = branchName.trim();
   const branchAlreadyExists = props.repository.snapshot.localBranches.includes(normalizedBranchName);
@@ -706,8 +700,7 @@ export function RemoteBranchCheckoutDialog(props: {
   };
   const disabled = props.busy !== null || (mode === 'existing' ? !existingBranch || currentBranchSelected : !normalizedBranchName || branchAlreadyExists);
   return (
-    <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" onDismiss={props.onClose} dismissDisabled={props.busy !== null} role="dialog">
-      <section className="project-git-reference-dialog project-git-remote-checkout-dialog" role="dialog" aria-modal="true" aria-label={props.zh ? '检出远程分支' : 'Checkout remote branch'}>
+    <GitOperationDialog className="project-git-reference-dialog project-git-remote-checkout-dialog" onDismiss={props.onClose} dismissDisabled={props.busy !== null} role="dialog" aria-label={props.zh ? '检出远程分支' : 'Checkout remote branch'}>
         <header>
           <strong>{props.zh ? '检出远程分支' : 'Checkout Remote Branch'}</strong>
           <span className="project-git-remote-checkout-modes" role="tablist" aria-label={props.zh ? '检出方式' : 'Checkout mode'}>
@@ -724,30 +717,30 @@ export function RemoteBranchCheckoutDialog(props: {
         <main>
           <label>
             <span>{props.zh ? '检出远程分支' : 'Remote branch'}</span>
-            <select value={remoteRef} onChange={(event) => selectRemote(event.currentTarget.value)} disabled={props.busy !== null}>
+            <Select value={remoteRef} onChange={(event) => selectRemote(event.currentTarget.value)} disabled={props.busy !== null}>
               {props.repository.snapshot.remoteBranches.map((branch) => (
                 <option key={branch} value={branch}>
                   {branch}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           {mode === 'existing' ? (
             <label>
               <span>{props.zh ? '现有本地分支' : 'Existing local branch'}</span>
-              <select value={existingBranch} onChange={(event) => setExistingBranch(event.currentTarget.value)} autoFocus disabled={props.busy !== null}>
+              <Select ref={existingBranchInput} value={existingBranch} onChange={(event) => setExistingBranch(event.currentTarget.value)} data-modal-initial-focus disabled={props.busy !== null}>
                 {existingCandidates.map((branch) => (
                   <option key={branch} value={branch}>
                     {branch}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           ) : (
             <>
               <label>
                 <span>{props.zh ? '新的本地分支名称' : 'New local branch name'}</span>
-                <input value={branchName} onChange={(event) => setBranchName(event.currentTarget.value)} autoFocus disabled={props.busy !== null} />
+                <TextInput ref={newBranchInput} value={branchName} onChange={(event) => setBranchName(event.currentTarget.value)} data-modal-initial-focus disabled={props.busy !== null} />
               </label>
               <label className="project-git-remote-checkout-track">
                 <input type="checkbox" checked={trackRemote} onChange={(event) => setTrackRemote(event.currentTarget.checked)} disabled={props.busy !== null} />
@@ -781,8 +774,7 @@ export function RemoteBranchCheckoutDialog(props: {
             {props.zh ? '检出' : 'Checkout'}
           </Button>
         </footer>
-      </section>
-    </ModalPortal>
+      </GitOperationDialog>
   );
 }
 
@@ -817,15 +809,7 @@ export function CheckoutRevisionDialog(props: {
   if (!props.open) return null;
   const repository = props.repositories.find((candidate) => candidate.id === repositoryId) ?? null;
   return (
-    <ModalPortal
-      rootClassName="project-git-modal-root"
-      backdropClassName="project-git-modal-backdrop"
-      onDismiss={props.onClose}
-      dismissDisabled={props.busy !== null}
-      role="dialog"
-      aria-label={props.zh ? '切换到标签或提交' : 'Switch to a tag or commit'}
-    >
-      <section className="project-git-reference-dialog" data-modal-surface="dialog">
+    <GitOperationDialog className="project-git-reference-dialog" onDismiss={props.onClose} dismissDisabled={props.busy !== null} role="dialog" aria-label={props.zh ? '切换到标签或提交' : 'Switch to a tag or commit'}>
         <header>
           <strong>{props.zh ? '切换到标签或提交' : 'Switch to a tag or commit'}</strong>
           <small>
@@ -836,18 +820,18 @@ export function CheckoutRevisionDialog(props: {
           {props.repositories.length > 1 ? (
             <label>
               <span>{props.zh ? '仓库' : 'Repository'}</span>
-              <select value={repositoryId} disabled={props.busy !== null} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
+              <Select value={repositoryId} disabled={props.busy !== null} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
                 {props.repositories.map((candidate) => (
                   <option key={candidate.id} value={candidate.id}>
                     {candidate.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           ) : null}
           <label>
             <span>{props.zh ? '标签、分支或提交号' : 'Tag, branch, or commit'}</span>
-            <input value={revision} disabled={props.busy !== null} onChange={(event) => setRevision(event.currentTarget.value)} autoFocus placeholder="v0.3.2 / a1b2c3d4" />
+            <TextInput value={revision} disabled={props.busy !== null} onChange={(event) => setRevision(event.currentTarget.value)} data-modal-initial-focus placeholder="v0.3.2 / a1b2c3d4" />
           </label>
         </main>
         <footer>
@@ -867,8 +851,7 @@ export function CheckoutRevisionDialog(props: {
             {props.zh ? '签出' : 'Checkout'}
           </Button>
         </footer>
-      </section>
-    </ModalPortal>
+      </GitOperationDialog>
   );
 }
 
@@ -1053,15 +1036,7 @@ export function BranchContextMenu(props: {
     );
   if (confirmDelete) {
     return (
-      <ModalPortal
-        rootClassName="project-git-modal-root"
-        backdropClassName="project-git-modal-backdrop"
-        onDismiss={() => setConfirmDelete(false)}
-        dismissDisabled={props.busy !== null}
-        role="alertdialog"
-        aria-label={props.zh ? '删除分支' : 'Delete branch'}
-      >
-        <section className="project-git-branch-delete-dialog" data-modal-surface="alertdialog">
+      <GitOperationDialog className="project-git-branch-delete-dialog" onDismiss={() => setConfirmDelete(false)} dismissDisabled={props.busy !== null} role="alertdialog" aria-label={props.zh ? '删除分支' : 'Delete branch'}>
           <header>
             <strong>{props.zh ? `删除“${props.branch}”？` : `Delete '${props.branch}'?`}</strong>
             <small>{props.zh ? '仅删除本地分支；尚未合入的分支会由 Git 拒绝删除。' : 'Only the local branch is deleted. Git refuses unmerged branches.'}</small>
@@ -1083,8 +1058,7 @@ export function BranchContextMenu(props: {
               {props.zh ? '删除' : 'Delete'}
             </Button>
           </footer>
-        </section>
-      </ModalPortal>
+        </GitOperationDialog>
     );
   }
   return (
@@ -1184,69 +1158,6 @@ export function BranchContextMenu(props: {
   );
 }
 
-export function StashDialog(props: {
-  repository: ProjectGitRepositoryWorkbenchItem;
-  zh: boolean;
-  busy: BusyState;
-  onClose: () => void;
-  onExecute: (repository: ProjectGitRepositoryWorkbenchItem, action: ProjectGitAction, label: string) => Promise<ExecutionOutcome>;
-}) {
-  const [message, setMessage] = useState('');
-  const [keepIndex, setKeepIndex] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const locked = submitting || props.busy !== null;
-  return (
-    <ModalPortal
-      rootClassName="project-git-modal-root"
-      backdropClassName="project-git-modal-backdrop"
-      onDismiss={props.onClose}
-      dismissDisabled={locked}
-      role="dialog"
-      aria-label={props.zh ? `贮藏 ${props.repository.name} 的变更` : `Stash changes in ${props.repository.name}`}
-    >
-      <section className="project-git-reference-dialog project-git-stash-dialog" data-modal-surface="dialog">
-        <main>
-          <p className="project-git-stash-introduction">
-            {props.zh
-              ? '将当前工作区的已跟踪修改和未跟踪文件保存到 Stash，然后恢复为干净状态。不会自动切换分支。'
-              : 'Save tracked and untracked changes in the working tree to a Stash, then return to a clean state. This will not switch branches automatically.'}
-          </p>
-          <label className="project-git-stash-message">
-            <span>{props.zh ? '信息：' : 'Message:'}</span>
-            <input autoFocus value={message} disabled={locked} placeholder={props.zh ? '可选' : 'Optional'} onChange={(event) => setMessage(event.currentTarget.value)} />
-          </label>
-          <label className="project-git-stash-keep-index" title={props.zh ? '保留当前已经暂存到索引中的修改' : 'Leave changes already staged in the index intact'}>
-            <input type="checkbox" checked={keepIndex} disabled={locked} onChange={(event) => setKeepIndex(event.currentTarget.checked)} />
-            <span>{props.zh ? '保留已暂存的变更' : 'Keep staged changes'}</span>
-          </label>
-        </main>
-        <footer>
-          <Button variant="secondary" disabled={locked} onClick={props.onClose}>
-            {props.zh ? '取消' : 'Cancel'}
-          </Button>
-          <Button
-            variant="primary"
-            busy={submitting || props.busy?.action === 'stash'}
-            disabled={locked}
-            onClick={async () => {
-              if (locked) return;
-              setSubmitting(true);
-              try {
-                const outcome = await props.onExecute(props.repository, { type: 'stash', message: message.trim() || undefined, includeUntracked: true, keepIndex }, props.zh ? '贮藏工作区变更' : 'Stash working tree changes');
-                if (outcome === 'completed') props.onClose();
-              } finally {
-                setSubmitting(false);
-              }
-            }}
-          >
-            {props.zh ? '贮藏' : 'Stash'}
-          </Button>
-        </footer>
-      </section>
-    </ModalPortal>
-  );
-}
-
 function SyncOperationNotice({ busy, repository, zh, onStop }: {
   busy: NonNullable<BusyState>;
   repository?: ProjectGitRepositoryWorkbenchItem;
@@ -1284,8 +1195,7 @@ export function PullDialog(props: {
   const branches = props.repository.snapshot.remoteBranches.filter((ref) => ref.startsWith(remote + '/') && !ref.endsWith('/HEAD')).map((ref) => ref.slice(remote.length + 1));
   const selectedBranch = branches.includes(branch) ? branch : '';
   return (
-    <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '拉取' : 'Pull'}>
-      <section className="project-git-reference-dialog project-git-sync-dialog" data-modal-surface="dialog">
+    <GitOperationDialog className="project-git-reference-dialog project-git-sync-dialog" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '拉取' : 'Pull'}>
         <header>
           <strong>
             {props.zh ? '拉取' : 'Pull'} · {props.repository.name}
@@ -1295,7 +1205,7 @@ export function PullDialog(props: {
           <fieldset disabled={locked} className="project-git-sync-fields">
             <label>
               <span>{props.zh ? '从仓库拉取' : 'Pull from remote'}</span>
-              <select
+              <Select
                 value={remote}
                 onChange={(event) => {
                   setRemote(event.currentTarget.value);
@@ -1305,7 +1215,7 @@ export function PullDialog(props: {
                 {props.repository.snapshot.remotes.map((name) => (
                   <option key={name}>{name}</option>
                 ))}
-              </select>
+              </Select>
             </label>
             <p className="project-git-remote-url">{props.repository.snapshot.remoteDetails?.find((item) => item.name === remote)?.fetchUrl}</p>
             <label>
@@ -1393,8 +1303,7 @@ export function PullDialog(props: {
             {props.zh ? '拉取' : 'Pull'}
           </Button>
         </footer>
-      </section>
-    </ModalPortal>
+      </GitOperationDialog>
   );
 }
 
@@ -1434,8 +1343,7 @@ export function PushDialog(props: {
     selections.some((other, otherIndex) => index !== otherIndex && item.repositoryId === other.repositoryId && item.remote === other.remote && item.targetBranch.trim() === other.targetBranch.trim()),
   );
   return (
-    <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '推送' : 'Push'}>
-      <section className="project-git-reference-dialog project-git-sync-dialog" data-modal-surface="dialog">
+    <GitOperationDialog className="project-git-reference-dialog project-git-sync-dialog" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '推送' : 'Push'}>
         <header>
           <strong>{resultMode ? (props.zh ? '推送结果' : 'Push results') : props.zh ? '推送' : 'Push'}</strong>
           <small>{props.zh ? '按仓库选择本地分支及远程目标；切换仓库会保留已勾选项。' : 'Select local branches and remote targets. Selections are retained when switching repositories.'}</small>
@@ -1472,13 +1380,13 @@ export function PushDialog(props: {
                 {props.repositories.length > 1 ? (
                   <label>
                     <span>{props.zh ? '本地仓库' : 'Repository'}</span>
-                    <select value={repositoryId} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
+                    <Select value={repositoryId} onChange={(event) => setRepositoryId(event.currentTarget.value)}>
                       {props.repositories.map((item) => (
                         <option key={item.id} value={item.id}>
                           {item.relativePath === '.' ? item.name : item.relativePath}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </label>
                 ) : null}
               </RepositoryPushFields>
@@ -1529,8 +1437,7 @@ export function PushDialog(props: {
             </Button>
           ) : null}
         </footer>
-      </section>
-    </ModalPortal>
+      </GitOperationDialog>
   );
 }
 
@@ -1557,8 +1464,7 @@ export function MergeBranchDialog(props: {
   const branches = [...repository.snapshot.localBranches.filter(branch => repository.snapshot.detached || branch !== repository.snapshot.branch).map(branch => ({ value: `refs/heads/${branch}`, label: `${props.zh ? '本地' : 'Local'} · ${branch}` })), ...repository.snapshot.remoteBranches.map(branch => ({ value: `refs/remotes/${branch}`, label: `${props.zh ? '远程' : 'Remote'} · ${branch}` }))];
   const [branch, setBranch] = useState(branches.some(item => item.value === props.initialBranch) ? props.initialBranch! : branches[0]?.value ?? '');
   return (
-    <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" role="dialog" aria-label={props.zh ? '合并分支' : 'Merge branch'} onDismiss={props.onClose} dismissDisabled={props.busy !== null}>
-      <section className="project-git-reference-dialog">
+    <GitOperationDialog className="project-git-reference-dialog" role="dialog" aria-label={props.zh ? '合并分支' : 'Merge branch'} onDismiss={props.onClose} dismissDisabled={props.busy !== null}>
         <header>
           <strong>{props.zh ? '合并分支' : 'Merge branch'}</strong>
           <small>
@@ -1611,7 +1517,6 @@ export function MergeBranchDialog(props: {
             {props.zh ? '合并' : 'Merge'}
           </Button>
         </footer>
-      </section>
-    </ModalPortal>
+      </GitOperationDialog>
   );
 }

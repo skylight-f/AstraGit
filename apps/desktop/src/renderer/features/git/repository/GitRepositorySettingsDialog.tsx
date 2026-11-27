@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { gitRemoteAddressIssue } from '@astragit/shared';
 import type { DashboardClient, ProjectGitAction, ProjectGitRepositorySettings, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
 import { GitCommitTemplateSettings } from '../commits/GitCommitTemplateSettings.js';
@@ -46,8 +46,7 @@ export function GitRepositorySettingsDialog(props: {
     } catch (reason) { if (alive.current) setError(reason); }
     finally { gate.current = false; if (alive.current) setSaving(false); }
   }
-  return <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" role="dialog" aria-label={text('仓库设置', 'Repository settings')} onDismiss={() => edit ? setEdit(null) : props.onClose()} dismissDisabled={saving || props.busy}>
-    <section className="project-git-menu-action-dialog git-repository-settings" data-modal-surface="dialog">
+  return <GitOperationDialog className="project-git-menu-action-dialog git-repository-settings" role="dialog" aria-label={text('仓库设置', 'Repository settings')} onDismiss={() => edit ? setEdit(null) : props.onClose()} dismissDisabled={saving || props.busy}>
       <header><strong>{text('仓库设置', 'Repository settings')} · {props.repository.name}</strong><p>{text('保存到当前仓库的本地 Git 配置。', 'Save to this repository’s local Git configuration.')}</p></header>
       {error ? <VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /> : null}
       {loading ? <p role="status">{text('正在读取设置…', 'Loading settings…')}</p> : null}
@@ -69,8 +68,7 @@ export function GitRepositorySettingsDialog(props: {
         {edit ? <RemoteEditor key={`${edit.name}:${edit.operation}`} initial={edit} zh={props.zh} disabled={disabled} onCancel={() => setEdit(null)} onSave={value => perform({ type: 'configure_remote', ...value })} /> : null}
       </> : null}
       <footer><Button variant="secondary" disabled={saving || props.busy} onClick={() => void load()}>{text('重新载入', 'Reload')}</Button><Button disabled={saving || props.busy} onClick={props.onClose}>{text('关闭', 'Close')}</Button></footer>
-    </section>
-  </ModalPortal>;
+    </GitOperationDialog>;
 }
 
 function IdentityField(props: { field: 'name' | 'email'; local: string | null; effective: string; zh: boolean; disabled: boolean; onSave: (value: string | null) => Promise<void> }) {

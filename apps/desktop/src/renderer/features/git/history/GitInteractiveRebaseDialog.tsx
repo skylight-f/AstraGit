@@ -1,7 +1,8 @@
+import { Select, TextInput } from '../../../ui/FormControls.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardClient, GitInteractiveRebasePreview, GitRebasePlanAction, GitRebasePlanStep, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
 import './gitInteractiveRebase.css';
@@ -78,14 +79,13 @@ export function GitInteractiveRebaseDialog(props: {
   }
   const obstacles = Boolean(preview && (preview.untrackedObstacleCount || preview.nestedRepositories.some(item => item.effect === 'directory')));
   const canStart = !locked && !reviewRequired && preview && preview.commits.length > 0 && !preview.changedFileCount && !grouped.invalidFirst && confirmed && (!preview.mergeCount || flatten) && (!obstacles || overwrite);
-  return <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" role="dialog" aria-label={text('交互变基', 'Interactive rebase')} onDismiss={props.onClose} dismissDisabled={props.busy}>
-    <section className="project-git-menu-action-dialog git-interactive-rebase" data-modal-surface="dialog">
+  return <GitOperationDialog className="project-git-menu-action-dialog git-interactive-rebase" role="dialog" aria-label={text('交互变基', 'Interactive rebase')} onDismiss={props.onClose} dismissDisabled={props.busy}>
       <header><strong>{text('交互变基', 'Interactive rebase')}</strong><p>{repository.name} · {preview?.branch ?? repository.snapshot.branch}</p></header>
       <div className="git-rebase-scroll" aria-busy={loading}>
         <p>{text('整理来源基点之后、当前 HEAD 之前的提交。拖拽或用上下按钮排序；最上方最先重放。', 'Organize commits after the source base through the current HEAD. Drag or use the arrow buttons to reorder; the top commit replays first.')}</p>
         <div className="git-rebase-bases">
-          <label>{text('来源基点（不包含此提交）', 'Source base (excluded)')}<input aria-label={text('来源基点', 'Source base')} value={baseRef} disabled={locked} onChange={event => { setBaseRef(event.target.value); invalidate(); }} /></label>
-          <label>{text('新基点（留空为原基点）', 'New base (blank keeps source base)')}<input aria-label={text('新基点', 'New base')} value={ontoRef} disabled={locked} onChange={event => { setOntoRef(event.target.value); invalidate(); }} /></label>
+          <label>{text('来源基点（不包含此提交）', 'Source base (excluded)')}<TextInput aria-label={text('来源基点', 'Source base')} value={baseRef} disabled={locked} onChange={event => { setBaseRef(event.target.value); invalidate(); }} /></label>
+          <label>{text('新基点（留空为原基点）', 'New base (blank keeps source base)')}<TextInput aria-label={text('新基点', 'New base')} value={ontoRef} disabled={locked} onChange={event => { setOntoRef(event.target.value); invalidate(); }} /></label>
           <Button variant="secondary" disabled={locked || !baseRef.trim()} busy={loading} onClick={() => void load()}>{text('载入计划', 'Load plan')}</Button>
         </div>
         {error ? <div role="alert"><VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /></div> : null}
@@ -103,9 +103,9 @@ export function GitInteractiveRebaseDialog(props: {
                 <div className="git-rebase-step-line">
                   <span draggable={!locked && !reviewRequired} className="git-rebase-drag" role="img" aria-label={text('拖拽调整顺序', 'Drag to reorder')} onDragStart={event => { dragging.current = step.sha; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', step.sha); }} onDragEnd={() => { dragging.current = null; }}>⠿</span>
                   <span className="git-rebase-order">{index + 1}</span><code>{step.sha.slice(0, 8)}</code>
-                  <select aria-label={text(`提交 ${index + 1} 的操作`, `Action for commit ${index + 1}`)} value={step.action} disabled={locked || reviewRequired} onChange={event => { const action = event.target.value as GitRebasePlanAction; setSteps(current => current.map(value => value.sha === step.sha ? { sha: value.sha, action, ...(action === 'reword' ? { message: step.message ?? commit.message } : {}) } : value)); setConfirmed(false); }}>
+                  <Select aria-label={text(`提交 ${index + 1} 的操作`, `Action for commit ${index + 1}`)} value={step.action} disabled={locked || reviewRequired} onChange={event => { const action = event.target.value as GitRebasePlanAction; setSteps(current => current.map(value => value.sha === step.sha ? { sha: value.sha, action, ...(action === 'reword' ? { message: step.message ?? commit.message } : {}) } : value)); setConfirmed(false); }}>
                     {actions.map(([value, cn, en]) => <option key={value} value={value}>{text(cn, en)}</option>)}
-                  </select>
+                  </Select>
                   <button type="button" disabled={locked || reviewRequired || index === 0} aria-label={text(`上移提交 ${index + 1}`, `Move commit ${index + 1} up`)} onClick={() => move(step.sha, index - 1)}>↑</button>
                   <button type="button" disabled={locked || reviewRequired || index === steps.length - 1} aria-label={text(`下移提交 ${index + 1}`, `Move commit ${index + 1} down`)} onClick={() => move(step.sha, index + 1)}>↓</button>
                 </div>
@@ -128,6 +128,5 @@ export function GitInteractiveRebaseDialog(props: {
         if (!live.current) return;
         if (outcome === 'completed' || outcome === 'conflict') props.onClose(); else { setReviewRequired(true); setConfirmed(false); }
       }}>{text('开始交互变基', 'Start interactive rebase')}</Button></footer>
-    </section>
-  </ModalPortal>;
+    </GitOperationDialog>;
 }

@@ -1,8 +1,9 @@
+import { Select } from '../../../ui/FormControls.js';
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitIgnorePreview, GitIgnoreScope, ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { describeUserFacingError, userFacingErrorCause } from '@astragit/shared';
 import { Button } from '../../../ui/Button.js';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { gitIgnorePatterns, type GitIgnorePreset } from './gitIgnorePatterns.js';
 import type { ExecutionOutcome } from '../workbench/gitWorkbenchTypes.js';
@@ -54,12 +55,11 @@ export function GitIgnoreDialog(props: {
     finally { submitting.current = false; }
   }
   const presets = [['paths', text('所选路径', 'Selected paths')], ['names', text('所有同名项', 'Same names anywhere')], ['extensions', text('所有相同扩展名文件', 'Same extensions anywhere')], ['directories', text('所在目录', 'Containing directories')], ['custom', text('自定义规则', 'Custom rules')]] as const;
-  return <ModalPortal rootClassName="project-git-modal-root" backdropClassName="project-git-modal-backdrop" role="dialog" aria-label={text('忽略文件', 'Ignore files')} onDismiss={props.onClose} dismissDisabled={props.busy}>
-    <section className="project-git-menu-action-dialog git-ignore-dialog" data-modal-surface="dialog">
+  return <GitOperationDialog className="project-git-menu-action-dialog git-ignore-dialog" role="dialog" aria-label={text('忽略文件', 'Ignore files')} onDismiss={props.onClose} dismissDisabled={props.busy}>
       <header><strong>{text('忽略文件', 'Ignore files')}</strong><p>{request.repository.name} · {request.paths.length} {text('个未跟踪项', 'untracked items')}</p></header>
-      <label>{text('保存范围', 'Save rules in')}<select value={scope} disabled={props.busy || loading} onChange={event => setScope(event.target.value as GitIgnoreScope)}><option value="repository">{text('当前仓库 .gitignore（可随提交共享）', 'Repository .gitignore (shareable in commits)')}</option><option value="local">{text('仅本机此仓库 info/exclude', 'Local repository info/exclude')}</option><option value="global">{text('Git 全局忽略文件', 'Git global ignore file')}</option></select></label>
+      <label>{text('保存范围', 'Save rules in')}<Select value={scope} disabled={props.busy || loading} onChange={event => setScope(event.target.value as GitIgnoreScope)}><option value="repository">{text('当前仓库 .gitignore（可随提交共享）', 'Repository .gitignore (shareable in commits)')}</option><option value="local">{text('仅本机此仓库 info/exclude', 'Local repository info/exclude')}</option><option value="global">{text('Git 全局忽略文件', 'Git global ignore file')}</option></Select></label>
       {loading ? <p role="status">{text('正在读取规则文件位置…', 'Reading the ignore file location…')}</p> : preview ? <p className="git-ignore-destination">{text(preview.exists ? '追加到现有文件：' : '创建规则文件：', preview.exists ? 'Append to existing file:' : 'Create ignore file:')}<code>{preview.filePath}</code>{preview.configuredPath !== preview.filePath ? <small>{text('配置路径：', 'Configured path: ')}{preview.configuredPath}</small> : null}</p> : null}
-      <label>{text('规则类型', 'Rule type')}<select value={preset} disabled={props.busy} onChange={event => { const value = event.target.value as GitIgnorePreset; setPreset(value); setGlobalConfirmed(false); if (value !== 'custom') setRules(gitIgnorePatterns(request.paths, value, request.directory)?.join('\n') ?? ''); }}>{presets.map(([value, label]) => <option key={value} value={value} disabled={value !== 'custom' && !gitIgnorePatterns(request.paths, value, request.directory)}>{label}</option>)}</select></label>
+      <label>{text('规则类型', 'Rule type')}<Select value={preset} disabled={props.busy} onChange={event => { const value = event.target.value as GitIgnorePreset; setPreset(value); setGlobalConfirmed(false); if (value !== 'custom') setRules(gitIgnorePatterns(request.paths, value, request.directory)?.join('\n') ?? ''); }}>{presets.map(([value, label]) => <option key={value} value={value} disabled={value !== 'custom' && !gitIgnorePatterns(request.paths, value, request.directory)}>{label}</option>)}</Select></label>
       <label>{text('追加规则（每行一条，可编辑）', 'Rules to append (one per line, editable)')}<textarea rows={6} value={rules} disabled={props.busy} onChange={event => { setRules(event.target.value); setPreset('custom'); setGlobalConfirmed(false); }} /></label>
       {!initial ? <small>{text('部分路径包含换行，无法自动生成单行精确规则。请手动核对自定义模式的匹配范围。', 'Some paths contain line breaks and cannot use an exact single-line rule. Review a custom pattern’s scope.')}</small> : null}
       <p>{text('只追加规则，不删除文件，也不自动暂存。规则按 Git 优先级生效，已经跟踪的文件不受忽略规则影响。', 'Append rules without deleting or staging files. Git’s precedence rules apply; tracked files are not affected by ignore rules.')}</p>
@@ -67,7 +67,6 @@ export function GitIgnoreDialog(props: {
       {!valid && rules ? <p role="alert">{text('规则最多 200 条、64 KiB，不能包含 NUL。', 'Rules are limited to 200 lines and 64 KiB and cannot contain NUL.')}</p> : null}
       {error ? <VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /> : null}
       {needsReview ? <p role="alert">{text('请先重新载入并核对规则文件，不要直接重复追加。', 'Reload and review the ignore file before appending again.')}</p> : null}
-      <footer><Button variant="secondary" autoFocus disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新载入', 'Reload')}</Button><Button disabled={!ready} busy={props.busy} onClick={() => void submit()}>{text('追加规则', 'Append rules')}</Button></footer>
-    </section>
-  </ModalPortal>;
+      <footer><Button variant="secondary" data-modal-initial-focus disabled={props.busy} onClick={props.onClose}>{text('取消', 'Cancel')}</Button><Button variant="secondary" disabled={props.busy || loading} onClick={() => setReload(value => value + 1)}>{text('重新载入', 'Reload')}</Button><Button disabled={!ready} busy={props.busy} onClick={() => void submit()}>{text('追加规则', 'Append rules')}</Button></footer>
+    </GitOperationDialog>;
 }

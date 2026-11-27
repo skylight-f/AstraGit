@@ -11,7 +11,7 @@ export function registerGitCodeReviewRoutes(server: FastifyInstance, dependencie
   projects: ProjectStore;
   workbench: ProjectGitWorkbenchService;
   redact: (text: string) => { text: string; redacted: boolean };
-  generate: (projectId: string, input: GitCodeReviewInput, task: GitModelTextTask, signal: AbortSignal, events: GitModelTextEvents) => Promise<{ message: string; model: string }>;
+  generate: (input: GitCodeReviewInput, task: GitModelTextTask, signal: AbortSignal, events: GitModelTextEvents) => Promise<{ message: string; model: string }>;
 }) {
   const active = new Map<string, AbortController>();
   server.addHook('preClose', async () => { for (const controller of active.values()) controller.abort(); active.clear(); });
@@ -60,7 +60,7 @@ export function registerGitCodeReviewRoutes(server: FastifyInstance, dependencie
         controller.signal.throwIfAborted();
         let result: { message: string; model: string };
         try {
-          result = await dependencies.generate(request.params.projectId, input, context.task, controller.signal, { onText: text, onThinking: value => thinking.push(value) });
+          result = await dependencies.generate(input, context.task, controller.signal, { onText: text, onThinking: value => thinking.push(value) });
         } finally { thinking.finish(); }
         const after = await captureReviewScope(dependencies.projects, dependencies.workbench, request.params.projectId, input, controller.signal);
         if (after.scope.fingerprint !== capture.scope.fingerprint) throw reviewFailure('评审期间代码或范围已变化，请重新评审。');

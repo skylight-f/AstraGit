@@ -1,0 +1,27 @@
+.gitapp-commit-usage header, .gitapp-usage-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.gitapp-commit-usage header { justify-content: space-between; }
+.gitapp-usage-filters label { display: grid; gap: 4px; min-width: 100px; max-width: 100%; color: var(--ag-muted); }
+.gitapp-usage-filters select { max-width: 100%; }
+.gitapp-commit-usage table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.gitapp-commit-usage :is(th, td) { padding: 8px; border-bottom: 1px solid var(--ag-line); text-align: end; }
+.gitapp-commit-usage tr > :first-child { text-align: start; overflow-wrap: anywhere; }
+.gitapp-commit-usage tfoot { font-weight: 600; background: var(--ag-bg); }
+
+.gitapp-usage-chart-card { min-width: 0; padding: var(--zeus-space-4); border: 1px solid var(--ag-line); border-radius: var(--ag-card-radius); }
+.gitapp-usage-chart-card header { margin-bottom: 12px; }
+.gitapp-usage-metrics { display: inline-flex; gap: 4px; }
+.gitapp-usage-calendar-scroll { overflow-x: auto; padding: 3px; }
+.gitapp-usage-grid { display: grid; grid-template-columns: 14px repeat(var(--weeks), minmax(9px, 1fr)); gap: 3px; align-items: center; }
+.gitapp-usage-month, .gitapp-usage-weekday, .gitapp-usage-legend { font-size: 11px; color: var(--ag-muted); white-space: nowrap; }
+.gitapp-usage-weekday { text-align: center; }
+.gitapp-usage-calendar [data-level], .gitapp-usage-calendar [data-unknown] { border: 0; border-radius: 3px; background: #e9ecf1; }
+.gitapp-usage-grid button { width: 100%; min-width: 0; padding: 0; aspect-ratio: 1; cursor: pointer; }
+.gitapp-usage-calendar [data-level="1"] { background: #d1dcff; }
+.gitapp-usage-calendar [data-level="2"] { background: #92a8ff; }
+.gitapp-usage-calendar [data-level="3"] { background: #5873d7; }
+.gitapp-usage-calendar [data-level="4"] { background: #334681; }
+.gitapp-usage-calendar [data-unknown="true"] { background: repeating-linear-gradient(135deg, #d4d9e3 0 2px, #f4f5f8 2px 4px); }
+.gitapp-usage-grid button:is(:focus-visible, [aria-pressed="true"]) { outline: 2px solid var(--ag-brand-ink); outline-offset: 1px; }
+.gitapp-usage-legend { display: flex; align-items: center; gap: 3px; margin-top: 12px; }
+.gitapp-usage-legend span { margin: 0 4px; }
+.gitapp-usage-legend i { width: 11px; height: 11px; }

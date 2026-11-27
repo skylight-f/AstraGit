@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardClient, GitCommitTemplate } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
-import { ModalPortal } from '../../../ui/ModalPortal.js';
+import { GitOperationDialog } from '../components/GitOperationDialog.js';
 import { usePresenceOpen } from '../../../ui/MotionPresence.js';
 import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { createGitTemplateDraftGuard } from './gitTemplateDraftGuard.js';
@@ -53,10 +53,10 @@ export function GitCommitTemplateControl(props: {
   return <span className="git-template-control">
     <Button size="compact" variant="secondary" disabled={props.disabled || !props.repositoryId || loading} busy={loading} title={props.repositoryName ? `${text('使用模板', 'Use template')} · ${props.repositoryName}` : undefined} onClick={() => void read(false)}>{text('使用模板', 'Use template')}</Button>
     {error ? <span className="git-template-feedback" role="status"><VisibleApplicationError error={error} language={props.zh ? 'zh-CN' : 'en'} /></span> : notice ? <small className="git-template-feedback" role="status">{notice}</small> : null}
-    {pending ? <ModalPortal role="dialog" aria-label={text('使用模板替换提交说明', 'Replace commit message with template')} rootClassName="project-git-modal-root" onDismiss={() => setPending(null)}><section className="project-git-menu-action-dialog git-template-replace" data-modal-surface="dialog">
+    {pending ? <GitOperationDialog className="project-git-menu-action-dialog git-template-replace" role="dialog" aria-label={text('使用模板替换提交说明', 'Replace commit message with template')} onDismiss={() => setPending(null)}>
       <h3>{text('使用模板替换当前说明？', 'Replace the current message with the template?')}</h3><p>{text('取消会保留当前手工或 AI 草稿。模板中的注释只用于设置预览，不会填入提交说明。', 'Cancel keeps your manual or AI draft. Template comments appear in Settings previews and are not inserted into the commit message.')}</p>
       <pre>{pending.template.message || text('此模板为空，将清空当前说明。', 'This template is empty. The current message will be cleared.')}</pre>
       <footer><Button variant="secondary" onClick={() => setPending(null)}>{text('取消', 'Cancel')}</Button><Button disabled={props.disabled} onClick={() => { if (guard.current.accepts(pending.ticket)) props.onApply(pending.template.message, pending.ticket.value); else setNotice(text('提交说明已变化，原草稿保留，请重新读取模板。', 'The commit message changed. Your draft was kept; reload the template.')); setPending(null); }}>{text('替换说明', 'Replace message')}</Button></footer>
-    </section></ModalPortal> : null}
+    </GitOperationDialog> : null}
   </span>;
 }

@@ -16,8 +16,6 @@ export type { GitTagQuery, GitTagPage, GitTagItem, GitTagLocalInfo, GitTagTarget
 export type { GitPatchSeriesCommit, GitPatchInput, GitPatchPreview, GitPatchExportInput, GitRepositoryPatchExport, GitPatchFile } from '@astragit/git-core';
 export type { GitTrackedFileQuery, GitTrackedFilePage, GitFileHistoryQuery, GitFileHistoryEntry, GitFileHistoryPage, GitFileRevisionQuery, GitFileRevision, GitFileOriginLine } from '@astragit/git-core';
 export type { GitHistorySearchQuery, GitHistorySearchPage, GitHistorySearchCommit, GitHistorySearchField } from '@astragit/git-core';
-/** Git blame 公共契约由 Git Core 统一定义，渲染层只消费只读数据。 */
-export type { GitBlameLine, GitFileBlame } from '@astragit/git-core';
 export type { ProjectGitConflictFile, ProjectGitConflictIndexStage, SaveProjectGitConflictInput } from '@astragit/git-core';
 export type { ProjectGitRepositorySettings } from '@astragit/git-core';
 export type { GitCommitTemplate } from '@astragit/git-core';

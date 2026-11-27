@@ -81,7 +81,6 @@ export interface GitApiClient {
     onText?: (text: string) => void,
     signal?: AbortSignal,
   ) => Promise<{ message: string; model: string; truncated?: boolean; fingerprints?: Record<string, string> }>;
-  loadGitDiff: () => Promise<GitDiffSummary>;
   loadProjectGitStatus: (projectId: string) => Promise<GitStatusSummary>;
   loadProjectGitWorkbench: (projectId: string) => Promise<ProjectGitWorkbenchSnapshot>;
   autoFetchProjectGitRepository: (projectId: string, repositoryId: string) => Promise<{ fetched: boolean }>;
@@ -193,7 +192,6 @@ export function createGitApiClient(transport: LocalApiTransport): GitApiClient {
       if (!result) throw new Error('生成连接已中断，请重试。');
       return result;
     },
-    loadGitDiff: () => transport.request<GitDiffSummary>('/api/git/diff'),
     previewRepositoryGitReplay: (projectId, repositoryId, input, signal) => transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/replay-preview`, { ...jsonRequest('POST', input), signal }, { readOnly: true }),
     previewRepositoryGitReplaySeries: (projectId, repositoryId, input, signal) => transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/replay-series-preview`, { ...jsonRequest('POST', input), signal }, { readOnly: true }),
     loadProjectGitStatus: (projectId) => transport.request<GitStatusSummary>(`${projectGitPath(projectId)}/status`),
