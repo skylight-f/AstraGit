@@ -362,33 +362,32 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     return () => { active = false; if (handledSearchRequest.current === target.requestId) handledSearchRequest.current = null; };
   }, [props.navigationRequest, props.onNavigationHandled, props.project.id, props.client, zh]);
 
+  const detailRevision = tab === 'stash' ? activeStashRef : tab === 'log' ? selectedCommitHash : '';
+  const detailStashHash = tab === 'stash' ? activeStash?.hash : undefined;
   useEffect(() => {
     // 新选择立即清除旧详情，避免旧行高亮在异步读取期间冒充当前选择。
     setCommitDetail(null);
-    const revision = tab === 'stash' ? activeStashRef : selectedCommitHash;
-    if (!selectedRepository || !revision || (tab !== 'log' && tab !== 'stash')) {
+    if (sourceVisible || !selectedRepository || !detailRevision) {
       setCommitLoading(false);
       return;
     }
-    let cancelled = false;
+    const controller = new AbortController();
     setCommitLoading(true);
     props.client
-      .loadProjectGitCommit(props.project.id, selectedRepository.id, revision)
+      .loadProjectGitCommit(props.project.id, selectedRepository.id, detailRevision, controller.signal)
       .then((detail) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setCommitDetail(detail);
         setSelectedFilePath(detail.files[0]?.path ?? '');
       })
       .catch((reason: unknown) => {
-        if (!cancelled) setError(errorMessage(reason, zh));
+        if (!controller.signal.aborted) setError(errorMessage(reason, zh));
       })
       .finally(() => {
-        if (!cancelled) setCommitLoading(false);
+        if (!controller.signal.aborted) setCommitLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [props.project.id, selectedRepository?.id, selectedCommitHash, activeStashRef, activeStash?.hash, tab]);
+    return () => controller.abort();
+  }, [props.client, props.project.id, selectedRepository?.id, detailRevision, detailStashHash, sourceVisible, zh]);
 
   async function loadWorkbench(): Promise<boolean> {
     // 历史与仓库快照独立读取，仓库刷新失败不能伪装成没有操作记录。

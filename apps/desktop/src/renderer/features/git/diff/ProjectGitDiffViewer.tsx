@@ -106,7 +106,7 @@ export function ProjectGitDiffWindow(props: {
     const request = props.revisions
       ? props.client.loadProjectGitRevisionsDiff(props.projectId, props.repositoryId, props.revisions, controller.signal).then(comparison => ({ diff: comparison.diff, title: `${comparison.revisions[0].slice(0, 8)} → ${comparison.revisions[1].slice(0, 8)}`, revisions: comparison.revisions }))
       : props.commitHash
-      ? props.client.loadProjectGitCommit(props.projectId, props.repositoryId, props.commitHash).then(detail => {
+      ? props.client.loadProjectGitCommit(props.projectId, props.repositoryId, props.commitHash, controller.signal).then(detail => {
           if (props.expectedCommitHash && detail.commit.hash !== props.expectedCommitHash) {
             throw new Error(zh ? '贮藏列表已变化，请刷新后重试。' : 'The stash list changed. Refresh it and try again.');
           }

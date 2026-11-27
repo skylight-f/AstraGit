@@ -429,6 +429,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
                         setSelectedRepositoryId(id);
                         setSelectedFilePath('');
                         setSelectedCommit(null);
+                        if (tab === 'stash') setTab('log');
                       }}
                     />
                   </details>
@@ -478,7 +479,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
                         zh={zh}
                         onSelect={(ref) => {
                           const reference = `refs/${namespace}/${ref}`;
-                          if (tab === 'log') openReferenceHistory(selectedRepository, reference);
+                          if (tab === 'log' || tab === 'stash') openReferenceHistory(selectedRepository, reference);
                           else setSidebarReference({ repositoryId: selectedRepository.id, ref: reference });
                         }}
                         onCheckout={branches === selectedRepository.snapshot.tags ? undefined : ref => checkoutSidebarBranch(selectedRepository, kind, ref)}
@@ -546,6 +547,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         <div className="project-git-browser-content">
           <div className={`git-content-toolbar${tab === 'log' ? ' is-history-toolbar' : ''}`}>
             <strong>{tab === 'changes' || tab === 'ignored' ? (zh ? '文件状态' : 'File Status') : tab === 'log' ? (zh ? '提交历史' : 'Commit history') : tab === 'stash' ? (zh ? '贮藏' : 'Stashes') : zh ? '操作记录' : 'Operation history'}</strong>
+            {tab === 'stash' ? <Button className="git-stash-back" variant="ghost" size="compact" onClick={() => setTab('log')}>{zh ? '返回提交历史' : 'Back to commit history'}</Button> : null}
             {(tab === 'changes' || tab === 'ignored') && selectedRepository ? <Select density="compact" aria-label={zh ? '文件范围' : 'File scope'} value={tab} onChange={event => setTab(event.currentTarget.value === 'ignored' ? 'ignored' : 'changes')}><option value="changes">{zh ? '更改文件' : 'Changed files'}</option><option value="ignored">{zh ? '已忽略文件' : 'Ignored files'}</option></Select> : null}
             {tab === 'log' && selectedRepository ? (
               <Select

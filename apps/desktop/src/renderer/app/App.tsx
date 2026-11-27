@@ -443,7 +443,7 @@ export function App(props: AppProps) {
           <button type="button" aria-label={zh ? '项目提交视图' : 'Project commits view'} title={zh ? '提交' : 'Commit'} aria-current={!settingsOpen && inWorkbench && commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectTab(navigation.commitTab)}>
             <GitCommit size={18} aria-hidden="true" />
           </button>
-          <button type="button" aria-label={zh ? '分支视图' : 'Branch view'} title={zh ? '分支' : 'Branch'} aria-current={!settingsOpen && inWorkbench && !commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectTab(navigation.branchTab)}>
+          <button type="button" aria-label={zh ? '分支视图' : 'Branch view'} title={zh ? '分支' : 'Branch'} aria-current={!settingsOpen && inWorkbench && !commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectTab(navigation.branchTab === 'stash' ? 'log' : navigation.branchTab)}>
             <GitBranch size={18} aria-hidden="true" />
           </button>
           <button type="button" className="gitapp-rail-settings" aria-label={zh ? '设置' : 'Settings'} title={zh ? '设置' : 'Settings'} aria-current={settingsOpen ? 'page' : undefined} onClick={() => { if (settingsOpen) setSettingsOpen(false); else openSettings(); }}>

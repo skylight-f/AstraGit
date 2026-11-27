@@ -912,11 +912,13 @@ async function requireGitStdout(cwd: string, args: string[]): Promise<string> {
   return (await runGit(cwd, args)).stdout.trim();
 }
 
-async function resolveCommit(cwd: string, ref: string): Promise<string> {
+async function resolveCommit(cwd: string, ref: string, signal?: AbortSignal): Promise<string> {
   const normalized = requireSafeGitText(ref, 'Git revision');
+  const read = () => requireGitStdout(cwd, ['rev-parse', '--verify', '--end-of-options', `${normalized}^{commit}`]);
   try {
-    return await requireGitStdout(cwd, ['rev-parse', '--verify', '--end-of-options', `${normalized}^{commit}`]);
+    return await (signal ? projectGitExecution.run({ ...projectGitExecution.getStore(), signal }, read) : read());
   } catch {
+    signal?.throwIfAborted();
     throw gitCoreError('ASTRAGIT_GIT_REF_NOT_FOUND', `Git ref does not resolve to a commit: ${normalized}`);
   }
 }
@@ -2221,13 +2223,14 @@ function requireNamedCurrentBranch(context: GitRepositoryContext): string {
 }
 
 /** 读取一个精确提交或贮藏的文件和差异，供独立 Repository Diff 与历史检查器复用。 */
-export async function getProjectGitCommitDetail(cwd: string, commitHash: string): Promise<ProjectGitCommitDetail> {
-  const context = await getGitRepositoryContext(cwd);
+export async function getProjectGitCommitDetail(cwd: string, commitHash: string, signal?: AbortSignal): Promise<ProjectGitCommitDetail> {
+  signal?.throwIfAborted();
+  const context = await getGitRepositoryContext(cwd, signal);
   if (!context.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', 'The selected directory is not a Git repository.');
   const requestedRevision = commitHash.trim();
   const stashRef = /^stash@\{\d+\}$/u.test(requestedRevision) ? requireStashRef(requestedRevision) : null;
-  const commit = await resolveCommit(context.topLevel, stashRef ?? requestedRevision);
-  const reader = gitDiffReader(context.topLevel, fileHistoryRuntime());
+  const commit = await resolveCommit(context.topLevel, stashRef ?? requestedRevision, signal);
+  const reader = gitDiffReader(context.topLevel, fileHistoryRuntime(signal));
   const [rawMetadata, numstat] = await Promise.all([
     readGitDiffMetadata(reader, ['show', '-s', '--date=iso-strict', '--format=%H%x00%h%x00%s%x00%an%x00%aI%x00%P%x00%B%x00', commit]),
     readGitDiffMetadata(reader, stashRef
@@ -2243,6 +2246,7 @@ export async function getProjectGitCommitDetail(cwd: string, commitHash: string)
   const diff = await readGitDisplayDiff(reader, stashRef
     ? ['stash', 'show', '--include-untracked', '--patch', ...gitDisplayDiffOptions, commit]
     : ['show', '--format=', ...gitDisplayDiffOptions, '--diff-merges=first-parent', commit], files.map(file => file.path));
+  signal?.throwIfAborted();
   if (!stashRef && parents.split(' ').filter(Boolean).length > 1) diff.comparisonParent = parents.split(' ')[0];
   return {
     commit: { hash, shortHash, subject, author, authoredAt, parentHashes: splitLines(parents.replace(/\s+/gu, '\n')) },

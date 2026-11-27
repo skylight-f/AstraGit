@@ -95,7 +95,7 @@ export interface GitApiClient {
   exportRepositoryGitPatch: (projectId: string, repositoryId: string, input: GitPatchExportInput, signal?: AbortSignal) => Promise<GitRepositoryPatchExport>;
   searchProjectGitHistory: (projectId: string, repositoryId: string, query: GitHistorySearchQuery, signal?: AbortSignal) => Promise<GitHistorySearchPage>;
   loadProjectGitHistory: (projectId: string, repositoryId: string, offset: number, ref?: string) => Promise<{ commits: NonNullable<GitStatusSummary['recentCommits']>; hasMore: boolean }>;
-  loadProjectGitCommit: (projectId: string, repositoryId: string, commitHash: string) => Promise<ProjectGitCommitDetail>;
+  loadProjectGitCommit: (projectId: string, repositoryId: string, commitHash: string, signal?: AbortSignal) => Promise<ProjectGitCommitDetail>;
   previewRepositoryGitReplay: (projectId: string, repositoryId: string, input: GitCommitReplayInput, signal?: AbortSignal) => Promise<GitCommitReplayPreview>;
   previewRepositoryGitReplaySeries: (projectId: string, repositoryId: string, input: GitCommitReplaySeriesInput, signal?: AbortSignal) => Promise<GitCommitReplaySeriesPreview>;
   loadProjectGitComparisonDiff: (projectId: string, repositoryId: string, ref: string, mode: 'current' | 'working-tree') => Promise<GitDiffSummary>;
@@ -219,7 +219,7 @@ export function createGitApiClient(transport: LocalApiTransport): GitApiClient {
     },
     loadProjectGitHistory: async (projectId, repositoryId, offset, ref) =>
       transport.request(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/history?offset=${offset}${ref ? `&ref=${encodeURIComponent(ref)}` : ''}`),
-    loadProjectGitCommit: (projectId, repositoryId, commitHash) => transport.request<ProjectGitCommitDetail>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/commits/${encodeURIComponent(commitHash)}`),
+    loadProjectGitCommit: (projectId, repositoryId, commitHash, signal) => transport.request<ProjectGitCommitDetail>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/commits/${encodeURIComponent(commitHash)}`, { signal }),
     loadProjectGitComparisonDiff: (projectId, repositoryId, ref, mode) => transport.request<GitDiffSummary>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/compare?ref=${encodeURIComponent(ref)}&mode=${mode}`),
     loadProjectGitRevisionsDiff: (projectId, repositoryId, revisions, signal) => transport.request<GitRevisionComparison>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/compare-revisions?from=${encodeURIComponent(revisions[0])}&to=${encodeURIComponent(revisions[1])}`, { signal }),
     readProjectGitConflict: (projectId, repositoryId, path) => transport.request<ProjectGitConflictFile>(`${projectGitPath(projectId)}/workbench/repositories/${encodeURIComponent(repositoryId)}/conflict?path=${encodeURIComponent(path)}`),

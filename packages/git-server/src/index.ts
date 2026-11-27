@@ -441,10 +441,15 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
   });
 
   server.get('/api/projects/:projectId/git/workbench/repositories/:repositoryId/commits/:commitHash', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string; commitHash: string } }>, reply) => {
+    const controller = new AbortController();
+    const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); };
+    reply.raw.on('close', disconnected);
     try {
-      return await workbench.loadCommit(request.params.projectId, request.params.repositoryId, request.params.commitHash);
+      return await workbench.loadCommit(request.params.projectId, request.params.repositoryId, request.params.commitHash, controller.signal);
     } catch (error) {
       return sendNativeQueryRouteError(reply, error);
+    } finally {
+      reply.raw.off('close', disconnected);
     }
   });
 

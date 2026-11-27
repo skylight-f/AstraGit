@@ -148,6 +148,9 @@
   font-size: 12px;
   white-space: nowrap;
 }
+.git-content-toolbar > .git-stash-back {
+  margin-inline-start: auto;
+}
 .git-content-toolbar.is-history-toolbar { flex-wrap: wrap; }
 .git-content-toolbar.is-history-toolbar > select { flex: 0 1 auto; min-width: 90px; max-width: min(230px, 100%); }
 .git-content-toolbar.is-history-toolbar > .zeus-search-field { flex: 1 1 180px; }

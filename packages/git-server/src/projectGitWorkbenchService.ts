@@ -373,10 +373,12 @@ export class ProjectGitWorkbenchService {
     });
   }
 
-  async loadCommit(projectId: string, repositoryId: string, commitHash: string): Promise<ProjectGitCommitDetail> {
-    const resolved = await this.resolveRepository(projectId, repositoryId);
-    if (!commitHash.trim()) throw projectError('ASTRAGIT_COMMIT_REQUIRED', '必须选择一个提交。');
-    return getProjectGitCommitDetail(resolved.repository.localPath, commitHash);
+  async loadCommit(projectId: string, repositoryId: string, commitHash: string, signal?: AbortSignal): Promise<ProjectGitCommitDetail> {
+    return this.withReadQuery(signal, async combined => {
+      const resolved = await this.resolveRepository(projectId, repositoryId, combined);
+      if (!commitHash.trim()) throw projectError('ASTRAGIT_COMMIT_REQUIRED', '必须选择一个提交。');
+      return getProjectGitCommitDetail(resolved.repository.localPath, commitHash, combined);
+    });
   }
 
   async loadComparison(projectId: string, repositoryId: string, ref: string, mode: 'current' | 'working-tree'): Promise<GitDiffSummary> {

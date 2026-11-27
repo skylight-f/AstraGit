@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import { buildGitPatchExport, getGitDiff, getProjectGitRepositorySnapshot, getProjectGitCommitDetail, getProjectGitComparisonDiff, readSelectedGitCommitChanges, parseGitUnifiedDiff } from '../packages/git-core/dist/index.js';
 import { startGitServer } from '../packages/git-server/dist/index.js';
+import { ProjectGitWorkbenchService } from '../packages/git-server/dist/projectGitWorkbenchService.js';
 import { createFileSecretStore } from '../packages/git-server/dist/securityCore.js';
 import { createDashboardClientLike } from '../apps/desktop/src/renderer/api/clientBootstrap.ts';
 import { gitDiffFileVersions, gitDiffUnavailableMessage } from '../apps/desktop/src/renderer/features/git/diff/gitDiffFeedback.ts';
@@ -101,6 +102,10 @@ test('merge history uses an explicit first-parent comparison and stash detail in
   const f = await fixture(t, { 'file.txt': 'base\n', 'b/prefix.txt': 'base prefix\n' }); await f.git('switch', '-qc', 'feature/work'); await f.write('feature.txt', 'feature\n'); await f.git('add', '.'); await f.git('commit', '-qm', 'feature'); await f.git('switch', 'main'); await f.write('main.txt', 'main\n'); await f.git('add', '.'); await f.git('commit', '-qm', 'main'); await f.git('merge', '--no-ff', '-m', 'merge', 'feature/work');
   const detail = await getProjectGitCommitDetail(f.cwd, 'HEAD'); assert.equal(detail.parentHashes.length, 2); assert.equal(detail.diff.comparisonParent, detail.parentHashes[0]); assert.equal(detail.diff.unavailableReason, undefined); assert.deepEqual(detail.files.map(file => file.path), ['feature.txt']); assert.equal(detail.diff.fileDiffs[0].newPath, 'feature.txt');
   await f.write('file.txt', 'stashed\n'); await f.write('b/prefix.txt', 'changed prefix\n'); await f.write('stash-new.txt', 'untracked\n'); await f.git('stash', 'push', '-u', '-m', 'saved');
+  const cancellation = new AbortController();
+  const interrupted = getProjectGitCommitDetail(f.cwd, 'stash@{0}', cancellation.signal);
+  cancellation.abort();
+  await assert.rejects(interrupted, { name: 'AbortError' });
   await f.git('config', 'diff.noprefix', 'true'); await f.git('config', 'diff.srcPrefix', 'custom-source/'); await f.git('config', 'diff.dstPrefix', 'custom-destination/');
   for (let attempt = 0; attempt < 6; attempt++) {
     const stash = await getProjectGitCommitDetail(f.cwd, 'stash@{0}');
@@ -108,6 +113,23 @@ test('merge history uses an explicit first-parent comparison and stash detail in
     assert.match(stash.diff.diffText, /^diff --git a\//u);
   }
   assert.equal(await f.git('config', 'diff.srcPrefix'), 'custom-source/');
+});
+
+test('closing the workbench cancels pending stash detail reads', async t => {
+  const workbench = new ProjectGitWorkbenchService();
+  t.mock.method(workbench, 'resolveRepository', (_projectId, _repositoryId, signal) => {
+    assert.ok(signal);
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+  });
+  const request = new AbortController();
+  const disconnected = assert.rejects(workbench.loadCommit('project', 'repository', 'stash@{0}', request.signal), { name: 'AbortError' });
+  const closing = assert.rejects(workbench.loadCommit('project', 'repository', 'stash@{0}'), { name: 'AbortError' });
+  request.abort();
+  await disconnected;
+  workbench.cancelReadQueries();
+  await closing;
 });
 
 test('HTTP preserves unavailable metadata and per-file preview remains available while overall preview is bounded', async t => {
