@@ -1,7 +1,7 @@
 import { lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { GitHistoryReader } from './gitFileHistory.js';
-import { readWorktreeStatus } from './gitRepositoryState.js';
+import { gitIndexCorruptionError, worktreeStatusArgs } from './gitRepositoryState.js';
 import { parseGitUnifiedDiff } from './gitUnifiedDiff.js';
 import { userFacingErrorCause } from '@astragit/shared';
 import type { GitDiffSummary, GitStatusSummary } from './index.js';
@@ -101,12 +101,12 @@ export async function readWorkspaceGitDiffs(cwd: string, parseStatus: (text: str
   }
   reader = gitDiffReader(root, runtime);
   const [porcelain, unstagedNames, stagedNames] = await Promise.allSettled([
-    readWorktreeStatus(reader),
+    readGitDiffMetadata(reader, worktreeStatusArgs),
     readGitDiffMetadata(reader, ['diff', ...gitDisplayDiffMetadataOptions, '--name-only', '-z', '--', '.']),
     readGitDiffMetadata(reader, ['diff', ...gitDisplayDiffMetadataOptions, '--cached', '--name-only', '-z', '--', '.']),
   ]);
-  // A failed status read carries the repository diagnosis even when diff fails first.
-  if (porcelain.status === 'rejected') throw porcelain.reason;
+  // Index corruption takes precedence even when a diff metadata command fails first.
+  if (porcelain.status === 'rejected') throw gitIndexCorruptionError(porcelain.reason?.cause) ?? porcelain.reason;
   if (unstagedNames.status === 'rejected') throw unstagedNames.reason;
   if (stagedNames.status === 'rejected') throw stagedNames.reason;
   const status = parseStatus(porcelain.value);

@@ -4,17 +4,31 @@ import { GitHistoryReader } from './gitFileHistory.js';
 import type { GitRepositoryContext, GitStatusSummary, GitWorktreeEntry } from './index.js';
 
 type Runtime = { signal?: AbortSignal; env?: NodeJS.ProcessEnv };
+type GitReadError = { code?: string; details?: string; stderr?: string; message?: string };
 const shaPattern = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const failure = (code: string, message: string, cause?: unknown) => Object.assign(new Error(message), { code, operationStage: 'read', ...(cause ? { cause } : {}) });
 const removeOutputNewline = (text: string) => text.replace(/\r?\n$/u, '');
-const worktreeStatusArgs = ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'];
+export const worktreeStatusArgs = ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'];
+
+function gitReadErrorDetail(error: unknown) {
+  const value = error as GitReadError | undefined;
+  return value?.stderr ?? value?.details ?? value?.message ?? '';
+}
+
+export function gitIndexCorruptionError(error: unknown) {
+  if (/index file (?:smaller than expected|corrupt)|(?:bad|invalid) (?:index|signature)|index.*signature/u.test(gitReadErrorDetail(error))) {
+    return failure('ASTRAGIT_GIT_INDEX_CORRUPT', '无法读取 Git 暂存区，索引可能已损坏。请保留工作区文件并检查 Git 详情。', error);
+  }
+  return undefined;
+}
 
 function stateFailure(error: unknown, runtime: Runtime) {
-  if (runtime.signal?.aborted || (error as { code?: string }).code === 'ASTRAGIT_CANCELLED') return error;
-  const value = error as { code?: string; details?: string; stderr?: string; message?: string };
+  const value = error as GitReadError;
+  if (runtime.signal?.aborted || value.code === 'ASTRAGIT_CANCELLED') return error;
   if (value.code?.startsWith('ASTRAGIT_GIT_STATE_') || value.code === 'ASTRAGIT_GIT_INDEX_CORRUPT') return error;
-  const detail = value.stderr ?? value.details ?? value.message ?? '';
-  if (/index file (?:smaller than expected|corrupt)|(?:bad|invalid) (?:index|signature)|index.*signature/u.test(detail)) return failure('ASTRAGIT_GIT_INDEX_CORRUPT', '无法读取 Git 暂存区，索引可能已损坏。请保留工作区文件并检查 Git 详情。', error);
+  const indexError = gitIndexCorruptionError(error);
+  if (indexError) return indexError;
+  const detail = gitReadErrorDetail(error);
   if (value.code === 'ASTRAGIT_GIT_FILE_HISTORY_TOO_LARGE') return failure('ASTRAGIT_GIT_STATE_TOO_LARGE', 'Git 状态或引用清单超过读取范围，未返回不完整的仓库状态。', error);
   if (value.code === 'ASTRAGIT_GIT_FILE_HISTORY_TIMEOUT') return failure('ASTRAGIT_GIT_STATE_TIMEOUT', '读取 Git 仓库状态超时，请重新载入。', error);
   if (value.code === 'EACCES' || value.code === 'EPERM' || /Permission denied|Operation not permitted/u.test(detail)) return failure('ASTRAGIT_GIT_STATE_ACCESS_DENIED', '无法访问仓库目录或 Git 元数据，请检查访问权限。', error);
@@ -34,10 +48,6 @@ async function text(reader: GitHistoryReader, args: string[], missingExit = fals
     if (missingExit && (error as { exitCode?: number }).exitCode === 1) return '';
     throw stateFailure(error, reader.runtime);
   }
-}
-
-export function readWorktreeStatus(reader: GitHistoryReader): Promise<string> {
-  return text(reader, worktreeStatusArgs);
 }
 
 /** False is reserved for an existing ordinary folder or a bare repository. */
@@ -135,7 +145,7 @@ export async function readRepositoryStatus(cwd: string, runtime: Runtime) {
   if (!reader) return null;
   const current = await identity(reader);
   const [porcelain, remotes, recent] = await Promise.all([
-    readWorktreeStatus(reader),
+    text(reader, worktreeStatusArgs),
     text(reader, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes']),
     current.headSha ? text(reader, ['log', '-n', '5', '--pretty=format:%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%P', current.headSha]) : Promise.resolve(''),
   ]);
@@ -145,7 +155,7 @@ export async function readRepositoryStatus(cwd: string, runtime: Runtime) {
 export async function readRootWorktreeStatus(cwd: string, runtime: Runtime): Promise<string | null> {
   const reader = await repositoryReader(cwd, runtime);
   if (!reader || await realpath(reader.cwd) !== await realpath(cwd)) return null;
-  return readWorktreeStatus(reader);
+  return text(reader, worktreeStatusArgs);
 }
 
 export async function readRepositoryClean(cwd: string, ignoredPaths: string[], runtime: Runtime): Promise<boolean> {

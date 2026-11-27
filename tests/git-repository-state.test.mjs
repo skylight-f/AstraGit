@@ -103,20 +103,26 @@ test('state cancellation is propagated rather than reported as a clean or missin
   const f = await fixture(t); const controller = new AbortController(); controller.abort(); await assert.rejects(() => getGitStatus(f.cwd, controller.signal), error => error.name === 'AbortError'); await assert.rejects(() => getGitRepositoryContext(f.cwd, controller.signal), error => error.name === 'AbortError');
 });
 
-test('workspace diff preserves the index diagnosis when diff metadata fails before status', async t => {
+test('workspace diff preserves index and configuration errors when diff metadata fails before status', async t => {
   const cwd = process.cwd();
-  const nativeError = Object.assign(new Error('Git status failed'), { stderr: 'fatal: index file smaller than expected' });
+  const indexError = Object.assign(new Error('Git status failed'), { stderr: 'fatal: index file smaller than expected' });
+  const configError = Object.assign(new Error('Git status failed'), { stderr: 'fatal: bad config variable diff.algorithm' });
+  let statusError = indexError;
   t.mock.method(GitHistoryReader.prototype, 'run', async args => {
     if (args[0] === 'rev-parse') return Buffer.from(`${cwd}\n`);
-    if (args[0] === 'status') {
+    if (args.includes('status')) {
       await setImmediate();
-      throw nativeError;
+      throw statusError;
     }
     assert.ok(args.includes('diff'));
     throw new Error('Metadata failed first');
   });
   await assert.rejects(() => getGitDiff(cwd), code('ASTRAGIT_GIT_INDEX_CORRUPT', error => {
-    assert.equal(error.cause, nativeError);
+    assert.equal(error.cause, indexError);
+  }));
+  statusError = configError;
+  await assert.rejects(() => getGitDiff(cwd), code('ASTRAGIT_GIT_DIFF_READ_FAILED', error => {
+    assert.equal(error.cause, configError);
   }));
 });
 
