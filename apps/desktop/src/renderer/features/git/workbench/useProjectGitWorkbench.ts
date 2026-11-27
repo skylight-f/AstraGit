@@ -46,10 +46,12 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const currentProjectId = useRef(props.project.id);
   currentProjectId.current = props.project.id;
   const [snapshot, setSnapshot] = useState<ProjectGitWorkbenchSnapshot | null>(() => readCachedProjectGitWorkbench(props.client, props.project.id));
+  const [initialChanges, setInitialChanges] = useState<import('@astragit/git-core').ProjectGitInitialChanges | null>(null);
+  const [initialReadVersion, setInitialReadVersion] = useState(0);
   const currentSnapshot = useRef(snapshot);
   currentSnapshot.current = snapshot;
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(() => (snapshot ? 'ready' : 'loading'));
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [conflictAction, setConflictAction] = useState<{ repositoryId: string; action: ProjectGitAction; result: ProjectGitActionResponse['result'] } | null>(null);
   const [checkoutNotice, setCheckoutNotice] = useState<{ repositoryId: string; branch: string; savedStash: string } | null>(null);
   // errorMessage() reports the original failure once; this state is its inline summary.
@@ -252,6 +254,16 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
     }
   }
 
+  const needsInitialChanges = snapshot === null;
+  useEffect(() => {
+    if (!needsInitialChanges) return;
+    const controller = new AbortController();
+    void props.client.loadProjectGitInitialChanges(props.project.id, controller.signal).then(changes => {
+      if (!controller.signal.aborted) setInitialChanges(changes);
+    }).catch(() => { /* 完整读取负责报告错误，轻量预览失败不影响工作台。 */ });
+    return () => controller.abort();
+  }, [props.client, props.project.id, needsInitialChanges, initialReadVersion]);
+
   useEffect(() => {
     // 缓存仅用于首屏，进入页面和回到应用时都重新读取外部 Git 变化。
     const refresh = () => {
@@ -399,13 +411,14 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       const next = await requestProjectGitWorkbench(props.client, props.project.id);
       if (version !== requestVersionRef.current) return false;
       setSnapshot(next);
+      setInitialChanges(null);
       setSelectedRepositoryId((current) => (next.repositories.some((repository) => repository.id === current) ? current : (next.repositories[0]?.id ?? '')));
       setLoadState('ready');
       return true;
     } catch (reason) {
       if (version === requestVersionRef.current) {
         setLoadState('error');
-        setError(errorMessage(reason, zh));
+        setError(currentSnapshot.current ? errorMessage(reason, zh) : reason);
       }
       return false;
     }
@@ -959,6 +972,7 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   }
 
   function refreshWorkbench(): void {
+    if (!currentSnapshot.current) setInitialReadVersion(version => version + 1);
     void loadWorkbench();
     if (sourceVisible) sourceCommands.current?.refresh();
     else setHistoryReload(value => value + 1);
@@ -1086,7 +1100,7 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       stagePreferenceNotice, stageRequest, stopOperation, stopPush: pushBatch.stop,
     },
     workspace: {
-      error, fileQuery, ignoredQuery, loadState, loadWorkbench, refreshWorkbench, reportWorkbenchError,
+      error, fileQuery, ignoredQuery, initialChanges, loadState, loadWorkbench, refreshWorkbench, reportWorkbenchError,
       requestVersionRef, setFileQuery, setIgnoredQuery, setSnapshot, setSourceTarget, snapshot,
       sourceCommands, sourceLocked, sourceView, sourceVisible, zh,
     },

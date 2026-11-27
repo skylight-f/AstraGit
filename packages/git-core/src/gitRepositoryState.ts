@@ -7,6 +7,7 @@ type Runtime = { signal?: AbortSignal; env?: NodeJS.ProcessEnv };
 const shaPattern = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const failure = (code: string, message: string, cause?: unknown) => Object.assign(new Error(message), { code, operationStage: 'read', ...(cause ? { cause } : {}) });
 const removeOutputNewline = (text: string) => text.replace(/\r?\n$/u, '');
+const worktreeStatusArgs = ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'];
 
 function stateFailure(error: unknown, runtime: Runtime) {
   if (runtime.signal?.aborted || (error as { code?: string }).code === 'ASTRAGIT_CANCELLED') return error;
@@ -130,11 +131,17 @@ export async function readRepositoryStatus(cwd: string, runtime: Runtime) {
   if (!reader) return null;
   const current = await identity(reader);
   const [porcelain, remotes, recent] = await Promise.all([
-    text(reader, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none']),
+    text(reader, worktreeStatusArgs),
     text(reader, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes']),
     current.headSha ? text(reader, ['log', '-n', '5', '--pretty=format:%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%P', current.headSha]) : Promise.resolve(''),
   ]);
   return { branch: current.branch, porcelain, remoteBranches: remotes.split('\n').filter(Boolean) satisfies GitStatusSummary['remoteBranches'], recent };
+}
+
+export async function readRootWorktreeStatus(cwd: string, runtime: Runtime): Promise<string | null> {
+  const reader = await repositoryReader(cwd, runtime);
+  if (!reader || await realpath(reader.cwd) !== await realpath(cwd)) return null;
+  return text(reader, worktreeStatusArgs);
 }
 
 export async function readRepositoryClean(cwd: string, ignoredPaths: string[], runtime: Runtime): Promise<boolean> {

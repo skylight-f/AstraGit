@@ -127,7 +127,9 @@ export function ProjectSourceChanges(props: {
     if (!active) return;
     // 原生下拉菜单与草稿编辑期间不重绘列表；提交前仍重新读取并核对指纹。
     const load = () => { if (!busyRef.current && !generating && !props.repositoryCommandBusy && !document.querySelector('dialog[open], .git-pane-separator[data-dragging]') && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName ?? '')) void refresh().catch(reason => setError(gitFailureText(reason))); };
-    load(); const unsubscribe = subscribeProjectGitRefresh(project.id, load);
+    const lastRead = Date.parse(snapshotRef.current?.refreshedAt ?? '') || 0;
+    if (Date.now() - lastRead >= 5000) load();
+    const unsubscribe = subscribeProjectGitRefresh(project.id, load);
     const timer = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 5000);
     return () => { clearInterval(timer); unsubscribe(); };
   }, [active, project.id, refresh, generating, props.repositoryCommandBusy]);

@@ -329,6 +329,15 @@ export async function startGitServer(options: StartGitServerOptions): Promise<Ru
     }
   });
 
+  server.get('/api/projects/:projectId/git/workbench/initial-changes', async (request: FastifyRequest<{ Params: { projectId: string } }>, reply) => {
+    const controller = new AbortController();
+    const disconnected = () => { if (!reply.raw.writableFinished) controller.abort(); };
+    reply.raw.once('close', disconnected);
+    try { return await workbench.loadInitialChanges(request.params.projectId, controller.signal); }
+    catch (error) { return sendNativeQueryRouteError(reply, error); }
+    finally { reply.raw.off('close', disconnected); }
+  });
+
   server.post('/api/projects/:projectId/git/workbench/repositories/:repositoryId/auto-fetch', async (request: FastifyRequest<{ Params: { projectId: string; repositoryId: string } }>, reply) => {
     const controller = new AbortController();
     const disconnected = () => { if (!reply.raw.writableEnded) controller.abort(); };

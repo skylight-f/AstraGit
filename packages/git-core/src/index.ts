@@ -1,6 +1,6 @@
 export type { GitCodeReviewInput, GitCodeReviewScope, GitCodeReviewReport, GitCodeReviewFinding, GitCodeReviewEvent } from './gitCodeReviewTypes.js';
 import { parseGitUnifiedDiff } from './gitUnifiedDiff.js';
-import { readRepositoryContext, readRepositoryStatus, readRepositoryClean, readRepositoryRoot } from './gitRepositoryState.js';
+import { readRepositoryContext, readRepositoryStatus, readRepositoryClean, readRepositoryRoot, readRootWorktreeStatus } from './gitRepositoryState.js';
 import { gitDiffReader, gitDisplayDiffOptions, gitDisplayDiffMetadataOptions, readGitDiffMetadata, readGitDisplayDiff, readWorkspaceGitDiffs, type GitDiffUnavailableReason } from './gitDiffReader.js';
 import { readGitArchivePreview, writeGitArchive } from './gitArchive.js';
 export { parseGitArchiveInput } from './gitArchive.js';
@@ -379,6 +379,14 @@ export async function discoverGitRepositories(containerPath: string, maxDepth = 
   return projectGitExecution.run({ ...execution, signal: combined, env: { ...execution?.env, GIT_OPTIONAL_LOCKS: '0' } }, () => discoverGitRepositoriesInternal(containerPath, maxDepth, combined));
 }
 
+export async function hasGitRepositoryMarker(directoryPath: string): Promise<boolean> {
+  const marker = await lstat(join(directoryPath, '.git')).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  return Boolean(marker?.isDirectory() || marker?.isFile());
+}
+
 async function findRepositoryCandidates(containerRoot: string, maxDepth: number, signal?: AbortSignal, options?: { skipHidden: boolean; stopAtRepository: boolean; onUnreadable(): void }): Promise<string[]> {
   if (dirname(containerRoot) === containerRoot) throw new Error('请选择实际项目目录，不能在文件系统根目录发现仓库。');
   const candidates = new Set<string>();
@@ -389,11 +397,7 @@ async function findRepositoryCandidates(containerRoot: string, maxDepth: number,
     const nested = await mapWithConcurrency(currentLevel, 8, async (directoryPath) => {
       signal?.throwIfAborted();
       try {
-        const gitMarker = await lstat(join(directoryPath, '.git')).catch((error: NodeJS.ErrnoException) => {
-          if (error.code === 'ENOENT') return null;
-          throw error;
-        });
-        if (gitMarker?.isDirectory() || gitMarker?.isFile()) {
+        if (await hasGitRepositoryMarker(directoryPath)) {
           candidates.add(canonicalFilesystemPath(directoryPath));
           if (options?.stopAtRepository) return [];
         }
@@ -442,19 +446,31 @@ export async function verifyGitProjectDirectories(root: string, directories: str
   });
 }
 
-async function discoverGitRepositoriesInternal(containerPath: string, maxDepth: number, signal?: AbortSignal): Promise<DiscoveredGitRepository[]> {
+export type GitRepositoryLocation = Pick<DiscoveredGitRepository, 'name' | 'relativePath' | 'localPath'>;
+
+/** 候选目录只做文件系统扫描，由各调用方在读取时验证 Git 仓库根目录。 */
+export async function discoverGitRepositoryLocations(containerPath: string, maxDepth = 6, signal?: AbortSignal): Promise<GitRepositoryLocation[]> {
   const containerRoot = canonicalFilesystemPath(containerPath);
   const candidates = await findRepositoryCandidates(containerRoot, maxDepth, signal);
-  const discovered = await mapWithConcurrency(candidates, 4, async (localPath) => {
-    signal?.throwIfAborted();
-    const [context, clean] = await Promise.all([getGitRepositoryContext(localPath), getGitWorktreeClean(localPath)]);
-    if (!context.isRepository || canonicalFilesystemPath(context.topLevel) !== localPath) throw new Error(`无法读取 Git 仓库 ${localPath}，请检查目录权限和仓库状态。`);
+  return candidates.flatMap((localPath) => {
     const repositoryRelativePath = relative(containerRoot, localPath);
-    if (repositoryRelativePath === '..' || repositoryRelativePath.startsWith(`..${sep}`) || isAbsolute(repositoryRelativePath)) return null;
-    return {
+    if (repositoryRelativePath === '..' || repositoryRelativePath.startsWith(`..${sep}`) || isAbsolute(repositoryRelativePath)) return [];
+    return [{
       name: basename(localPath),
       relativePath: repositoryRelativePath ? repositoryRelativePath.split(sep).join('/') : '.',
       localPath,
+    }];
+  }).sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
+async function discoverGitRepositoriesInternal(containerPath: string, maxDepth: number, signal?: AbortSignal): Promise<DiscoveredGitRepository[]> {
+  const locations = await discoverGitRepositoryLocations(containerPath, maxDepth, signal);
+  return mapWithConcurrency(locations, 4, async (location) => {
+    signal?.throwIfAborted();
+    const [context, clean] = await Promise.all([getGitRepositoryContext(location.localPath), getGitWorktreeClean(location.localPath)]);
+    if (!context.isRepository || canonicalFilesystemPath(context.topLevel) !== location.localPath) throw new Error(`无法读取 Git 仓库 ${location.localPath}，请检查目录权限和仓库状态。`);
+    return {
+      ...location,
       branch: context.branch,
       headSha: context.headSha,
       clean,
@@ -463,7 +479,6 @@ async function discoverGitRepositoriesInternal(containerPath: string, maxDepth: 
       context,
     } satisfies DiscoveredGitRepository;
   });
-  return discovered.filter((candidate): candidate is DiscoveredGitRepository => candidate !== null).sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 }
 
 async function mapWithConcurrency<Input, Output>(items: Input[], concurrency: number, operation: (item: Input, index: number) => Promise<Output>): Promise<Output[]> {
@@ -1029,6 +1044,21 @@ export async function getGitStatus(cwd: string, signal?: AbortSignal): Promise<G
   return { isRepository: true, branch: state.branch, remoteBranches: state.remoteBranches, recentCommits: parseRecentCommits(state.recent), ...parseGitPorcelainStatus(state.porcelain) };
 }
 
+export interface ProjectGitInitialChanges {
+  repositoryName: string;
+  fileStatuses: GitStatusSummary['fileStatuses'];
+  conflictFiles: GitStatusSummary['conflictFiles'];
+}
+
+/** Read only the changes in the registered root, without walking for other repositories. */
+export async function getProjectGitInitialChanges(cwd: string, signal?: AbortSignal): Promise<ProjectGitInitialChanges | null> {
+  if (!await hasGitRepositoryMarker(cwd)) return null;
+  const porcelain = await readRootWorktreeStatus(cwd, fileHistoryRuntime(signal));
+  if (porcelain === null) return null;
+  const { fileStatuses, conflictFiles } = parseGitPorcelainStatus(porcelain);
+  return { repositoryName: basename(cwd), fileStatuses, conflictFiles };
+}
+
 async function readProjectGitIndexFingerprint(cwd: string): Promise<string> {
   // Stage entries include names, modes, blob identities and unresolved stages.
   // Reading them does not create trees or alter the user's index.
@@ -1325,11 +1355,13 @@ export async function getProjectGitTagTarget(cwd: string, revision: string, sign
 }
 
 /** 为项目 Git 工作台读取单仓完整快照；所有字段都来自当前本机仓库。 */
-export async function getProjectGitRepositorySnapshot(cwd: string): Promise<ProjectGitRepositorySnapshot> {
+export async function getProjectGitRepositorySnapshot(cwd: string, options: { requireRoot?: boolean } = {}): Promise<ProjectGitRepositorySnapshot> {
   const context = await getGitRepositoryContext(cwd);
+  if (options.requireRoot && (!context.isRepository || canonicalFilesystemPath(context.topLevel) !== canonicalFilesystemPath(cwd))) {
+    throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', `无法读取 Git 仓库 ${cwd}，请检查目录权限和仓库状态。`);
+  }
   if (!context.isRepository) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', 'The selected directory is not a Git repository.');
-  const [status, diffs, upstreamText, tagsText, headTagsText, reflogText, stashText, recentText, indexFingerprint] = await Promise.all([
-    getGitStatus(context.topLevel),
+  const [workspace, upstreamText, tagsText, headTagsText, reflogText, stashText, recentText, indexFingerprint] = await Promise.all([
     readWorkspaceGitDiffs(context.topLevel, parseGitPorcelainStatus, fileHistoryRuntime()),
     readGitStdout(context.topLevel, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}']),
     readGitStdout(context.topLevel, ['tag', '--sort=-creatordate']),
@@ -1352,7 +1384,8 @@ export async function getProjectGitRepositorySnapshot(cwd: string): Promise<Proj
     ]),
     readProjectGitIndexFingerprint(context.topLevel).catch(() => undefined),
   ]);
-  if (!diffs) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '读取期间仓库已不可用，请刷新仓库列表。');
+  if (!workspace) throw gitCoreError('ASTRAGIT_GIT_REPOSITORY_REQUIRED', '读取期间仓库已不可用，请刷新仓库列表。');
+  const { status, ...diffs } = workspace;
   const upstream = upstreamText || null;
   const divergence = upstream ? await readGitStdout(context.topLevel, ['rev-list', '--left-right', '--count', `${upstream}...HEAD`]) : '';
   const [behindText = '0', aheadText = '0'] = divergence.split(/\s+/u);

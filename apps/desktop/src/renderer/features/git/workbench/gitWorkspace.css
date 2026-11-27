@@ -111,6 +111,32 @@
   font-size: 12px;
   white-space: nowrap;
 }
+.project-git-initial-layout .git-content-toolbar {
+  flex-wrap: wrap;
+}
+.project-git-initial-feedback {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  color: var(--zeus-product-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.project-git-initial-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 23px;
+  padding-inline: 8px;
+  font-size: 12px;
+}
+.project-git-initial-file > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .git-content-toolbar > .git-stash-back {
   margin-inline-start: auto;
 }

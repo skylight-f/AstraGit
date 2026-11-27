@@ -89,7 +89,7 @@ export function combineGitDisplayDiffs(parts: GitDiffSummary[], files: string[])
 }
 
 /** Workspace snapshots keep usable status/metadata even when the patch is unavailable. */
-export async function readWorkspaceGitDiffs(cwd: string, parseStatus: (text: string) => Pick<GitStatusSummary, 'fileStatuses'>, runtime: Runtime = {}) {
+export async function readWorkspaceGitDiffs(cwd: string, parseStatus: (text: string) => Pick<GitStatusSummary, 'fileStatuses' | 'clean' | 'conflictFiles'>, runtime: Runtime = {}) {
   let reader = gitDiffReader(cwd, runtime);
   let root: string;
   try { root = (await reader.text(['rev-parse', '--show-toplevel'])).replace(/\r?\n$/u, ''); }
@@ -104,7 +104,8 @@ export async function readWorkspaceGitDiffs(cwd: string, parseStatus: (text: str
     readGitDiffMetadata(reader, ['diff', ...gitDisplayDiffMetadataOptions, '--cached', '--name-only', '-z', '--', '.']),
     readGitDiffMetadata(reader, ['status', '--porcelain', '-z', '--untracked-files=all', '--ignore-submodules=none']),
   ]);
-  const untracked = parseStatus(porcelain).fileStatuses.filter(file => file.indexStatus === '?').map(file => file.path);
+  const status = parseStatus(porcelain);
+  const untracked = status.fileStatuses.filter(file => file.indexStatus === '?').map(file => file.path);
   const unstagedFiles = unstagedNames.split('\0').filter(Boolean);
   const stagedFiles = stagedNames.split('\0').filter(Boolean);
   const files = [...new Set([...unstagedFiles, ...stagedFiles, ...untracked])];
@@ -134,5 +135,5 @@ export async function readWorkspaceGitDiffs(cwd: string, parseStatus: (text: str
   }
   const diff = combineGitDisplayDiffs(parts.map(part => part.diff), files);
   if (!diff.unavailableReason) diff.fileDiffs = parts.flatMap(part => part.diff.fileDiffs.map(file => ({ ...file, stage: part.stage })));
-  return { diff, stagedDiff: staged, unstagedDiff: unstaged };
+  return { status, diff, stagedDiff: staged, unstagedDiff: unstaged };
 }

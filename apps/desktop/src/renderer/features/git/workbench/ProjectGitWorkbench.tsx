@@ -19,7 +19,6 @@ import { createPortal } from 'react-dom';
 import { ArchiveIcon as Archive } from '@phosphor-icons/react/dist/csr/Archive';
 import { ArrowsClockwiseIcon as ArrowsClockwise } from '@phosphor-icons/react/dist/csr/ArrowsClockwise';
 import { CheckCircleIcon as CheckCircle } from '@phosphor-icons/react/dist/csr/CheckCircle';
-import { CircleNotchIcon as CircleNotch } from '@phosphor-icons/react/dist/csr/CircleNotch';
 import { FolderIcon as Folder } from '@phosphor-icons/react/dist/csr/Folder';
 import { GitBranchIcon as GitBranch } from '@phosphor-icons/react/dist/csr/GitBranch';
 import { TagIcon as Tag } from '@phosphor-icons/react/dist/csr/Tag';
@@ -28,7 +27,6 @@ import { WarningCircleIcon as WarningCircle } from '@phosphor-icons/react/dist/c
 import type { GitHistorySearchField } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
 import { ModalPortal } from '../../../ui/ModalPortal.js';
-import { VisibleApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { ProjectGitDiffWindow } from '../diff/ProjectGitDiffViewer.js';
 import { GitAmendDialog } from '../commits/GitAmendDialog.js';
 import { GitInteractiveRebaseDialog } from '../history/GitInteractiveRebaseDialog.js';
@@ -58,6 +56,7 @@ import { GitOperationProgress, GitOperationStopButton } from '../components/GitO
 import { GitOperationsMenu } from './GitOperationsMenu.js';
 import type { GitContextTarget, ProjectGitWorkbenchProps } from './gitWorkbenchTypes.js';
 import { useProjectGitWorkbench } from './useProjectGitWorkbench.js';
+import { ProjectGitInitialChanges } from './ProjectGitInitialChanges.js';
 
 export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const {
@@ -102,7 +101,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       stagePreferenceNotice, stageRequest, stopOperation, stopPush,
     },
     workspace: {
-      error, fileQuery, ignoredQuery, loadState, loadWorkbench, refreshWorkbench, reportWorkbenchError,
+      error, fileQuery, ignoredQuery, initialChanges, loadState, loadWorkbench, refreshWorkbench, reportWorkbenchError,
       requestVersionRef, setFileQuery, setIgnoredQuery, setSnapshot, setSourceTarget, snapshot,
       sourceCommands, sourceLocked, sourceView, sourceVisible, zh,
     },
@@ -119,22 +118,11 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   const missingHistoryRef = historyRef && historyRef !== 'HEAD' && !historyReferences.some(ref => ref.value === historyRef);
 
   let workbenchState: ReactNode = null;
-  if (loadState === 'loading' && !snapshot) {
+  if (!snapshot) {
     workbenchState = (
-      <section className="project-git-workbench-state" aria-live="polite">
-        <CircleNotch aria-hidden="true" className="project-git-spinner" />
-        <strong>{zh ? '正在读取项目的 Git 状态' : 'Loading the project’s Git status'}</strong>
-        <span>{zh ? '正在查找项目中的 Git 仓库。' : 'Finding Git repositories in this project.'}</span>
-      </section>
-    );
-  } else if (loadState === 'error' && !snapshot) {
-    workbenchState = (
-      <section className="project-git-workbench-state" role="alert">
-        <VisibleApplicationError error={error} language={zh ? 'zh-CN' : 'en'} />
-        <Button variant="secondary" onClick={() => void loadWorkbench()}>
-          {zh ? '重新读取' : 'Reload'}
-        </Button>
-      </section>
+      <ProjectGitInitialChanges changes={initialChanges} zh={zh}
+        error={loadState === 'error' ? (error ?? (zh ? '无法读取项目 Git 状态。' : 'Could not load project Git status.')) : null}
+        onRetry={refreshWorkbench} />
     );
   } else if (repositories.length === 0) {
     workbenchState = (
@@ -334,14 +322,14 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         </section>
       ) : null}
 
-      {props.commandHost && (props.commitViewNavigation || sourceVisible || !workbenchState) ? createPortal(
+      {props.commandHost && (props.commitViewNavigation || sourceVisible || !snapshot || !workbenchState) ? createPortal(
         <div className="git-command-strip">
           {props.commitViewNavigation}
           {toolbar}
         </div>,
         props.commandHost,
       ) : null}
-      {sourceView ? (
+      {sourceView && snapshot ? (
         <div className="project-git-source-view" hidden={!sourceVisible}>
           <ProjectSourceChanges
             project={props.project}
@@ -368,7 +356,7 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
           />
         </div>
       ) : null}
-      {workbenchState ? (!sourceVisible ? workbenchState : null) : (
+      {workbenchState ? (!sourceVisible || !snapshot ? workbenchState : null) : (
       <div className="project-git-browser-layout" data-view={tab} hidden={sourceVisible}>
         <aside className="project-git-navigator" aria-label={zh ? 'Git 导航' : 'Git navigation'}>
           <section className="git-history-repositories" aria-label={zh ? '仓库导航' : 'Repository navigation'}>

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { Writable } from 'node:stream';
 import {
@@ -10,7 +10,7 @@ import {
   getProjectGitLineDiff, parseGitLineDiffInput, parseGitLineChange,
   getProjectGitLfsState, getProjectGitLfsPreview, parseGitLfsChange,
   getProjectGitFlowState, getProjectGitFlowPreview, parseGitFlowChange,
-  discoverGitRepositories,
+  discoverGitRepositories, discoverGitRepositoryLocations, hasGitRepositoryMarker, type GitRepositoryLocation,
   autoFetchProjectGitRepository,
   getProjectGitExternalToolSettings,
   getProjectGitExternalToolPreview,
@@ -47,6 +47,7 @@ import {
   type GitFileHistoryQuery,
   type GitFileRevisionQuery,
   getProjectGitRepositorySnapshot,
+  getProjectGitInitialChanges,
   getProjectGitRepositorySettings,
   getProjectGitCommitTemplate,
   parseGitCommitTemplateChange,
@@ -170,19 +171,35 @@ export class ProjectGitWorkbenchService {
 
   async loadWorkbench(projectId: string): Promise<ProjectGitWorkbenchSnapshot> {
     const project = this.requireProject(projectId);
-    const repositories = await discoverGitRepositories(project.localPath);
+    const loadRepository = async (location: GitRepositoryLocation) => {
+      const [snapshot, navigation] = await Promise.all([
+        getProjectGitRepositorySnapshot(location.localPath, { requireRoot: true }),
+        loadNavigationMetadata(location.localPath),
+      ]);
+      return { ...navigation, id: stableRepositoryId(project.id, location.relativePath), name: location.name, relativePath: location.relativePath, snapshot };
+    };
+    // Start reading the known root while discovering any other repositories in the project.
+    const rootLocation = { localPath: project.localPath, name: basename(project.localPath), relativePath: '.' };
+    const root = hasGitRepositoryMarker(project.localPath).then(found => found ? loadRepository(rootLocation) : null);
+    const discovered = discoverGitRepositoryLocations(project.localPath).then(locations => mapWithConcurrency(locations, async location => {
+      if (location.relativePath === '.') {
+        const loaded = await root;
+        if (loaded) return loaded;
+      }
+      return loadRepository(location);
+    }));
+    const [repositories] = await Promise.all([discovered, root]);
     return {
       projectId: project.id,
       projectName: project.name,
       refreshedAt: new Date().toISOString(),
-      repositories: await mapWithConcurrency(repositories, async (repository) => ({
-        ...(await loadNavigationMetadata(repository.localPath)),
-        id: stableRepositoryId(project.id, repository.relativePath),
-        name: repository.name,
-        relativePath: repository.relativePath,
-        snapshot: await getProjectGitRepositorySnapshot(repository.localPath),
-      })),
+      repositories,
     };
+  }
+
+  loadInitialChanges(projectId: string, signal?: AbortSignal) {
+    const project = this.requireProject(projectId);
+    return this.withReadQuery(signal, combined => getProjectGitInitialChanges(project.localPath, combined));
   }
 
   async loadHistory(projectId: string, repositoryId: string, offset: number, ref?: string) {
