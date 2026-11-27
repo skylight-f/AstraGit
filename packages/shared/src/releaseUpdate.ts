@@ -10,17 +10,15 @@ export interface ReleaseManifest {
   schemaVersion: 1; appId: 'com.astragit.desktop'; repository: typeof releaseRepository;
   version: string; sourceCommit: string; signed: boolean; notarized: boolean; minimumSystemVersion: string;
   artifacts: ReleaseArtifact[];
+  releaseNotes?: string;
 }
 export interface ReleaseUpdateStatus {
   status: 'up_to_date' | 'available' | 'unavailable'; currentVersion: string; latestVersion: string;
   releasePageUrl: string; artifact: DesktopReleaseArtifact | null; automaticInstallEnabled: boolean; reason: string;
   installMethod: 'homebrew' | 'direct';
   checkedAt?: string;
+  releaseNotes?: string;
   error?: unknown;
-}
-export interface ApplicationReleaseNotes {
-  version: string;
-  markdown: string;
 }
 export interface HomebrewUpdateIndicatorState {
   phase: 'idle' | 'available' | 'manual' | 'downloaded' | 'preparing' | 'retrying' | 'ready' | 'failed';
@@ -32,6 +30,7 @@ export interface HomebrewUpdateIndicatorState {
   updatedAt: string;
   progress?: number;
   progressText?: string;
+  releaseNotes?: string;
   retryAt?: string;
   failure?: { step: 'check' | 'prepare' | 'download' | 'install'; title: string; technicalDetail?: string; canRetry: boolean };
 }

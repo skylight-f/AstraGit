@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ApplicationReleaseNotes, HomebrewUpdateIndicatorState } from '@astragit/shared';
+import type { HomebrewUpdateIndicatorState } from '@astragit/shared';
 
 const bootstrap = {
   getBootstrap: () => ipcRenderer.invoke('astragit:get-bootstrap') as Promise<{ baseUrl: string; apiToken: string; language: 'zh-CN' | 'en-US'; customTitlebar?: boolean; development?: boolean } | null>,
@@ -17,7 +17,6 @@ contextBridge.exposeInMainWorld('astraGit', {
   cancelSourceArchive: (id: string) => ipcRenderer.invoke('astragit:archive-file-cancel', id),
   performFileAction: (request: { projectId: string; repositoryId: string; path: string; intent: 'open' | 'reveal' | 'edit-ignore-rule' }) => ipcRenderer.invoke('astragit:file-action', request),
   rendererReady: () => ipcRenderer.invoke('astragit:renderer-ready'),
-  loadReleaseNotes: (version: string) => ipcRenderer.invoke('astragit:release-notes', version) as Promise<ApplicationReleaseNotes>,
   openUpdates: (language: 'zh-CN' | 'en-US') => ipcRenderer.invoke('astragit:update-open', language),
   performUpdateAction: (action: 'check' | 'prepare' | 'restart', language: 'zh-CN' | 'en-US') => ipcRenderer.invoke('astragit:update-action', action, language),
   getUpdateIndicator: () => ipcRenderer.invoke('astragit:update-indicator-get'),

@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { access, lstat, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compareReleaseVersions, parseReleaseManifest, releasePageUrl, type ReleaseUpdateProgress, type ReleaseUpdateStatus } from '@astragit/shared';
+import { boundedReleaseNotes, compareReleaseVersions, parseReleaseManifest, releasePageUrl, type ReleaseUpdateProgress, type ReleaseUpdateStatus } from '@astragit/shared';
 import { execFile, readSigningTeam, verifyReleaseApp } from './releaseVerification.js';
 import { downloadVerifiedArtifact, verifyDownloadedArtifact } from './releaseArtifact.js';
 import type { HomebrewUpdateProgress } from './homebrewUpdateService.js';
@@ -48,13 +48,13 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
     pending = (async () => {
       try {
         if (platform === 'win32') {
-          const { version, artifact } = await readWindowsRelease(fetchRelease, arch);
+          const { version, artifact, releaseNotes } = await readWindowsRelease(fetchRelease, arch);
           const newer = compareReleaseVersions(version, options.version) > 0;
           const installable = newer && artifact && options.packaged && options.onWindowsInstallReady
             && await (dependencies.readWindowsInstallScope ?? readWindowsInstallScope)(options.executablePath);
           checked = {
             ...current, status: newer ? (artifact ? 'available' : 'unavailable') : 'up_to_date',
-            latestVersion: version, artifact, checkedAt: new Date().toISOString(),
+            latestVersion: version, artifact, releaseNotes, checkedAt: new Date().toISOString(),
             releasePageUrl: `${releasePageUrl}/tag/v${version}`, automaticInstallEnabled: Boolean(installable),
             reason: !newer ? '已是最新版本。' : !artifact ? '本次发布没有适用且可校验的 Windows 安装包。' : installable ? '' : '请使用 AstraGit 的 Windows 安装包手动更新。',
           };
@@ -78,7 +78,7 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
             catch { installReason = '应用所在目录不可写，请手动安装。'; }
           }
         }
-        checked = { ...current, status: newer ? artifact && systemSupported ? 'available' : 'unavailable' : 'up_to_date', latestVersion: manifest.version, artifact, checkedAt: new Date().toISOString(), releasePageUrl: `${releasePageUrl}/tag/v${manifest.version}`, automaticInstallEnabled: installable && newer && systemSupported && Boolean(artifact), reason: !newer ? '已是最新版本。' : !systemSupported ? `新版要求 macOS ${manifest.minimumSystemVersion} 或更高版本。` : !artifact ? '本次发布没有匹配当前架构的安装包。' : installReason };
+        checked = { ...current, status: newer ? artifact && systemSupported ? 'available' : 'unavailable' : 'up_to_date', latestVersion: manifest.version, artifact, releaseNotes: boundedReleaseNotes(manifest.releaseNotes), checkedAt: new Date().toISOString(), releasePageUrl: `${releasePageUrl}/tag/v${manifest.version}`, automaticInstallEnabled: installable && newer && systemSupported && Boolean(artifact), reason: !newer ? '已是最新版本。' : !systemSupported ? `新版要求 macOS ${manifest.minimumSystemVersion} 或更高版本。` : !artifact ? '本次发布没有匹配当前架构的安装包。' : installReason };
       } catch (reason) { checked = { ...current, reason: `无法完成更新检查：${reason instanceof Error ? reason.message : String(reason)}。请稍后重试或查看发布页。` }; }
       return checked;
     })().finally(() => { pending = null; });

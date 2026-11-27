@@ -1313,7 +1313,8 @@ export function PushDialog(props: {
   repositories: ProjectGitRepositoryWorkbenchItem[];
   selectedRepository: ProjectGitRepositoryWorkbenchItem | null;
   busy: BusyState;
-  onStop?: (repositoryId: string) => void;
+  stopping: boolean;
+  onStop: () => void;
   results: Array<{ repositoryId: string; repositoryName: string; tone: OperationTone; message: string }>;
   onClose: () => void;
   onPush: (selections: PushSelection[], forceWithLease: boolean, pushTags: boolean) => Promise<void>;
@@ -1342,6 +1343,12 @@ export function PushDialog(props: {
   const duplicateTarget = selections.some((item, index) =>
     selections.some((other, otherIndex) => index !== otherIndex && item.repositoryId === other.repositoryId && item.remote === other.remote && item.targetBranch.trim() === other.targetBranch.trim()),
   );
+  const activePush = submitting && props.busy?.action === 'push' ? props.busy : null;
+  const canSubmit = !locked && selections.length > 0 && !duplicateTarget && selections.every(item => item.remote && item.targetBranch.trim());
+  const submitLabel = resultMode ? (props.zh ? '重试推送' : 'Retry push') : props.zh ? '推送' : 'Push';
+  const runningLabel = props.stopping ? (props.zh ? '正在中止…' : 'Stopping…')
+    : activePush ? (props.zh ? '中止推送' : 'Stop push')
+    : (props.zh ? '推送中…' : 'Pushing…');
   return (
     <GitOperationDialog className="project-git-reference-dialog project-git-sync-dialog" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '推送' : 'Push'}>
         <header>
@@ -1410,17 +1417,24 @@ export function PushDialog(props: {
           ) : null}
         </main>
         <footer>
-          {props.busy && <SyncOperationNotice busy={props.busy} repository={props.repositories.find(item => item.id === props.busy?.repositoryId)} zh={props.zh} onStop={props.onStop} />}
+          {activePush && <SyncOperationNotice busy={activePush} repository={props.repositories.find(item => item.id === activePush.repositoryId)} zh={props.zh} />}
           <Button variant="secondary" disabled={locked} onClick={props.onClose}>
             {resultMode ? (props.zh ? '关闭' : 'Close') : props.zh ? '取消' : 'Cancel'}
           </Button>
           {!completed ? (
             <Button
-              variant="primary"
-              busy={submitting}
-              disabled={locked || !selections.length || duplicateTarget || selections.some((item) => !item.remote || !item.targetBranch.trim())}
+              variant={submitting ? 'secondary' : 'primary'}
+              busy={submitting && (props.stopping || !activePush)}
+              disabled={submitting ? !activePush : !canSubmit}
+              onKeyDown={event => {
+                if (event.repeat && event.key === 'Enter') event.preventDefault();
+              }}
               onClick={async () => {
-                if (locked) return;
+                if (submitting) {
+                  if (activePush && !props.stopping) props.onStop();
+                  return;
+                }
+                if (!canSubmit) return;
                 setSubmitting(true);
                 try {
                   await props.onPush(
@@ -1433,7 +1447,7 @@ export function PushDialog(props: {
                 }
               }}
             >
-              {resultMode ? (props.zh ? '重试推送' : 'Retry push') : props.zh ? '推送' : 'Push'}
+              {submitting ? runningLabel : submitLabel}
             </Button>
           ) : null}
         </footer>

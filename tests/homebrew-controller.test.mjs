@@ -92,10 +92,15 @@ function actionFixture(t, input = {}) {
 }
 
 test('explicit check upgrades silently; ready restart confirms and revalidates without another brew upgrade', async t => {
-  const f = actionFixture(t);
+  const releaseNotes = '- 优化提交历史';
+  const f = actionFixture(t, { update: { releaseNotes } });
+  const readings = [];
+  f.controller.onIndicatorState(state => readings.push(state));
   await f.controller.performAction('restart'); assert.deepEqual(f.events, []);
   const ready = await f.controller.performAction('check');
   assert.equal(ready.phase, 'ready'); assert.equal(f.hosts(), 0); assert.deepEqual(f.events, ['brew-upgrade']);
+  assert.equal(ready.releaseNotes, releaseNotes);
+  assert.ok(readings.some(state => state.phase === 'preparing' && state.releaseNotes === releaseNotes));
   await f.controller.performAction('prepare'); assert.equal(f.prepares(), 1);
   const cancelled = await f.controller.performAction('restart');
   assert.equal(cancelled.phase, 'ready'); assert.deepEqual(f.events, ['brew-upgrade', 'confirm']); assert.equal(f.hosts(), 0);

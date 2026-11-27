@@ -433,7 +433,7 @@ export function App(props: AppProps) {
               AstraGit
               {props.development ? <span className="gitapp-titlebar-development">Development</span> : null}
             </strong>
-            <ReleaseUpdateButton zh={zh} update={applicationUpdates} disabled={sourceBatchBusy || repositorySetup.busy} onInspect={() => openSettings('updates')} />
+            <ReleaseUpdateButton zh={zh} update={applicationUpdates} onInspect={() => openSettings('updates')} />
           </div>
           <WorkspaceSearch client={props.client} projects={sortedProjects} project={activeProject} zh={zh} mac={props.customTitlebar === true} disabled={sourceBatchBusy || repositorySetup.busy} onNavigate={navigateSearch} />
           <div className="gitapp-titlebar-actions"><button ref={reviewButton} type="button" disabled={!activeProject || settingsOpen} aria-label={zh ? '代码评审' : 'Code review'} title={zh ? '代码评审' : 'Code review'} aria-expanded={reviewVisible} aria-controls="gitapp-code-review" onClick={() => { setReviewVisited(true); setReviewOpen(value => !value); }}><ShieldCheck size={19} /><span>{zh ? '评审' : 'Review'}</span></button></div>

@@ -10,7 +10,6 @@ import { startGitServer, type RunningGitServer } from '@astragit/git-server';
 import { describeUserFacingError, releasePageUrl } from '@astragit/shared';
 import { resolveCliSearchPath } from '@astragit/ai-runtime';
 import { createReleaseUpdateService } from './releaseUpdateService.js';
-import { readApplicationReleaseNotes } from './applicationReleaseNotes.js';
 import { applicationIdentity } from './applicationIdentity.js';
 import { configureChromiumStorage } from './chromiumStoragePolicy.js';
 import { createRepositoryFileLauncher } from './repositoryFileLauncher.js';
@@ -364,11 +363,6 @@ async function loadMainWindow(): Promise<void> {
     ipcMain.removeHandler(name);
     ipcMain.handle(name, event => { if (event.sender !== mainWindow?.webContents) throw new Error('更新请求来源无效。'); return action(); });
   };
-  ipcMain.removeHandler('astragit:release-notes');
-  ipcMain.handle('astragit:release-notes', (event, version: unknown) => {
-    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('更新内容请求来源无效。');
-    return readApplicationReleaseNotes(version, (input, init) => net.fetch(input as string, init));
-  });
   handle('astragit:update-indicator-get', async () => { await updateInitialization; return homebrewUpdates?.getIndicatorState() ?? null; });
   ipcMain.removeHandler('astragit:update-action');
   ipcMain.handle('astragit:update-action', async (event, action: unknown, language: unknown) => {

@@ -150,69 +150,16 @@
 }
 .git-content-toolbar.is-history-toolbar { flex-wrap: wrap; }
 .git-content-toolbar.is-history-toolbar > select { flex: 0 1 auto; min-width: 90px; max-width: min(230px, 100%); }
-.git-content-toolbar.is-history-toolbar > label { flex: 1 1 180px; }
-.git-content-toolbar select {
-  appearance: auto;
-  box-sizing: border-box;
-  min-height: var(--ag-tool-size);
+.git-content-toolbar.is-history-toolbar > .zeus-search-field { flex: 1 1 180px; }
+.git-content-toolbar > select {
   max-width: 230px;
   min-width: 100px;
-  padding: 4px 6px;
-  color: inherit;
-  background: var(--ag-control);
-  border: 1px solid var(--ag-control-line);
-  border-radius: var(--ag-control-radius);
-  font: inherit;
-  font-size: 11px;
 }
-.git-content-toolbar > label {
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.git-content-toolbar > .zeus-search-field {
   flex: 1;
-  min-height: var(--ag-tool-size);
   min-width: 80px;
   max-width: 300px;
-  margin-left: auto;
-  padding: 0 7px;
-  border: 1px solid var(--ag-control-line);
-  border-radius: var(--ag-control-radius);
-  background: var(--ag-control);
-  cursor: text;
-}
-.git-content-toolbar > select:focus-visible,
-.git-content-toolbar > label:focus-within {
-  border-color: var(--ag-focus);
-  outline: 2px solid var(--ag-focus);
-  outline-offset: -2px;
-  background: var(--ag-panel);
-}
-.git-content-toolbar > select:focus-visible {
-  box-shadow: none;
-}
-.git-content-toolbar > label > svg {
-  width: 14px;
-  height: 14px;
-  color: var(--zeus-product-muted);
-  flex-shrink: 0;
-}
-.git-content-toolbar input {
-  width: 100%;
-  min-block-size: 0;
-  min-width: 0;
-  font: inherit;
-  font-size: 11px;
-  background: transparent;
-  color: inherit;
-  border: 0;
-  padding: 3px 0;
-  box-shadow: none;
-  outline: 0;
-}
-.git-content-toolbar > label > input:focus-visible {
-  box-shadow: none;
-  outline: 0;
+  margin-inline-start: auto;
 }
 .git-branch-repositories {
   display: flex;

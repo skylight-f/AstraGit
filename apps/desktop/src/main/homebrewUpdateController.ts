@@ -1,4 +1,4 @@
-import { compareReleaseVersions, describeUserFacingError, redactUserFacingErrorDetails } from '@astragit/shared';
+import { boundedReleaseNotes, compareReleaseVersions, describeUserFacingError, redactUserFacingErrorDetails } from '@astragit/shared';
 import type { ReleaseUpdateStatus as DesktopReleaseUpdateStatus, HomebrewUpdateIndicatorState } from '@astragit/shared';
 import type { DirectReleaseUpdateService as ReleaseUpdateService } from './releaseUpdateService.js';
 export type { HomebrewUpdateIndicatorState } from '@astragit/shared';
@@ -125,9 +125,11 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
 
   function setIndicator(next: Omit<HomebrewUpdateIndicatorState, 'updatedAt'> & { updatedAt?: string }): void {
     if (closed) return;
+    const releaseNotes = currentUpdate?.latestVersion === next.latestVersion ? currentUpdate?.releaseNotes : undefined;
     indicatorState = {
       ...(updateMethod ? { method: updateMethod } : {}),
       ...next,
+      ...(releaseNotes ? { releaseNotes } : {}),
       updatedAt: next.updatedAt ?? new Date().toISOString(),
     };
     for (const listener of indicatorListeners) listener({ ...indicatorState });
@@ -483,7 +485,9 @@ export function createHomebrewUpdateController(options: CreateHomebrewUpdateCont
     restoreIndicatorState: (state) => {
       if (closed) return;
       if (!isIndicatorState(state) || state.currentVersion !== options.currentVersion || state.phase === 'idle') return;
-      indicatorState = { ...state };
+      const { releaseNotes, ...saved } = state;
+      const notes = boundedReleaseNotes(releaseNotes);
+      indicatorState = { ...saved, ...(notes ? { releaseNotes: notes } : {}) };
       updateMethod = state.method ?? null;
       phase = state.phase === 'ready' ? 'ready' : state.phase === 'failed' ? 'failed' : state.phase === 'manual' || state.phase === 'downloaded' ? state.phase : 'available';
       lastFailureStep = state.failure?.step ?? 'check';
@@ -521,7 +525,8 @@ function samePreparedUpdate(prepared: PreparedUpdate, update: DesktopReleaseUpda
 }
 
 function readyUpdate(prepared: PreparedUpdate): DesktopReleaseUpdateStatus {
-  return prepared.method === 'homebrew' ? { ...prepared.update, latestVersion: prepared.installed.version } : prepared.update;
+  if (prepared.method === 'direct' || prepared.installed.version === prepared.update.latestVersion) return prepared.update;
+  return { ...prepared.update, latestVersion: prepared.installed.version, releaseNotes: undefined };
 }
 
 function hasNewerVersion(update: DesktopReleaseUpdateStatus): boolean {

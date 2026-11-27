@@ -23,7 +23,7 @@ import { CircleNotchIcon as CircleNotch } from '@phosphor-icons/react/dist/csr/C
 import { FolderIcon as Folder } from '@phosphor-icons/react/dist/csr/Folder';
 import { GitBranchIcon as GitBranch } from '@phosphor-icons/react/dist/csr/GitBranch';
 import { TagIcon as Tag } from '@phosphor-icons/react/dist/csr/Tag';
-import { MagnifyingGlassIcon as MagnifyingGlass } from '@phosphor-icons/react/dist/csr/MagnifyingGlass';
+import { SearchInput, Select } from '../../../ui/FormControls.js';
 import { WarningCircleIcon as WarningCircle } from '@phosphor-icons/react/dist/csr/WarningCircle';
 import type { GitHistorySearchField } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
@@ -96,9 +96,9 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       conflictCount, openFlowConflicts, openSubmoduleRepository,
       conflictRepository, conflictSaved, contextMenu, execute, executeWithResult, finishStageReview,
       launchRepositoryFile, menuConfirmation, operationErrorsByRepository, operationHistory,
-      operationNoticeRoot, pushResults, pushSelectedBranches, setCheckoutNotice, setConflictAction,
+      operationNoticeRoot, pushResults, pushSelectedBranches, pushStopping, setCheckoutNotice, setConflictAction,
       setContextMenu, setMenuConfirmation, setPushResults, setStagePreferenceNotice, showGitContextMenu,
-      stagePreferenceNotice, stageRequest, stopOperation, stopSyncOperation,
+      stagePreferenceNotice, stageRequest, stopOperation, stopPush, stopSyncOperation,
     },
     workspace: {
       error, fileQuery, ignoredQuery, loadState, loadWorkbench, refreshWorkbench, reportWorkbenchError,
@@ -546,9 +546,10 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         <div className="project-git-browser-content">
           <div className={`git-content-toolbar${tab === 'log' ? ' is-history-toolbar' : ''}`}>
             <strong>{tab === 'changes' || tab === 'ignored' ? (zh ? '文件状态' : 'File Status') : tab === 'log' ? (zh ? '提交历史' : 'Commit history') : tab === 'stash' ? (zh ? '贮藏' : 'Stashes') : zh ? '操作记录' : 'Operation history'}</strong>
-            {(tab === 'changes' || tab === 'ignored') && selectedRepository ? <select aria-label={zh ? '文件范围' : 'File scope'} value={tab} onChange={event => setTab(event.currentTarget.value === 'ignored' ? 'ignored' : 'changes')}><option value="changes">{zh ? '更改文件' : 'Changed files'}</option><option value="ignored">{zh ? '已忽略文件' : 'Ignored files'}</option></select> : null}
+            {(tab === 'changes' || tab === 'ignored') && selectedRepository ? <Select density="compact" aria-label={zh ? '文件范围' : 'File scope'} value={tab} onChange={event => setTab(event.currentTarget.value === 'ignored' ? 'ignored' : 'changes')}><option value="changes">{zh ? '更改文件' : 'Changed files'}</option><option value="ignored">{zh ? '已忽略文件' : 'Ignored files'}</option></Select> : null}
             {tab === 'log' && selectedRepository ? (
-              <select
+              <Select
+                density="compact"
                 aria-label={zh ? '历史分支范围' : 'History branch scope'}
                 value={historyRef}
                 onChange={(event) => {
@@ -561,24 +562,22 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
                 <option value="HEAD">{zh ? '当前分支' : 'Current branch'}</option>
                 {historyRef && historyRef !== 'HEAD' && ![...selectedRepository.snapshot.localBranches.map(ref => `refs/heads/${ref}`), ...selectedRepository.snapshot.remoteBranches.map(ref => `refs/remotes/${ref}`), ...selectedRepository.snapshot.tags.map(ref => `refs/tags/${ref}`)].includes(historyRef) ? <option value={historyRef}>{historyRef.replace(/^refs\/(?:heads|remotes|tags)\//u, '')}</option> : null}
                 {([['heads', zh ? '本地' : 'Local', selectedRepository.snapshot.localBranches], ['remotes', zh ? '远程' : 'Remote', selectedRepository.snapshot.remoteBranches], ['tags', zh ? '标签' : 'Tag', selectedRepository.snapshot.tags]] as const).flatMap(([namespace, label, refs]) => refs.map(ref => <option key={`${namespace}:${ref}`} value={`refs/${namespace}/${ref}`}>{label} · {ref}</option>))}
-              </select>
+              </Select>
             ) : null}
             {tab === 'log' ? <>
-              <select aria-label={zh ? '历史搜索字段' : 'History search field'} value={historyField} onChange={event => setHistoryField(event.target.value as GitHistorySearchField)}>
+              <Select density="compact" aria-label={zh ? '历史搜索字段' : 'History search field'} value={historyField} onChange={event => setHistoryField(event.currentTarget.value as GitHistorySearchField)}>
                 <option value="all">{zh ? '全部字段' : 'All fields'}</option><option value="message">{zh ? '完整提交说明' : 'Full commit message'}</option><option value="author">{zh ? '作者' : 'Author'}</option><option value="hash">{zh ? '提交哈希' : 'Commit hash'}</option>
-              </select>
-              <select aria-label={zh ? '历史排序' : 'History order'} value={historyOrder} onChange={event => setHistoryOrder(event.target.value === 'date' ? 'date' : 'topo')}><option value="topo">{zh ? '拓扑顺序' : 'Ancestor order'}</option><option value="date">{zh ? '日期顺序' : 'Date order'}</option></select>
+              </Select>
+              <Select density="compact" aria-label={zh ? '历史排序' : 'History order'} value={historyOrder} onChange={event => setHistoryOrder(event.currentTarget.value === 'date' ? 'date' : 'topo')}><option value="topo">{zh ? '拓扑顺序' : 'Ancestor order'}</option><option value="date">{zh ? '日期顺序' : 'Date order'}</option></Select>
             </> : null}
             {tab === 'changes' || tab === 'ignored' || tab === 'log' ? (
-              <label>
-                <MagnifyingGlass />
-                <input
-                  aria-label={tab === 'ignored' ? (zh ? '筛选当前忽略范围' : 'Filter current ignored scope') : tab === 'changes' ? (zh ? '筛选更改文件' : 'Filter changed files') : zh ? '搜索提交' : 'Search commits'}
-                  value={tab === 'ignored' ? ignoredQuery : tab === 'changes' ? fileQuery : searchQuery}
-                  onChange={(event) => (tab === 'ignored' ? setIgnoredQuery(event.currentTarget.value) : tab === 'changes' ? setFileQuery(event.currentTarget.value) : setSearchQuery(event.currentTarget.value))}
-                  placeholder={tab === 'ignored' ? (zh ? '筛选当前范围…' : 'Filter current scope…') : tab === 'changes' ? (zh ? '筛选文件…' : 'Filter files…') : zh ? '搜索完整历史的说明、作者或哈希…' : 'Search all history by message, author or hash…'}
-                />
-              </label>
+              <SearchInput
+                density="compact"
+                aria-label={tab === 'ignored' ? (zh ? '筛选当前忽略范围' : 'Filter current ignored scope') : tab === 'changes' ? (zh ? '筛选更改文件' : 'Filter changed files') : zh ? '搜索提交' : 'Search commits'}
+                value={tab === 'ignored' ? ignoredQuery : tab === 'changes' ? fileQuery : searchQuery}
+                onChange={(event) => (tab === 'ignored' ? setIgnoredQuery(event.currentTarget.value) : tab === 'changes' ? setFileQuery(event.currentTarget.value) : setSearchQuery(event.currentTarget.value))}
+                placeholder={tab === 'ignored' ? (zh ? '筛选当前范围…' : 'Filter current scope…') : tab === 'changes' ? (zh ? '筛选文件…' : 'Filter files…') : zh ? '搜索完整历史的说明、作者或哈希…' : 'Search all history by message, author or hash…'}
+              />
             ) : null}
           </div>
           {tab === 'log' ? (
@@ -765,7 +764,8 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
             repositories={repositories}
             selectedRepository={selectedRepository}
             busy={busy}
-            onStop={stopSyncOperation}
+            stopping={pushStopping}
+            onStop={stopPush}
             results={pushResults}
             onClose={() => {
               setPushOpen(false);

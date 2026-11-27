@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { win32 } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { releasePageUrl, releaseRepository, type WindowsReleaseArtifact } from '@astragit/shared';
+import { boundedReleaseNotes, extractReleaseNotes, releasePageUrl, releaseRepository, type WindowsReleaseArtifact } from '@astragit/shared';
 import { execFile } from './releaseVerification.js';
 import { createRelaunchEnvironment } from './systemProxyEnvironment.js';
 
@@ -15,7 +15,7 @@ export async function readWindowsRelease(fetchRelease: typeof fetch, arch: strin
   if (!response.ok) throw new Error('检查 Windows 更新失败：HTTP ' + response.status);
   const source = await response.text();
   if (source.length > 512_000) throw new Error('Windows 发布信息过大。');
-  const release = JSON.parse(source) as { tag_name?: unknown; draft?: unknown; prerelease?: unknown; assets?: unknown } | null;
+  const release = JSON.parse(source) as { tag_name?: unknown; draft?: unknown; prerelease?: unknown; assets?: unknown; body?: unknown } | null;
   if (release?.draft !== false || release.prerelease !== false || typeof release.tag_name !== 'string' || !/^v\d+\.\d+\.\d+$/u.test(release.tag_name) || !Array.isArray(release.assets)) {
     throw new Error('Windows 正式发布信息无效。');
   }
@@ -30,7 +30,8 @@ export async function readWindowsRelease(fetchRelease: typeof fetch, arch: strin
       artifact = { arch: 'x64', kind: 'exe', fileName, downloadUrl, sha256: asset.digest.slice(7), sizeBytes: asset.size };
     }
   }
-  return { version, artifact };
+  const releaseNotes = typeof release.body === 'string' ? boundedReleaseNotes(extractReleaseNotes(release.body)) : undefined;
+  return { version, artifact, releaseNotes };
 }
 
 // electron-builder's NSIS UUIDv5 of com.astragit.desktop. Keep the identity of existing installers.

@@ -31,6 +31,7 @@
   --zeus-space-7: 28px;
   --zeus-space-8: 32px;
   --zeus-control-height: 32px;
+  --zeus-control-compact-height: 26px;
   --zeus-dialog-padding: var(--zeus-space-6);
   --zeus-dialog-content-gap: var(--zeus-space-4);
   --zeus-dialog-section-gap: var(--zeus-space-3);

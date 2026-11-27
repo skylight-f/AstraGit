@@ -6,6 +6,7 @@ export * from './codexUsage.js';
 export * from './branchNames.js';
 export * from './codexContext.js';
 export * from './releaseUpdate.js';
+export * from './releaseNotes.js';
 export * from './gitConflictMarkers.js';
 export * from './repositorySetup.js';
 export * from './projectImport.js';

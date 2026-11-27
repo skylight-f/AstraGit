@@ -8,7 +8,7 @@ export function ApplicationUpdateSettings(props: { zh: boolean; update: Applicat
   const text = (cn: string, en: string) => zh ? cn : en;
   const state = update.state;
   const hasUpdate = hasApplicationUpdate(state);
-  const notesVersion = hasUpdate ? state?.latestVersion : state?.currentVersion;
+  const upcomingVersion = hasUpdate ? state?.latestVersion : null;
   const homebrew = state?.method === 'homebrew';
   const preparing = state?.phase === 'preparing';
   const downloading = preparing || state?.phase === 'retrying';
@@ -28,7 +28,9 @@ export function ApplicationUpdateSettings(props: { zh: boolean; update: Applicat
     <header><h2>{text('应用更新', 'App updates')}</h2><span>AstraGit {state?.currentVersion ?? '—'}</span></header>
     <p>{text('自动检查新版本并在后台准备更新，就绪后由你决定何时重启。', 'New versions are checked and prepared in the background. Choose when to restart once the update is ready.')}</p>
     {!update.supported ? <p>{text('当前环境未连接桌面更新服务。', 'The desktop update service is unavailable in this environment.')}</p> : <>
-      {notesVersion ? <ApplicationReleaseNotes key={notesVersion} requested={notesVersion} zh={zh} /> : null}
+      {upcomingVersion
+        ? <ApplicationReleaseNotes version={upcomingVersion} markdown={state?.releaseNotes} zh={zh} upcoming />
+        : state?.currentVersion ? <ApplicationReleaseNotes version={state.currentVersion} zh={zh} /> : null}
       <div className="gitapp-update-status" role="status">
         <strong>{status}</strong>
         {state?.phase === 'failed' ? <VisibleApplicationError error={{ message: state.detail, details: state.failure?.technicalDetail }} language={zh ? 'zh-CN' : 'en'} /> : detail ? <p>{state?.detail || detail}</p> : null}
@@ -51,6 +53,7 @@ export function ApplicationUpdateSettings(props: { zh: boolean; update: Applicat
           : canPrepareApplicationUpdate(state) ? <Button variant="primary" disabled={locked} onClick={() => void update.perform('prepare')}>{homebrew ? text('更新', 'Update') : text('后台下载更新', 'Download in background')}</Button> : null}
         {hasUpdate || state?.phase === 'failed' ? <Button variant="secondary" disabled={locked} onClick={() => void update.openDetails()}>{state?.phase === 'manual' || state?.phase === 'downloaded' ? text('查看安装方式', 'Installation options') : text('更新详情', 'Update details')}</Button> : null}
       </footer>
+      {upcomingVersion && state?.currentVersion ? <ApplicationReleaseNotes version={state.currentVersion} zh={zh} /> : null}
     </>}
   </section>;
 }

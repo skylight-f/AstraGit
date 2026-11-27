@@ -1,31 +1,28 @@
+/// <reference types="vite/client" />
+
 import { ArrowSquareOut } from '@phosphor-icons/react/dist/csr/ArrowSquareOut';
-import { useEffect, useState, type ReactNode } from 'react';
-import { releasePageUrl, releaseRepository, type ApplicationReleaseNotes as ReleaseNotes } from '@astragit/shared';
+import type { ReactNode } from 'react';
+import { extractReleaseNotes, releasePageUrl, releaseRepository } from '@astragit/shared';
 
-export function ApplicationReleaseNotes({ requested, zh }: { requested: string; zh: boolean }) {
-  const [notes, setNotes] = useState<ReleaseNotes | null>();
-  const load = window.astraGit?.loadReleaseNotes;
-  useEffect(() => {
-    let live = true;
-    void load?.(requested).then(value => { if (live) setNotes(value); }, () => { if (live) setNotes(null); });
-    return () => { live = false; };
-  }, [load, requested]);
+const bundledNotes = import.meta.glob<string>('../../../../../../releases/v*.md', { eager: true, query: '?raw', import: 'default' });
 
-  const version = notes?.version ?? (requested === 'latest' ? null : requested);
-  const url = version ? `${releasePageUrl}/tag/v${version}` : `${releasePageUrl}/latest`;
-  return <section className="gitapp-release-notes" aria-label={zh ? '更新内容' : 'Release notes'}>
+export function ApplicationReleaseNotes({ version, zh, upcoming = false, markdown }: { version: string; zh: boolean; upcoming?: boolean; markdown?: string }) {
+  const file = bundledNotes[`../../../../../../releases/v${version}.md`];
+  const notes = (file ? extractReleaseNotes(file) : '') || markdown;
+  const title = upcoming ? (zh ? '新版更新内容' : 'New version release notes') : (zh ? '更新内容' : 'Release notes');
+  const url = `${releasePageUrl}/tag/v${version}`;
+  return <section className="gitapp-release-notes" aria-label={title}>
     <header>
-      <h4>{zh ? '更新内容' : 'Release notes'}</h4>
-      {version ? <span className="gitapp-release-notes-version">v{version}</span> : null}
+      <h4>{title}</h4>
+      <span className="gitapp-release-notes-version">v{version}</span>
       <a href={url} target="_blank" rel="noreferrer">
         {zh ? '查看发布页' : 'View release'} <ArrowSquareOut size={14} aria-hidden="true" />
       </a>
     </header>
-    {notes?.markdown ? <div className="gitapp-release-notes-body">{renderNotes(notes.markdown, url)}</div> :
-      <p className="gitapp-release-notes-empty" role="status">{!load || notes === null
-        ? (zh ? '暂时无法读取发布说明。' : 'Release notes are temporarily unavailable.')
-        : notes ? (zh ? '此版本暂无发布说明。' : 'No release notes were provided for this version.')
-          : (zh ? '正在读取发布说明…' : 'Loading release notes…')}</p>}
+    {notes ? <div className="gitapp-release-notes-body">{renderNotes(notes, url)}</div> :
+      <p className="gitapp-release-notes-empty">{upcoming
+        ? (zh ? '可在发布页查看此版本的完整说明。' : 'See the release page for this version’s full notes.')
+        : (zh ? '此版本暂无内置发布说明。' : 'No release notes were bundled for this version.')}</p>}
   </section>;
 }
 

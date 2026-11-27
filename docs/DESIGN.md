@@ -34,6 +34,7 @@
 | 按钮 | 常规操作使用 `Button`。确认区通常只强调一个主动作，提交或保存用 `primary`，取消或关闭用 `secondary`，丢弃、删除等危险动作用 `danger`。工具栏和分类导航等无边框按钮使用 `ghost`。异步提交通过 `busy` 防止重复触发，并显示当前操作状态。[Button](../apps/desktop/src/renderer/ui/Button.tsx) |
 | 表单与弹窗 | 标准表单复用 `FormDialog`，文本框和带标签的复选框使用 `TextInput` 与 `CheckboxField`。复杂 Git 操作使用基于 `ModalPortal` 的 `GitOperationDialog`。弹窗提供可访问名称，主体内容可滚动，底部操作保持可达。危险确认说明操作对象和后果，处理期间按业务语义锁定表单或提供明确的中止入口。[FormDialog](../apps/desktop/src/renderer/ui/FormDialog.tsx) · [FormControls](../apps/desktop/src/renderer/ui/FormControls.tsx) · [GitOperationDialog](../apps/desktop/src/renderer/features/git/components/GitOperationDialog.tsx) |
 | 选项与菜单 | 简单表单选择使用保留原生行为的 `Select`，需要搜索、分组或置顶时使用 `ZeusSelect`。动作菜单用 `MenuSurface`，Git 右键操作沿用 `GitContextMenu`。选项和菜单动作使用对应语义，保留打开、定位和关闭时的键盘行为。[ZeusSelect](../apps/desktop/src/renderer/ui/ZeusSelect.tsx) · [MenuSurface](../apps/desktop/src/renderer/ui/MenuSurface.tsx) · [GitContextMenu](../apps/desktop/src/renderer/features/git/components/GitContextMenu.tsx) |
+| 工具栏筛选与搜索 | 同排的原生下拉 `Select` 和搜索框 `SearchInput` 使用 `density="compact"`，通过同一个 26px 尺寸变量对齐。工具栏负责分配宽度与换行。[FormControls](../apps/desktop/src/renderer/ui/FormControls.tsx) |
 | 文件、历史与差异 | Git 状态图标沿用 `GitFileStatusIcon`，提交历史沿用 `GitHistoryTable`，文件差异沿用 `SideBySideDiff`。保留现有选择、定位、复制和滚动方式，并在支持的场景提供左右两栏与统一视图。[文件状态图标](../apps/desktop/src/renderer/features/git/components/GitFileStatusIcon.tsx) · [历史表格](../apps/desktop/src/renderer/features/git/history/GitHistoryTable.tsx) · [差异查看器](../apps/desktop/src/renderer/features/git/diff/ProjectGitDiffViewer.tsx) |
 | 文件列表选中态 | 贮藏、提交历史和本地变更的文件行统一使用 `SelectableRow`。选中仅使用整行浅蓝色圆角底，禁止附加左侧竖线。键盘焦点保留独立轮廓，选中时悬停保持选中底色。[SelectableRow](../apps/desktop/src/renderer/ui/SelectableRow.tsx) |
 | 分栏与错误 | Git 工作区的可调面板使用 `GitPaneSeparator`，提供拖动、方向键和恢复默认入口。失败反馈沿用应用错误组件，提示失败的操作及适用的恢复入口。合理区分加载中、空结果、已完成和失败。[分栏控件](../apps/desktop/src/renderer/features/git/components/GitPaneSeparator.tsx) · [错误组件](../apps/desktop/src/renderer/ui/ApplicationErrorDialog.tsx) |
@@ -41,6 +42,8 @@
 - 通用操作图标使用现有 Phosphor 图标。带文字按钮的装饰图标标为 `aria-hidden`，纯图标按钮提供本地化的可访问名称。文件状态、冲突和危险操作同时用文字、符号或带名称的图标表达。
 - 保留键盘焦点可见性。选择控件用与行为匹配的 ARIA 状态，菜单和弹窗检查 `Tab`、方向键及 `Esc` 的相应行为。关闭弹窗后将焦点归还给合适的触发位置。
 - 加载、刷新与提交使用就地状态，保留用户当前的工作上下文。浮层入场和退场复用 `MotionPresence`，动效时长沿用 `--zeus-motion-*`，遵循 `prefers-reduced-motion`。关闭中的界面立即停止接收交互。[MotionPresence](../apps/desktop/src/renderer/ui/MotionPresence.tsx) · [交互样式](../apps/desktop/src/renderer/ui/primitives.css)
+- 推送开始后，在原「推送」按钮位置提供「中止推送」。状态区显示当前仓库和进度。中止期间显示「正在中止…」并防止重复请求，结果保留已执行项并标记未执行项。[推送弹窗](../apps/desktop/src/renderer/features/git/repository/GitRepositoryControls.tsx)
+- 标题栏的「查看更新」进入应用更新设置，优先展示新版说明。更新与重启操作由设置页中的独立按钮触发。[应用更新设置](../apps/desktop/src/renderer/features/updates/ApplicationUpdateSettings.tsx)
 - macOS 原生辅助窗口沿用系统控件、系统字体和语义色，状态文本和操作名称与主界面保持一致。[原生更新进度窗口](../apps/desktop/native/UpdateProgressPanel.swift)
 
 ## 布局与文案

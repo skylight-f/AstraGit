@@ -32,6 +32,7 @@ import { searchDestinationAvailable } from '../../search/workspaceSearchState.js
 import { describeUserFacingError, splitGitRemoteBranch } from '@astragit/shared';
 import { gitFailureCode, gitFailureContext, gitFailureTitle } from './gitOperationFeedback.js';
 import { createApplyStashConfirmation } from '../stash/applyStashConfirmation.js';
+import { usePushBatch } from '../repository/usePushBatch.js';
 import type { BranchKind, BusyState, ChangeStage, ExecutionOutcome, GitContextEvent, GitContextTarget, GitDiffOptions, OperationTone, ProjectGitWorkbenchProps, PushSelection } from './gitWorkbenchTypes.js';
 
 const projectGitViewPreferences = new Map<string, { repositoryId: string; searchQuery: string }>();
@@ -137,6 +138,7 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   /** 控制台缓存可以销毁，历史由桌面耐久账本恢复。 */
   const operationHistory = useGitOperationHistory(props.client, props.project.id);
   const [pushResults, setPushResults] = useState<Array<{ repositoryId: string; repositoryName: string; tone: OperationTone; message: string }>>([]);
+  const pushBatch = usePushBatch(repositoryId => props.client.cancelProjectGitAction(props.project.id, repositoryId), reportWorkbenchError);
   function openPush(): void {
     setPushResults([]);
     setPushOpen(true);
@@ -1017,26 +1019,33 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
   }
 
   async function pushSelectedBranches(selections: PushSelection[], forceWithLease: boolean, pushTags: boolean): Promise<void> {
-    const results: typeof pushResults = [];
-    for (const selection of selections) {
-      const repository = repositories.find((candidate) => candidate.id === selection.repositoryId)!;
-      const outcome = await execute(
-        repository,
-        { type: 'push', remote: selection.remote, sourceBranch: selection.sourceBranch, targetBranch: selection.targetBranch, setUpstream: selection.setUpstream, forceWithLease, pushAllTags: pushTags },
-        zh ? '推送提交' : 'Push commits',
-      );
-      results.push({
-        repositoryId: repository.id,
-        repositoryName: `${repository.name} · ${selection.sourceBranch}`,
-        tone: outcome === 'completed' ? 'success' : 'error',
-        message: outcome === 'completed'
-          ? zh
-            ? `已推送到 ${selection.remote}/${selection.targetBranch}`
-            : `Pushed to ${selection.remote}/${selection.targetBranch}`
-          : (operationErrorsByRepositoryRef.current[repository.id] ?? (zh ? '推送失败。' : 'Push failed.')),
-      });
-    }
-    setPushResults(results);
+    await pushBatch.run(async batch => {
+      const results: typeof pushResults = [];
+      for (const selection of selections) {
+        const repository = repositories.find((candidate) => candidate.id === selection.repositoryId)!;
+        const target = { repositoryId: repository.id, repositoryName: `${repository.name} · ${selection.sourceBranch}` };
+        if (batch.stopped()) {
+          results.push({ ...target, tone: 'warning', message: zh ? '本次推送已中止，此分支未执行。' : 'Push stopped. This branch was skipped.' });
+          continue;
+        }
+
+        const outcome = await batch.execute(repository.id, () => execute(
+          repository,
+          { type: 'push', remote: selection.remote, sourceBranch: selection.sourceBranch, targetBranch: selection.targetBranch, setUpstream: selection.setUpstream, forceWithLease, pushAllTags: pushTags },
+          zh ? '推送提交' : 'Push commits',
+        ));
+        results.push({
+          ...target,
+          tone: outcome === 'completed' ? 'success' : 'error',
+          message: outcome === 'completed'
+            ? zh
+              ? `已推送到 ${selection.remote}/${selection.targetBranch}`
+              : `Pushed to ${selection.remote}/${selection.targetBranch}`
+            : (operationErrorsByRepositoryRef.current[repository.id] ?? (zh ? '推送失败。' : 'Push failed.')),
+        });
+      }
+      setPushResults(results);
+    });
   }
 
   return {
@@ -1077,9 +1086,9 @@ export function useProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
       conflictRepository, conflictSaved, contextMenu, execute, executeWithResult, finishStageReview,
       launchRepositoryFile, menuConfirmation, operationHistory,
       operationErrorsByRepository: operationErrorsByRepositoryRef.current,
-      operationNoticeRoot, pushResults, pushSelectedBranches, setCheckoutNotice, setConflictAction,
+      operationNoticeRoot, pushResults, pushSelectedBranches, pushStopping: pushBatch.stopping, setCheckoutNotice, setConflictAction,
       setContextMenu, setMenuConfirmation, setPushResults, setStagePreferenceNotice, showGitContextMenu,
-      stagePreferenceNotice, stageRequest, stopOperation, stopSyncOperation,
+      stagePreferenceNotice, stageRequest, stopOperation, stopPush: pushBatch.stop, stopSyncOperation,
     },
     workspace: {
       error, fileQuery, ignoredQuery, loadState, loadWorkbench, refreshWorkbench, reportWorkbenchError,

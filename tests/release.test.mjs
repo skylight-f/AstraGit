@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { parseReleaseManifest } from '../packages/shared/dist/index.js';
 import { createReleaseUpdateService, downloadVerifiedArtifact } from '../apps/desktop/src/main/releaseUpdateService.ts';
-import { readApplicationReleaseNotes } from '../apps/desktop/src/main/applicationReleaseNotes.ts';
+import { extractReleaseNotes } from '../packages/shared/src/releaseNotes.ts';
 import { formatReleaseChanges, selectAutomaticVersion } from '../scripts/prepare-automatic-release.mjs';
 import { renderHomebrewCask } from '../scripts/homebrew-cask.mjs';
 import { checkHomebrewTapAccess, diagnoseHomebrewTapAccess, loadHomebrewRelease, verifyHomebrewRelease } from '../scripts/sync-homebrew-tap.mjs';
@@ -68,42 +68,22 @@ test('Homebrew preflight rejects foreign origins or dirty checkouts before attem
   }
 });
 
-test('application release notes read the requested stable tag and isolate the changes section', async () => {
-  const release = { tag_name: 'v0.2.0', draft: false, prerelease: false, body: "# AstraGit 0.2.0\r\n\r\n## What's Changed\r\n\r\n- Add folder scanning\r\n\r\n### Fixes\r\n\r\n- Preserve project settings\r\n\r\n## Installation\r\n\r\nDownload the installer." };
-  const request = async (url, options) => {
-    assert.equal(url, 'https://api.github.com/repos/skylight-f/AstraGit/releases/tags/v0.2.0');
-    assert.equal(new Headers(options.headers).has('authorization'), false);
-    return Response.json(release);
-  };
-  assert.deepEqual(await readApplicationReleaseNotes('0.2.0', request), {
-    version: '0.2.0', markdown: '- Add folder scanning\n\n### Fixes\n\n- Preserve project settings',
-  });
-  release.tag_name = 'v0.2.1';
-  await assert.rejects(readApplicationReleaseNotes('0.2.0', request), /目标正式版本/u);
-  release.prerelease = true;
-  await assert.rejects(readApplicationReleaseNotes('latest', () => Response.json(release)), /目标正式版本/u);
-  await assert.rejects(readApplicationReleaseNotes('../latest', () => assert.fail('Invalid versions must not request a URL.')), /版本号无效/u);
+test('bundled release notes isolate the changes section and preserve nested headings', () => {
+  const markdown = "# AstraGit 0.2.0\r\n\r\n## What's Changed\r\n\r\n- Add folder scanning\r\n\r\n### Fixes\r\n\r\n- Preserve project settings\r\n\r\n## Installation\r\n\r\nDownload the installer.";
+  assert.equal(extractReleaseNotes(markdown), '- Add folder scanning\n\n### Fixes\n\n- Preserve project settings');
 });
 
 test('automatically generated release notes list actual changes without repeated release commits', () => {
   assert.equal(formatReleaseChanges('feat(projects): 扫描目录\nchore(release): v0.1.27\nfix(ui): 窗口样式\nfeat: 扫描目录'), '- 扫描目录\n- 窗口样式');
 });
 
-test('older boilerplate notes can display their published source commit subject', async () => {
-  const sha = 'a'.repeat(40);
-  const source = `https://github.com/skylight-f/AstraGit/commit/${sha}`;
-  const original = `本版本包含 main 分支中通过检查的改动。[查看源码提交](${source})。`;
-  let commitFound = true;
-  const request = async url => {
-    if (url.endsWith('/releases/latest')) return Response.json({ tag_name: 'v0.1.27', draft: false, prerelease: false, body: `## 更新内容\n\n${original}` });
-    assert.ok(url.endsWith(`/git/commits/${sha}`));
-    return Response.json({ sha: commitFound ? sha : 'b'.repeat(40), message: 'feat(release): Add Windows installer\n\nOther details' });
-  };
-  assert.deepEqual(await readApplicationReleaseNotes('latest', request), {
-    version: '0.1.27', markdown: `- Add Windows installer\n\n[查看源码提交](${source})`,
-  });
-  commitFound = false;
-  assert.equal((await readApplicationReleaseNotes('latest', request)).markdown, original);
+test('the desktop version has local release notes separate from installation instructions', async () => {
+  const { version } = JSON.parse(await readFile(new URL('../apps/desktop/package.json', import.meta.url), 'utf8'));
+  const markdown = await readFile(new URL('../releases/v' + version + '.md', import.meta.url), 'utf8');
+  const notes = extractReleaseNotes(markdown);
+  assert.ok(notes.trim().length > 0);
+  assert.doesNotMatch(notes, /^#{1,6} (?:下载安装|下载与安装|Downloads|Installation)$/imu);
+  assert.equal(extractReleaseNotes('# AstraGit 0.1.0\n\n- Fix navigation\n\n## Downloads\n\nInstall here.'), '- Fix navigation');
 });
 
 test('release versions reserve existing tags and update manifests reject foreign apps, origins and invalid hashes', () => {
@@ -122,7 +102,7 @@ test('Windows updates select the exact stable x64 EXE with its published digest'
     name: 'AstraGit-0.2.0-win-x64-setup.exe', state: 'uploaded', size: 120_000, digest: 'sha256:' + sha256,
     browser_download_url: 'https://github.com/skylight-f/AstraGit/releases/download/v0.2.0/AstraGit-0.2.0-win-x64-setup.exe',
   };
-  const release = { tag_name: 'v0.2.0', draft: false, prerelease: false, assets: [{ ...asset, name: 'AstraGit-0.2.0-x64.dmg' }, asset] };
+  const release = { tag_name: 'v0.2.0', draft: false, prerelease: false, body: '## 更新内容\n\n- 优化提交历史\n\n## 下载安装\n\n安装说明', assets: [{ ...asset, name: 'AstraGit-0.2.0-x64.dmg' }, asset] };
   let registered = true;
   const service = createReleaseUpdateService({
     appPath: '', executablePath: 'C:\\AstraGit\\AstraGit.exe', dataDirectory: '', version: '0.1.0', packaged: true,
@@ -139,6 +119,7 @@ test('Windows updates select the exact stable x64 EXE with its published digest'
   assert.equal(update.status, 'available');
   assert.equal(update.artifact.kind, 'exe');
   assert.equal(update.artifact.sha256, sha256);
+  assert.equal(update.releaseNotes, '- 优化提交历史');
   assert.equal(update.automaticInstallEnabled, true);
   registered = false;
   assert.equal((await service.check()).automaticInstallEnabled, false);
@@ -149,6 +130,28 @@ test('Windows updates select the exact stable x64 EXE with its published digest'
   }
   release.prerelease = true;
   assert.equal((await service.check()).status, 'unavailable');
+});
+
+test('macOS update checks carry notes from the manifest and ignore unusable notes', async () => {
+  const { manifest } = homebrewReleaseFixture();
+  let notes = '- 优化提交历史';
+  let requests = 0;
+  const service = createReleaseUpdateService({
+    appPath: '', executablePath: '', dataDirectory: '', version: '0.1.0', packaged: false,
+    onProgress: () => {}, confirmRestart: () => assert.fail('A check cannot request restart'), quit: () => assert.fail('A check cannot quit'),
+    fetch: async (url) => {
+      requests++;
+      assert.ok(url.endsWith('/latest/download/astragit-release-manifest.json'));
+      return Response.json({ ...manifest, releaseNotes: notes });
+    },
+  }, { platform: 'darwin', arch: 'arm64', systemVersion: async () => '14.0' });
+
+  assert.equal((await service.check()).releaseNotes, notes);
+  notes = 'x'.repeat(32_001);
+  const update = await service.check();
+  assert.equal(update.status, 'available');
+  assert.equal(update.releaseNotes, undefined);
+  assert.equal(requests, 2);
 });
 
 test('Homebrew publication binds both architecture hashes to the public release and rejects forged cask content', () => {

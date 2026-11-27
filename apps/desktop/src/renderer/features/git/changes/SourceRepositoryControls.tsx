@@ -6,6 +6,7 @@ import { ProjectGitDiffWindow } from '../diff/ProjectGitDiffViewer.js';
 import { ModalPortal } from '../../../ui/ModalPortal.js';
 import { reportApplicationError } from '../../../ui/ApplicationErrorDialog.js';
 import { MotionPresence } from '../../../ui/MotionPresence.js';
+import { usePushBatch } from '../repository/usePushBatch.js';
 
 /** 与 Zeus 源码工具窗口共用仓库级联菜单及操作对话框，宿主使用 AstraGit API。 */
 export function SourceRepositoryControls(props: {
@@ -21,6 +22,10 @@ export function SourceRepositoryControls(props: {
   const [baseRef, setBaseRef] = useState('');
   const [results, setResults] = useState<Array<{ repositoryId: string; repositoryName: string; tone: OperationTone; message: string }>>([]);
   const [preview, setPreview] = useState<{ repositoryId: string; filePath: string; comparisonRef?: string; comparisonMode?: 'current' | 'working-tree' } | null>(null);
+  const pushBatch = usePushBatch(
+    id => props.client.cancelProjectGitAction(props.projectId, id),
+    error => reportApplicationError(error, { language: zh ? 'zh-CN' : 'en' }),
+  );
   const busy = props.busy ?? (props.locked && repository ? { repositoryId: repository.id, action: 'commit' as const } : null);
   const execute: typeof props.onExecute = async (target, action, label) => {
     return props.onExecute(target, action, label);
@@ -38,19 +43,23 @@ export function SourceRepositoryControls(props: {
       {dialog === 'branch' ? <NewBranchDialog open zh={zh} repositories={repositories} selectedRepository={repository} baseRef={baseRef} busy={busy} onClose={() => setDialog(null)} onExecute={execute} /> : null}
       {dialog === 'revision' ? <CheckoutRevisionDialog open zh={zh} repositories={repositories} selectedRepository={repository} busy={busy} onClose={() => setDialog(null)} onExecute={execute} /> : null}
       {dialog === 'update' ? <UpdateProjectDialog open projectId={props.projectId} zh={zh} repositories={repositories} busy={busy} errorsByRepository={props.errorsByRepository ?? {}} onClose={() => setDialog(null)} onExecute={execute} /> : null}
-      {dialog === 'push' ? <PushDialog open zh={zh} repositories={repositories} selectedRepository={repository} busy={busy} onStop={id => {
-        void props.client.cancelProjectGitAction(props.projectId, id).catch(error => reportApplicationError(error, { language: zh ? 'zh-CN' : 'en' }));
-      }} results={results} onClose={() => setDialog(null)} onPush={async (selections, forceWithLease, pushTags) => {
+      {dialog === 'push' ? <PushDialog open zh={zh} repositories={repositories} selectedRepository={repository} busy={busy} stopping={pushBatch.stopping} onStop={pushBatch.stop} results={results} onClose={() => setDialog(null)} onPush={(selections, forceWithLease, pushTags) => pushBatch.run(async batch => {
         const next: typeof results = [];
         for (const selection of selections) {
           const target = repositories.find(item => item.id === selection.repositoryId);
           if (!target) continue;
-          const outcome = await execute(target, { type: 'push', remote: selection.remote, sourceBranch: selection.sourceBranch, targetBranch: selection.targetBranch, setUpstream: selection.setUpstream, forceWithLease, pushAllTags: pushTags }, zh ? '推送' : 'Push');
-          next.push({ repositoryId: target.id, repositoryName: target.name, tone: outcome === 'completed' ? 'success' : 'error', message: outcome === 'completed' ? (zh ? '推送完成' : 'Push completed') : (props.errorsByRepository?.[target.id] ?? (zh ? '推送未完成，请查看错误详情。' : 'Push incomplete. See error details.')) });
+          const resultTarget = { repositoryId: target.id, repositoryName: `${target.name} · ${selection.sourceBranch}` };
+          if (batch.stopped()) {
+            next.push({ ...resultTarget, tone: 'warning', message: zh ? '本次推送已中止，此分支未执行。' : 'Push stopped. This branch was skipped.' });
+            continue;
+          }
+          const outcome = await batch.execute(target.id, () => execute(target, { type: 'push', remote: selection.remote, sourceBranch: selection.sourceBranch, targetBranch: selection.targetBranch, setUpstream: selection.setUpstream, forceWithLease, pushAllTags: pushTags }, zh ? '推送' : 'Push'));
+          next.push({ ...resultTarget, tone: outcome === 'completed' ? 'success' : 'error', message: outcome === 'completed' ? (zh ? '推送完成' : 'Push completed') : (props.errorsByRepository?.[target.id] ?? (zh ? '推送未完成，请查看错误详情。' : 'Push incomplete. See error details.')) });
           setResults([...next]);
-          if (outcome !== 'completed') break;
+          if (outcome !== 'completed' && !batch.stopped()) break;
         }
-      }} /> : null}
+        setResults(next);
+      })} /> : null}
     </MotionPresence>
     {preview ? <ModalPortal role="dialog" aria-label={zh ? '分支差异' : 'Branch diff'} rootClassName="gitapp-diff-root" onDismiss={() => setPreview(null)}><div className="gitapp-diff-dialog" data-modal-surface="dialog"><header><strong>{preview.comparisonRef}</strong><button type="button" onClick={() => setPreview(null)}>{zh ? '关闭' : 'Close'}</button></header><ProjectGitDiffWindow client={props.client} projectId={props.projectId} {...preview} stage="combined" language={zh ? 'zh-CN' : 'en-US'} appearance="light" /></div></ModalPortal> : null}
   </>;
