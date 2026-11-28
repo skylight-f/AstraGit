@@ -22,7 +22,7 @@ export function SourceRepositoryLabel({ repository, detail }: {
   detail: string | number;
 }) {
   return <span className="source-git-repository-label">
-    <span className="source-git-repository-color" aria-hidden="true" style={{ '--repository-color': repositoryColor(repository.id) } as CSSProperties} />
+    <span className="source-git-repository-color" aria-hidden="true" style={{ '--base-repository-color': repositoryColor(repository.id) } as CSSProperties} />
     <strong>{repository.name}</strong><small>{detail}</small>
   </span>;
 }

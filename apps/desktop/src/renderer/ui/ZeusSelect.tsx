@@ -148,7 +148,7 @@ function measurePopoverContentWidth(popover: HTMLElement, maxWidth: number): num
     for (const { option, clone } of labelMeasurements) {
       const optionStyle = window.getComputedStyle(option);
       const hasColor = option.querySelector('.zeus-select-option-color') !== null;
-      const markerWidth = hasColor ? 10 : 0;
+      const markerWidth = hasColor ? 12 : 0;
       // 标记可在文字前后展示，宽度不再依赖最后一列的位置。
       const checkWidth = Math.max(16, option.querySelector('.zeus-select-option-check')?.getBoundingClientRect().width ?? 0);
       const gapCount = hasColor ? 2 : 1;
@@ -244,7 +244,7 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
     if (!trigger || typeof window === 'undefined') return;
     const triggerRect = trigger.getBoundingClientRect();
     const viewportPadding = 8;
-    const popoverGap = 6;
+    const popoverGap = 8;
     /** 模型长名称截断显示，避免单个长名称把菜单撑成横跨页面的大面板。 */
     const maxWidth = Math.max(0, Math.min(window.innerWidth - viewportPadding * 2, props.popoverMaxWidth ?? (props.pinning ? 360 : 480)));
     if (popoverRef.current) {
@@ -607,7 +607,7 @@ export function ZeusSelect<T extends string>(props: ZeusSelectProps<T>) {
                         aria-pressed={pinned}
                         onClick={(event) => togglePin(option, event.currentTarget)}
                       >
-                        <PushPinIcon size={15} weight={pinned ? 'fill' : 'regular'} aria-hidden="true" />
+                        <PushPinIcon size={16} weight={pinned ? 'fill' : 'regular'} aria-hidden="true" />
                       </button>
                     ) : null}
                   </span>

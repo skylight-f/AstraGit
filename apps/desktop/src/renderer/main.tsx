@@ -5,7 +5,7 @@ import type { RendererBootstrap } from './app/bootstrapTypes.js';
 
 import './styles/styles.css';
 import './ui/primitives.css';
-import './styles/agentdesk-theme.css';
+import './styles/theme.css';
 
 async function main(): Promise<void> {
   const rootElement = document.getElementById('root');
@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   if (!bootstrap?.baseUrl || !bootstrap.apiToken) {
     rootElement.innerHTML = `
       <div style="padding:32px;font-family:system-ui;max-width:520px">
-        <h1 style="margin:0 0 8px;font-size:22px">AstraGit</h1>
+        <h1 style="margin:0 0 8px;font-size:24px">AstraGit</h1>
         <p style="color:#5d6675;line-height:1.5">本机服务配置未就绪。请完全退出应用后重新运行 <code>pnpm dev</code>。</p>
         <pre style="background:#f1f3f7;padding:12px;border-radius:8px;overflow:auto">${window.astraGit ? 'bridge=ok' : 'bridge=missing'}</pre>
       </div>`;

@@ -2,10 +2,10 @@ section.git-operation-dialog.project-git-reference-dialog.project-git-sync-dialo
   & > .project-git-sync-heading {
     flex-direction: row;
     align-items: center;
-    gap: var(--zeus-space-3);
-    padding: var(--zeus-space-4) var(--zeus-space-5);
-    border-block-end: 1px solid var(--zeus-workspace-divider);
-    background: var(--ag-chrome);
+    gap: var(--base-space-3);
+    padding: var(--base-space-4) var(--base-dialog-padding);
+    border-block-end: var(--base-divider-width) solid var(--base-workspace-divider);
+    background: var(--base-shell-chrome);
   }
 
   & .project-git-sync-heading-icon {
@@ -13,64 +13,63 @@ section.git-operation-dialog.project-git-reference-dialog.project-git-sync-dialo
     place-items: center;
     flex: 0 0 36px;
     block-size: 36px;
-    border: 1px solid color-mix(in srgb, var(--ag-accent) 16%, var(--ag-line));
-    border-radius: 10px;
-    background: var(--ag-brand-selected);
-    color: var(--ag-brand-ink);
+    border-radius: var(--base-card-radius);
+    background: var(--base-shell-brand-selected);
+    color: var(--base-shell-brand-ink);
   }
 
   & .project-git-sync-heading > div { min-inline-size: 0; }
 
   & .project-git-sync-heading h2 {
     margin: 0;
-    font-size: 16px;
-    font-weight: 650;
-    line-height: 1.35;
+    font-size: var(--base-type-size-heading);
+    font-weight: var(--base-type-weight-semibold);
+    line-height: var(--base-type-line-heading);
   }
 
   & .project-git-sync-heading small {
     display: block;
-    margin-block-start: 2px;
+    margin-block-start: 4px;
     overflow-wrap: anywhere;
   }
 
   & > main {
     min-block-size: 0;
-    padding: var(--zeus-space-4) var(--zeus-space-5);
+    padding: var(--base-space-4) var(--base-dialog-padding);
     overscroll-behavior: contain;
   }
 
   & > footer {
-    padding: var(--zeus-space-3) var(--zeus-space-5);
-    border-block-start: 1px solid var(--zeus-workspace-divider);
-    background: var(--ag-chrome);
+    padding: var(--base-dialog-footer-padding-block) var(--base-dialog-padding);
+    border-block-start: var(--base-divider-width) solid var(--base-workspace-divider);
+    background: var(--base-shell-chrome);
   }
 
   & > main > .project-git-sync-options {
-    border: 1px solid var(--zeus-workspace-divider);
-    border-radius: var(--ag-card-radius);
-    background: var(--ag-reading-surface);
+    border: var(--base-border-width) solid var(--base-workspace-divider);
+    border-radius: var(--base-card-radius);
+    background: var(--base-shell-reading-surface);
   }
 
   & .project-git-sync-options > legend {
-    padding-inline: var(--zeus-space-1);
-    color: var(--zeus-product-muted);
-    font-size: var(--zeus-type-size-label);
+    padding-inline: var(--base-space-1);
+    color: var(--base-product-muted);
+    font-size: var(--base-type-size-label);
     font-weight: 600;
   }
 
-  & .project-git-remote-url { font-family: var(--zeus-font-family-mono); }
+  & .project-git-remote-url { font-family: var(--base-font-family-mono); }
 }
 
 section.project-git-sync-dialog.project-git-push-layout {
   & > main {
-    gap: var(--zeus-space-2);
+    gap: var(--base-space-2);
   }
 
   & .project-git-sync-fields {
     grid-template-columns: max-content minmax(0, 156px) minmax(0, 1fr);
     align-items: center;
-    gap: var(--zeus-space-2);
+    gap: var(--base-space-2);
   }
 
   & .project-git-sync-fields > label {
@@ -87,8 +86,8 @@ section.project-git-sync-dialog.project-git-push-layout {
   }
 
   & main > .project-git-sync-options {
-    padding: var(--zeus-space-2) var(--zeus-space-3);
-    gap: var(--zeus-space-2);
+    padding: var(--base-space-2) var(--base-space-3);
+    gap: var(--base-space-2);
   }
 
   & .project-git-push-branch-actions {
@@ -96,21 +95,21 @@ section.project-git-sync-dialog.project-git-push-layout {
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: var(--zeus-space-1) var(--zeus-space-4);
+    gap: var(--base-space-1) var(--base-space-4);
   }
 
   & .project-git-push-branch-actions > small {
-    color: var(--ag-brand-ink);
+    color: var(--base-shell-brand-ink);
     font-variant-numeric: tabular-nums;
   }
 
   & .project-git-sync-table-scroll {
     max-block-size: min(220px, 34dvh);
     overflow: auto;
-    scroll-padding-block-start: 30px;
-    border: 1px solid var(--zeus-workspace-divider);
-    border-radius: var(--zeus-control-radius);
-    background: var(--zeus-product-panel);
+    scroll-padding-block-start: 32px;
+    border: var(--base-border-width) solid var(--base-workspace-divider);
+    border-radius: var(--base-card-radius);
+    background: var(--base-product-panel);
   }
 
   & .project-git-sync-table {
@@ -123,12 +122,12 @@ section.project-git-sync-dialog.project-git-push-layout {
     position: sticky;
     inset-block-start: 0;
     z-index: 1;
-    border-block-end: 1px solid var(--zeus-workspace-divider);
-    background: var(--ag-chrome);
+    border-block-end: var(--base-divider-width) solid var(--base-workspace-divider);
+    background: var(--base-shell-chrome);
   }
 
   & .project-git-sync-table thead th + th {
-    border-inline-start: 1px solid var(--zeus-workspace-divider);
+    border-inline-start: var(--base-divider-width) solid var(--base-workspace-divider);
   }
 
   & .project-git-sync-table thead th:nth-child(2) {
@@ -141,13 +140,13 @@ section.project-git-sync-dialog.project-git-push-layout {
   }
 
   & .project-git-sync-table tbody tr[data-selected='true'] {
-    background: var(--ag-brand-selected);
+    background: var(--base-shell-brand-selected);
   }
 
   & .project-git-push-branch {
     display: flex;
     align-items: baseline;
-    gap: var(--zeus-space-1);
+    gap: var(--base-space-1);
     white-space: nowrap;
   }
 
@@ -166,24 +165,24 @@ section.project-git-sync-dialog.project-git-push-layout {
 
   & .project-git-sync-table td > .zeus-text-input {
     min-inline-size: 0;
-    block-size: var(--zeus-control-compact-height);
-    min-block-size: var(--zeus-control-compact-height);
+    block-size: var(--base-control-compact-height);
+    min-block-size: var(--base-control-compact-height);
   }
 
   & .project-git-push-conflict {
     margin: 0;
-    color: var(--zeus-control-danger-text);
+    color: var(--base-control-danger-text);
   }
 
   & .project-git-push-footer-details {
     display: grid;
-    flex: 1 1 270px;
+    flex: 1 1 272px;
     min-inline-size: 0;
-    gap: var(--zeus-space-1);
+    gap: var(--base-space-1);
   }
 
   & .project-git-push-options {
-    gap: var(--zeus-space-1);
+    gap: var(--base-space-1);
     padding: 0;
   }
 
@@ -194,7 +193,7 @@ section.project-git-sync-dialog.project-git-push-layout {
   & .project-git-push-actions {
     display: flex;
     margin-inline-start: auto;
-    gap: var(--zeus-space-2);
+    gap: var(--base-space-2);
   }
 
   @media (max-width: 620px) {

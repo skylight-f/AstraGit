@@ -7,6 +7,6 @@ export function ReleaseUpdateButton({ zh, update, open, onInspect }: { zh: boole
   const title = `AstraGit ${update.state?.latestVersion} · ${applicationUpdateLabel(update, zh)}`;
   return <button type="button" className="gitapp-rail-update" data-update-phase={update.state?.phase} data-update-available="true"
     aria-haspopup="dialog" aria-expanded={open} aria-label={label} title={title} onClick={onInspect}>
-    <DownloadSimpleIcon size={18} aria-hidden="true" />
+    <DownloadSimpleIcon size={20} aria-hidden="true" />
   </button>;
 }

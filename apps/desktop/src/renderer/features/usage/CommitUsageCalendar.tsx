@@ -34,7 +34,7 @@ export function CommitUsageCalendar(props: {
   };
   return <div className="gitapp-usage-calendar">
     <div className="gitapp-usage-calendar-scroll">
-      <div className="gitapp-usage-grid" style={{ '--weeks': weeks } as CSSProperties} role="group" aria-label={zh ? '过去一年的每日用量' : 'Daily usage over the past year'}>
+      <div className="gitapp-usage-grid" style={{ '--base-weeks': weeks } as CSSProperties} role="group" aria-label={zh ? '过去一年的每日用量' : 'Daily usage over the past year'}>
         {days.map(({ day, month, week }, index) => {
           if (index && days[index - 1].month === month) return null;
           // A partial first month can share a week with the next month.

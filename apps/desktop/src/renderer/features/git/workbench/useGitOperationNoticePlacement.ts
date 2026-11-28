@@ -18,12 +18,12 @@ export function useGitOperationNoticePlacement() {
       let bottom = 12;
       for (const region of protectedRegions) { const rect = region.getBoundingClientRect(); if (rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom) bottom = Math.max(bottom, bounds.bottom - rect.top + 8); }
       bottom = Math.round(Math.min(bottom, Math.max(12, bounds.height - (notice?.getBoundingClientRect().height ?? 0) - 8)));
-      root.style.setProperty('--git-operation-notice-bottom', `${bottom}px`);
+      root.style.setProperty('--base-git-operation-notice-bottom', `${bottom}px`);
     }
     function schedule() { if (!frame) frame = requestAnimationFrame(update); }
     const mutations = new MutationObserver(schedule); mutations.observe(root, { childList: true, subtree: true });
     root.addEventListener('scroll', schedule, true); update();
-    return () => { cancelAnimationFrame(frame); resize.disconnect(); mutations.disconnect(); root.removeEventListener('scroll', schedule, true); root.style.removeProperty('--git-operation-notice-bottom'); };
+    return () => { cancelAnimationFrame(frame); resize.disconnect(); mutations.disconnect(); root.removeEventListener('scroll', schedule, true); root.style.removeProperty('--base-git-operation-notice-bottom'); };
   }, [root]);
   return setRoot;
 }

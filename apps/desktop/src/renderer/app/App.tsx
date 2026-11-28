@@ -34,7 +34,7 @@ import type { GitSearchNavigation, WorkspaceSearchDestination } from '../feature
 
 import '../styles/styles.css';
 import '../ui/primitives.css';
-import '../styles/agentdesk-theme.css';
+import '../styles/theme.css';
 import './app.css';
 
 export interface AppProps {
@@ -399,7 +399,7 @@ export function App(props: AppProps) {
       if (width <= 0) return;
       const growth = layout.clientWidth - width;
       const required = Array.from(layout.style)
-        .filter(key => key.startsWith('--review-room-'))
+        .filter(key => key.startsWith('--base-review-room-'))
         .map(key => parseFloat(layout.style.getPropertyValue(key)));
       const available = Math.max(0, 100 * (width - minimumReviewWidth) / width);
       const min = Math.min(available, Math.max(reviewSplit.min, 100 * (Math.max(0, ...required) - growth) / width));
@@ -488,7 +488,7 @@ export function App(props: AppProps) {
 
   return (
     <>
-      <div className={`gitapp-frame${props.customTitlebar ? ' has-native-traffic-lights' : ''}`} style={{ '--review-window-growth': `${reviewVisible ? reviewWindowGrowth : 0}px` } as CSSProperties}>
+      <div className={`gitapp-frame${props.customTitlebar ? ' has-native-traffic-lights' : ''}`} style={{ '--base-review-window-growth': `${reviewVisible ? reviewWindowGrowth : 0}px` } as CSSProperties}>
         <header className="gitapp-titlebar" aria-label={zh ? '标题栏' : 'Title bar'}>
           <div className="gitapp-titlebar-leading">
             <strong className="gitapp-titlebar-brand">
@@ -497,19 +497,19 @@ export function App(props: AppProps) {
             </strong>
           </div>
           <WorkspaceSearch client={props.client} projects={sortedProjects} project={activeProject} zh={zh} mac={props.customTitlebar === true} disabled={sourceBatchBusy || repositorySetup.busy} onNavigate={navigateSearch} />
-          <div className="gitapp-titlebar-actions"><button ref={reviewButton} type="button" disabled={!activeProject || settingsOpen} aria-label={zh ? '代码评审' : 'Code review'} title={zh ? '代码评审' : 'Code review'} aria-expanded={reviewVisible} aria-controls="gitapp-code-review" onClick={() => { setReviewVisited(true); setReviewOpen(value => !value); }}><ShieldCheck size={19} /><span>{zh ? '评审' : 'Review'}</span></button></div>
+          <div className="gitapp-titlebar-actions"><button ref={reviewButton} type="button" disabled={!activeProject || settingsOpen} aria-label={zh ? '代码评审' : 'Code review'} title={zh ? '代码评审' : 'Code review'} aria-expanded={reviewVisible} aria-controls="gitapp-code-review" onClick={() => { setReviewVisited(true); setReviewOpen(value => !value); }}><ShieldCheck size={20} /><span>{zh ? '评审' : 'Review'}</span></button></div>
         </header>
       <div className="gitapp-layout">
         <nav className="gitapp-activity-rail" aria-label={zh ? '应用操作栏' : 'Application actions'}>
           <button type="button" aria-label={zh ? '项目提交视图' : 'Project commits view'} title={zh ? '提交' : 'Commit'} aria-current={!settingsOpen && inWorkbench && commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectTab(navigation.commitTab)}>
-            <GitCommit size={18} aria-hidden="true" />
+            <GitCommit size={20} aria-hidden="true" />
           </button>
           <button type="button" aria-label={zh ? '分支视图' : 'Branch view'} title={zh ? '分支' : 'Branch'} aria-current={!settingsOpen && inWorkbench && !commitView ? 'page' : undefined} disabled={viewSwitchDisabled} onClick={() => showProjectTab(navigation.branchTab === 'stash' ? 'log' : navigation.branchTab)}>
-            <GitBranch size={18} aria-hidden="true" />
+            <GitBranch size={20} aria-hidden="true" />
           </button>
           <ReleaseUpdateButton zh={zh} update={applicationUpdates} open={updateDialogOpen} onInspect={inspectUpdate} />
           <button type="button" className="gitapp-rail-settings" aria-label={zh ? '设置' : 'Settings'} title={zh ? '设置' : 'Settings'} aria-current={settingsOpen ? 'page' : undefined} onClick={() => { if (settingsOpen) setSettingsOpen(false); else openSettings(); }}>
-            <GearSix size={18} aria-hidden="true" />
+            <GearSix size={20} aria-hidden="true" />
           </button>
         </nav>
       <div ref={contentLayout} className={`gitapp-content-layout${reviewVisible ? ' has-review' : ''}`}>
@@ -593,7 +593,7 @@ export function App(props: AppProps) {
                           if (!active) void openProject(project);
                         }}
                       >
-                        <FolderOpen className="gitapp-tab-icon" size={15} weight="regular" aria-hidden="true" />
+                        <FolderOpen className="gitapp-tab-icon" size={16} weight="regular" aria-hidden="true" />
                         <span className="gitapp-tab-label">{project.name}</span>
                       </button>
                       <button
@@ -607,7 +607,7 @@ export function App(props: AppProps) {
                           closeSlot(slot.id);
                         }}
                       >
-                        <X size={13} weight="regular" aria-hidden="true" />
+                        <X size={12} weight="regular" aria-hidden="true" />
                       </button>
                       {dragging ? <span className="gitapp-tab-placeholder" aria-hidden="true">{project.name}</span> : null}
                     </span>
@@ -616,7 +616,7 @@ export function App(props: AppProps) {
               </nav>
               <span className="gitapp-tab-announcement" role="status" aria-live="polite">{tabAnnouncement}</span>
               <button type="button" className="gitapp-tab-add" disabled={sourceBatchBusy} aria-label={zh ? '打开或添加项目' : 'Open or add project'} title={zh ? '打开或添加项目' : 'Open or add project'} onClick={() => { setProjectAddMode(null); setProjectAddMenuOpen(false); setShowList(true); }}>
-                <Plus size={17} weight="regular" aria-hidden="true" />
+                <Plus size={16} weight="regular" aria-hidden="true" />
               </button>
               {repositorySetup.busy ? <Button variant="secondary" size="compact" onClick={() => { setProjectAddMode(repositorySetupKind); setProjectAddMenuOpen(false); setShowList(true); }}>{zh ? '仓库创建中…' : 'Repository setup…'}</Button> : null}
             </header>
@@ -660,7 +660,7 @@ export function App(props: AppProps) {
           actions={<>
             {activeProject ? (
               <Button size="compact" onClick={() => { setProjectAddMenuOpen(false); setShowList(false); }}>
-                <ArrowLeft size={15} aria-hidden="true" />
+                <ArrowLeft size={16} aria-hidden="true" />
                 {zh ? '返回工作台' : 'Back to workbench'}
               </Button>
             ) : null}
@@ -670,11 +670,11 @@ export function App(props: AppProps) {
               </Button>
             ) : null}
             <Button size="compact" aria-label={zh ? '刷新项目' : 'Refresh projects'} title={zh ? '刷新项目' : 'Refresh projects'} onClick={() => void refresh()}>
-              <ArrowClockwise size={15} aria-hidden="true" />
+              <ArrowClockwise size={16} aria-hidden="true" />
             </Button>
             <ProjectFolderImport client={props.client} zh={zh} disabled={openingLocalProject} onImported={refresh} />
             <Button ref={projectAddButton} size="compact" variant="primary" busy={openingLocalProject} aria-haspopup="menu" aria-expanded={projectAddMenuOpen} onClick={() => setProjectAddMenuOpen(value => !value)}>
-              <Plus size={15} aria-hidden="true" />
+              <Plus size={16} aria-hidden="true" />
               {zh ? '添加项目' : 'Add project'}
               <CaretDown size={12} aria-hidden="true" />
             </Button>

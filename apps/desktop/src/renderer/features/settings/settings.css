@@ -3,9 +3,9 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--ag-bg);
-  color: var(--ag-ink);
-  font: var(--zeus-type-size-control)/var(--zeus-type-line-default) var(--zeus-font-family-ui);
+  background: var(--base-shell-bg);
+  color: var(--base-shell-ink);
+  font: var(--base-type-size-body)/var(--base-type-line-body) var(--base-font-family-ui);
 }
 
 .gitapp-settings-body {
@@ -13,35 +13,35 @@
   grid-template-columns: 168px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
-  gap: var(--zeus-space-2);
-  padding: var(--zeus-space-2);
+  gap: var(--base-layout-gutter);
+  padding: var(--base-layout-gutter);
 }
 
 .gitapp-settings-tabs,
 .gitapp-settings-panel {
   min-width: 0;
-  border: 1px solid var(--ag-line);
-  border-radius: var(--ag-card-radius);
-  background: var(--ag-panel);
+  border: var(--base-border-width) solid var(--base-shell-line);
+  border-radius: var(--base-card-radius);
+  background: var(--base-shell-panel);
 }
 
 .gitapp-settings-tabs {
   display: flex;
   flex-direction: column;
   align-self: start;
-  gap: var(--zeus-space-1);
-  padding: var(--zeus-space-1);
+  gap: var(--base-space-1);
+  padding: var(--base-space-1);
 }
 
 .gitapp-settings-page .gitapp-settings-tabs > .zeus-button {
   justify-content: flex-start;
-  font-size: var(--zeus-type-size-label);
+  font-size: var(--base-type-size-label);
 }
 
 .gitapp-settings-panel {
   min-height: 0;
   overflow: auto;
-  padding: var(--zeus-space-5);
+  padding: var(--base-space-5);
 }
 
 .gitapp-settings-panel.gitapp-model-panel {
@@ -51,8 +51,8 @@
 
 .gitapp-settings-section {
   display: grid;
-  gap: var(--zeus-space-3);
-  padding-block: var(--zeus-space-4);
+  gap: var(--base-space-3);
+  padding-block: var(--base-space-4);
 }
 
 .gitapp-settings-section:first-child {
@@ -60,41 +60,42 @@
 }
 
 .gitapp-settings-section + .gitapp-settings-section {
-  border-block-start: 1px solid var(--zeus-workspace-divider);
+  border-block-start: var(--base-divider-width) solid var(--base-workspace-divider);
 }
 
 .gitapp-settings-section :is(h2, h3) {
   margin: 0;
-  font-weight: var(--zeus-type-weight-semibold);
+  font-weight: var(--base-type-weight-semibold);
 }
 
 .gitapp-settings-section h2 {
-  font-size: var(--zeus-type-size-heading);
+  font-size: var(--base-type-size-heading);
+  line-height: var(--base-type-line-heading);
 }
 
 .gitapp-settings-section h3 {
-  font-size: var(--zeus-type-size-control);
+  font-size: var(--base-type-size-control);
 }
 
 .gitapp-settings-section p {
   margin: 0;
-  color: var(--ag-muted);
+  color: var(--base-shell-muted);
   overflow-wrap: anywhere;
 }
 
 .gitapp-settings-panel .gitapp-settings-message {
   margin: 0;
-  padding: var(--zeus-space-2) var(--zeus-space-3);
-  border-radius: var(--ag-control-radius);
-  background: var(--ag-brand-selected);
-  color: var(--ag-brand-ink);
+  padding: var(--base-space-2) var(--base-space-3);
+  border-radius: var(--base-control-radius);
+  background: var(--base-shell-brand-selected);
+  color: var(--base-shell-brand-ink);
 }
 
 .gitapp-language-setting {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 260px);
+  grid-template-columns: minmax(0, 1fr) minmax(152px, 260px);
   align-items: center;
-  gap: var(--zeus-space-4);
+  gap: var(--base-space-4);
 }
 
 @media (max-width: 620px) {

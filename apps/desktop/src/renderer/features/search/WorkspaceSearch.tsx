@@ -61,7 +61,7 @@ export function WorkspaceSearch(props: { client: Pick<DashboardClient, 'loadProj
     finally { selectionInFlight.current = false; setSelecting(false); }
   }
   return <div className="gitapp-global-search" ref={root} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
-    <MagnifyingGlass size={15} aria-hidden="true" />
+    <MagnifyingGlass size={16} aria-hidden="true" />
     <input ref={input} type="search" role="combobox" aria-label={label} placeholder={`${label}…`} value={query} disabled={props.disabled} readOnly={selecting} aria-expanded={open} aria-controls={listId} aria-autocomplete="list" aria-activedescendant={open && results.length ? `${listId}-${currentIndex}` : undefined} autoComplete="off" spellCheck={false}
       onFocus={() => setOpen(true)} onChange={event => { setQuery(event.target.value); setSelected(0); setOpen(true); }} onKeyDown={event => {
         if (event.nativeEvent.isComposing) return;

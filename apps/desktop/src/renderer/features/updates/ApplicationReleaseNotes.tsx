@@ -25,7 +25,7 @@ export function ApplicationReleaseNotes({ version, zh, upcoming = false, markdow
       <h4>{title}</h4>
       <span className="gitapp-release-notes-version">v{version}</span>
       <a href={url} target="_blank" rel="noreferrer">
-        {zh ? '查看发布页' : 'View release'} <ArrowSquareOut size={14} aria-hidden="true" />
+        {zh ? '查看发布页' : 'View release'} <ArrowSquareOut size={16} aria-hidden="true" />
       </a>
     </header> : null}
     {notes ? <div className="gitapp-release-notes-body">{renderNotes(notes, url)}</div> :

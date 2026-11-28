@@ -27,9 +27,9 @@ function ProjectSection({ name, projects, zh, onOpen, onRemove, onEdit }: Projec
   return <section className="gitapp-projects" aria-label={name ?? (zh ? '项目列表' : 'Project list')}>
     {name && <header className="gitapp-group-heading">
       <button className="gitapp-group-toggle" type="button" aria-expanded={!collapsed} aria-controls={listId} onClick={() => setCollapsed(value => !value)}>
-        <CaretRight size={14} aria-hidden="true" /><strong>{name}</strong><span>{projects.length}</span>
+        <CaretRight size={16} aria-hidden="true" /><strong>{name}</strong><span>{projects.length}</span>
       </button>
-      {onEdit && <button type="button" className="gitapp-project-icon-button" aria-label={zh ? `编辑分组 ${name}` : `Edit group ${name}`} title={zh ? '编辑分组' : 'Edit group'} onClick={onEdit}><PencilSimple size={15} aria-hidden="true" /></button>}
+      {onEdit && <button type="button" className="gitapp-project-icon-button" aria-label={zh ? `编辑分组 ${name}` : `Edit group ${name}`} title={zh ? '编辑分组' : 'Edit group'} onClick={onEdit}><PencilSimple size={16} aria-hidden="true" /></button>}
     </header>}
     <ul id={listId} hidden={Boolean(name) && collapsed}>
       {projects.map(project => <li key={project.id}>
@@ -39,10 +39,10 @@ function ProjectSection({ name, projects, zh, onOpen, onRemove, onEdit }: Projec
             <strong title={project.name}>{project.name}</strong>
             <span title={project.localPath}>{project.localPath}</span>
           </span>
-          <CaretRight size={14} aria-hidden="true" />
+          <CaretRight size={16} aria-hidden="true" />
         </button>
         <button type="button" className="gitapp-project-icon-button gitapp-remove" onClick={() => onRemove(project)} aria-label={zh ? `从列表移除 ${project.name}` : `Remove ${project.name} from list`} title={zh ? '从列表移除' : 'Remove from list'}>
-          <X size={15} aria-hidden="true" />
+          <X size={16} aria-hidden="true" />
         </button>
       </li>)}
     </ul>
@@ -87,7 +87,7 @@ export function ProjectList({ projects, zh, actions, children, onOpen, onRemove 
         <h1>{text('项目', 'Projects')}</h1>
         <div className="gitapp-project-actions">
           <Button size="compact" onClick={() => setDraft({ id: crypto.randomUUID(), name: '', projectIds: [] })}>
-            <Folders size={15} aria-hidden="true" />{text('新建分组', 'New group')}
+            <Folders size={16} aria-hidden="true" />{text('新建分组', 'New group')}
           </Button>
           {actions}
         </div>

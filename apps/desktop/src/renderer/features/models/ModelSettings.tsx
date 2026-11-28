@@ -272,7 +272,7 @@ export function ModelSettings({ client, language, onChanged }: { client: Dashboa
                 <Button size="compact" disabled={busy || Boolean(login) || !account?.available} onClick={() => void perform(async () => {
                   setAccount(await client.refreshCodexModels());
                   onChanged();
-                })}><ArrowsClockwise size={15} aria-hidden="true" />{zh ? '同步目录' : 'Sync catalog'}</Button>
+                })}><ArrowsClockwise size={16} aria-hidden="true" />{zh ? '同步目录' : 'Sync catalog'}</Button>
               </header>
               <div className="gitapp-model-card">
                 {codexModels.length ? <ul>{codexModels.map(model => {
@@ -365,7 +365,7 @@ export function ModelSettings({ client, language, onChanged }: { client: Dashboa
                         const result = await client.refreshModelConnectionModels(connection.id);
                         updateConnection(result.connection);
                         setMessage(zh ? `已同步 ${result.connection.models.length} 个模型。` : `Synced ${result.connection.models.length} models.`);
-                      })}><ArrowsClockwise size={15} aria-hidden="true" />{zh ? '同步目录' : 'Sync catalog'}</Button>
+                      })}><ArrowsClockwise size={16} aria-hidden="true" />{zh ? '同步目录' : 'Sync catalog'}</Button>
                       <Button size="compact" disabled={busy || Boolean(editor)} onClick={() => setEditor({ modelId: '', displayName: '', enabled: true })}><Plus size={16} aria-hidden="true" />{zh ? '添加模型' : 'Add model'}</Button>
                     </div>
                   </header>

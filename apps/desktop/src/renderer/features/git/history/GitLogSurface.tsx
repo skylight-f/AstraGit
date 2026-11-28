@@ -101,7 +101,7 @@ export function GitLogSurface(props: {
     return () => observer.disconnect();
   }, [props.historyLoading, props.historyError, props.historyHasMore, props.onLoadMore]);
   return (
-    <div className="project-git-log-layout" style={{ '--git-history-row-height': `${gitHistoryRowHeight}px` } as React.CSSProperties}>
+    <div className="project-git-log-layout" style={{ '--base-git-history-row-height': `${gitHistoryRowHeight}px` } as React.CSSProperties}>
       <GitHistoryTable zh={props.zh} scrollRef={historyScroll} pinned={<>
         <div className="git-history-selection-tools"><span>{props.zh ? `已选 ${selectedHashes.length} 个提交 · Shift 连选，Ctrl/⌘ 多选` : `${selectedHashes.length} commits selected · Shift for ranges, Ctrl/⌘ to add`}</span><Button size="compact" variant="secondary" disabled={!props.selectedRepository || !selectedHashes.length || props.busy !== null} onClick={() => props.selectedRepository && props.onExportSeries(props.selectedRepository, selectedHashes)}>{props.zh ? '导出所选提交序列…' : 'Export selected series…'}</Button></div>
         {props.selectedRepository && props.selectedRepository.snapshot.fileStatuses.length > 0 ? (

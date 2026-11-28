@@ -1,7 +1,7 @@
 .git-commit-ai-tools {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -11,20 +11,20 @@
   align-items: center;
   gap: 4px;
   box-sizing: border-box;
-  min-block-size: var(--ag-tool-size);
-  padding: 2px 7px;
-  border: 1px solid var(--ag-control-line);
-  border-radius: var(--ag-control-radius);
-  background: var(--zeus-control-bg);
-  color: var(--zeus-product-text);
+  min-block-size: var(--base-control-compact-height);
+  padding: 4px 8px;
+  border: 1px solid var(--base-shell-control-line);
+  border-radius: var(--base-control-radius);
+  background: var(--base-control-bg);
+  color: var(--base-product-text);
   font: inherit;
   white-space: nowrap;
   cursor: pointer;
 }
 
 .git-commit-ai-button > svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 .git-commit-ai-tools > .ai-model-select {
@@ -35,13 +35,13 @@
 
 .macos-ai-app .git-commit-ai-button:hover:not(:disabled),
 .macos-ai-app .git-commit-ai-button[data-generating='true']:not(:disabled) {
-  background: var(--ag-brand-selected);
-  border-color: var(--ag-brand-edge);
-  color: var(--ag-brand-ink);
+  background: var(--base-shell-brand-selected);
+  border-color: var(--base-shell-brand-edge);
+  color: var(--base-shell-brand-ink);
 }
 
 .macos-ai-app .git-commit-ai-button:focus-visible {
-  outline: 2px solid var(--ag-focus);
+  outline: 2px solid var(--base-shell-focus);
   outline-offset: 1px;
 }
 

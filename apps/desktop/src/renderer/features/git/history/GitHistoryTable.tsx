@@ -3,7 +3,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, 
 const columns = [
   { label: ['图表', 'Graph'], min: 32, initial: 'min(112px, 25%)' },
   { label: ['描述', 'Description'], min: 72, initial: '1fr' },
-  { label: ['提交', 'Commit'], min: 40, initial: '58px' },
+  { label: ['提交', 'Commit'], min: 40, initial: '60px' },
   { label: ['作者', 'Author'], min: 40, initial: '12%' },
   { label: ['日期', 'Date'], min: 52, initial: 'min(112px, 22%)' },
 ] as const;
@@ -70,8 +70,8 @@ export function GitHistoryTable({ zh, scrollRef, pinned, children }: {
     setPreview(null);
   }
   const style = {
-    '--git-history-wide-tracks': tracks(5, preview?.length === 5 ? preview : layouts[5]),
-    '--git-history-compact-tracks': tracks(3, preview?.length === 3 ? preview : layouts[3]),
+    '--base-git-history-wide-tracks': tracks(5, preview?.length === 5 ? preview : layouts[5]),
+    '--base-git-history-compact-tracks': tracks(3, preview?.length === 3 ? preview : layouts[3]),
   } as CSSProperties;
 
   return <main className="project-git-commit-list">

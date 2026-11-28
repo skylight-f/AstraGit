@@ -299,7 +299,7 @@ export function LocalChangesSurface(props: {
             <header className="project-git-commit-header">
               <div className="project-git-commit-summary">
                 <div className="project-git-commit-repository">
-                  <Folder size={15} aria-hidden="true" />
+                  <Folder size={16} aria-hidden="true" />
                   <strong title={repository?.name}>{repository?.name ?? (props.zh ? '请选择仓库' : 'Select a repository')}</strong>
                 </div>
                 <div className="project-git-commit-status" role="status">
@@ -307,7 +307,7 @@ export function LocalChangesSurface(props: {
                   {commitHint ? <span title={commitHint}>{commitHint}</span> : null}
                 </div>
               </div>
-              <GitCommitOptionsMenu zh={props.zh} repository={repository} disabled={!repository || props.busy !== null || generating}
+              <GitCommitOptionsMenu className="project-git-commit-options" zh={props.zh} repository={repository} disabled={!repository || props.busy !== null || generating}
                 options={commitOptions} onChange={setCommitOptions} onAmend={(target, options) => {
                   setCommitOptions({});
                   props.onAmend(target, options);
@@ -354,7 +354,7 @@ export function LocalChangesSurface(props: {
             </div>
             <footer className="project-git-commit-footer">
               {props.repositories.length > 1 ? (
-                <Button className="project-git-commit-multi" size="compact" variant="secondary" onClick={() => props.onCommit(commitOptions)} disabled={props.busy !== null || props.generatingCommitFor !== null}>
+                <Button className="project-git-commit-multi" size="compact" variant="ghost" onClick={() => props.onCommit(commitOptions)} disabled={props.busy !== null || props.generatingCommitFor !== null}>
                   {props.zh ? '多仓库提交…' : 'Commit across repositories…'}
                 </Button>
               ) : null}

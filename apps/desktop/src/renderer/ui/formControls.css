@@ -1,69 +1,69 @@
 .macos-ai-app :is(input.zeus-text-input, .zeus-search-field) {
   box-sizing: border-box;
-  min-block-size: var(--zeus-control-height);
+  min-block-size: var(--base-control-height);
   min-inline-size: 0;
-  padding: 0 var(--zeus-space-3);
-  border: 1px solid var(--zeus-control-border);
-  border-radius: var(--zeus-control-radius);
-  background-color: var(--zeus-control-bg);
-  color: var(--zeus-control-text);
+  padding: 0 var(--base-control-padding-inline);
+  border: var(--base-border-width) solid var(--base-control-border);
+  border-radius: var(--base-control-radius);
+  background-color: var(--base-control-bg);
+  color: var(--base-control-text);
   font: inherit;
 }
 
 .macos-ai-app .zeus-search-field[data-control-density='compact'] {
-  min-block-size: var(--zeus-control-compact-height);
-  padding-inline: var(--zeus-space-2);
-  font-size: var(--zeus-type-size-caption);
+  min-block-size: var(--base-control-compact-height);
+  padding-inline: var(--base-space-2);
+  font-size: var(--base-type-size-caption);
 }
 
 .macos-ai-app .zeus-form-select[data-zeus-primitive='select'] > .zeus-select-trigger {
-  min-block-size: var(--zeus-control-height);
-  padding-inline: var(--zeus-space-3);
-  color: var(--zeus-control-text);
-  border-radius: var(--zeus-control-radius);
-  font-weight: 450;
+  min-block-size: var(--base-control-height);
+  padding-inline: var(--base-control-padding-inline);
+  color: var(--base-control-text);
+  border-radius: var(--base-control-radius);
+  font-weight: var(--base-type-weight-regular);
 }
 
 .macos-ai-app .zeus-form-select[data-zeus-primitive='select'] > .zeus-select-trigger:disabled {
-  color: var(--zeus-control-disabled-text);
-  border-color: var(--zeus-control-disabled-line);
+  color: var(--base-control-disabled-text);
+  border-color: var(--base-control-disabled-line);
 }
 
 .macos-ai-app input.zeus-text-input:hover:not(:disabled, [readonly]) {
-  border-color: var(--zeus-control-border-hover);
+  border-color: var(--base-control-border-hover);
 }
 
 .macos-ai-app input.zeus-text-input:focus-visible {
-  border-color: var(--zeus-focus-line);
-  box-shadow: inset 0 0 0 1px var(--zeus-focus-line);
+  border-color: var(--base-focus-line);
+  box-shadow: inset 0 0 0 1px var(--base-focus-line);
 }
 
 .macos-ai-app input.zeus-text-input:is([aria-invalid='true'], :user-invalid) {
-  border-color: var(--zeus-control-error-line);
+  border-color: var(--base-control-error-line);
 }
 
 .macos-ai-app input.zeus-text-input:is([aria-invalid='true'], :user-invalid):focus-visible {
-  box-shadow: inset 0 0 0 1px var(--zeus-control-error-line);
+  box-shadow: inset 0 0 0 1px var(--base-control-error-line);
 }
 
 .macos-ai-app input.zeus-text-input:disabled {
-  color: var(--zeus-control-disabled-text);
-  border-color: var(--zeus-control-disabled-line);
-  background-color: var(--zeus-control-disabled-bg);
+  color: var(--base-control-disabled-text);
+  border-color: var(--base-control-disabled-line);
+  background-color: var(--base-control-disabled-bg);
 }
 
 .macos-ai-app .zeus-search-field {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--base-space-2);
   cursor: text;
 }
 
 .macos-ai-app .zeus-search-field > svg {
-  flex: 0 0 14px;
-  inline-size: 14px;
-  block-size: 14px;
-  color: var(--zeus-product-muted);
+  flex: 0 0 16px;
+  inline-size: 16px;
+  block-size: 16px;
+  color: var(--base-product-muted);
 }
 
 .macos-ai-app .zeus-search-field > input {
@@ -79,8 +79,8 @@
 }
 
 .macos-ai-app .zeus-search-field:focus-within {
-  border-color: var(--zeus-focus-line);
-  box-shadow: inset 0 0 0 1px var(--zeus-focus-line);
+  border-color: var(--base-focus-line);
+  box-shadow: inset 0 0 0 1px var(--base-focus-line);
 }
 
 .macos-ai-app .zeus-search-field > input:focus-visible {
@@ -89,16 +89,16 @@
 }
 
 .macos-ai-app .zeus-search-field:has(> input:disabled) {
-  background-color: var(--zeus-control-disabled-bg);
-  border-color: var(--zeus-control-disabled-line);
-  color: var(--zeus-control-disabled-text);
+  background-color: var(--base-control-disabled-bg);
+  border-color: var(--base-control-disabled-line);
+  color: var(--base-control-disabled-text);
   cursor: default;
 }
 
 .macos-ai-app .zeus-check-field {
   display: flex;
   align-items: center;
-  gap: var(--zeus-space-2);
+  gap: var(--base-space-2);
 }
 
 .macos-ai-app .zeus-check-field > input[type='checkbox'] {

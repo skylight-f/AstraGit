@@ -12,7 +12,7 @@ import { gitDiffFileVersions, gitDiffUnavailableMessage } from './gitDiffFeedbac
 
 import '../../../styles/styles.css';
 import '../../../ui/primitives.css';
-import '../../../styles/agentdesk-theme.css';
+import '../../../styles/theme.css';
 import './gitTextDiff.css';
 import { Select } from '../../../ui/FormControls.js';
 
@@ -246,7 +246,7 @@ export function SideBySideDiff(props: SideBySideDiffProps) {
     if (!layout || !content) return;
     // 给滚动条单独留出宽度，让表头、所有区块和唯一的分隔条使用相同的列尺寸。
     const measure = () => {
-      layout.style.setProperty('--git-diff-scrollbar', `${mode === 'side-by-side' ? Math.max(0, content.offsetWidth - content.clientWidth) : 0}px`);
+      layout.style.setProperty('--base-git-diff-scrollbar', `${mode === 'side-by-side' ? Math.max(0, content.offsetWidth - content.clientWidth) : 0}px`);
       const width = layout.getBoundingClientRect().width;
       if (width <= 0) return;
       const sideMinimum = Math.min(120, Math.max(0, (width - 6) / 2));

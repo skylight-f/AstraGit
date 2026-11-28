@@ -11,7 +11,7 @@ export function readGitPanePreference(name: string, initial: number) {
 }
 
 export function closedWorkspaceWidth(dock: HTMLElement) {
-  const growth = parseFloat(getComputedStyle(dock).getPropertyValue('--review-window-growth')) || 0;
+  const growth = parseFloat(getComputedStyle(dock).getPropertyValue('--base-review-window-growth')) || 0;
   return dock.clientWidth - growth;
 }
 
@@ -38,13 +38,13 @@ export function GitPaneSeparator(props: { name: string; label: string; axis?: 'x
   const paint = (percent: number) => {
     const host = container();
     if (!host) return;
-    const property = `--git-${props.name}`;
+    const property = `--base-git-${props.name}`;
     if (!props.trailingMin) {
       host.style.setProperty(property, reviewDivider ? String(percent / 100) : `${percent}%`);
       return;
     }
     const dock = host.closest<HTMLElement>('.gitapp-content-layout');
-    const minimum = `--review-room-${props.name}`;
+    const minimum = `--base-review-room-${props.name}`;
     const rect = host.getBoundingClientRect();
     if (!rect.width || !dock) {
       dock?.style.removeProperty(minimum);
@@ -88,7 +88,7 @@ export function GitPaneSeparator(props: { name: string; label: string; axis?: 'x
     observer.observe(dock);
     return () => {
       observer.disconnect();
-      dock.style.removeProperty(`--review-room-${props.name}`);
+      dock.style.removeProperty(`--base-review-room-${props.name}`);
     };
   }, [props.name, props.target, props.trailingMin]);
   const end = (event: PointerEvent<HTMLDivElement>) => {

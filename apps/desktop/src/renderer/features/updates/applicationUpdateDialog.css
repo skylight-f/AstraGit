@@ -1,11 +1,11 @@
 .gitapp-update-dialog-portal {
-  --gitapp-update-inset-bottom: calc(var(--ag-rail-padding-block) + var(--ag-rail-button-size) + var(--ag-rail-gap));
+  --base-gitapp-update-inset-bottom: calc(var(--base-shell-rail-padding-block) + var(--base-shell-rail-button-size) + var(--base-shell-rail-gap));
 }
 
 .zeus-modal-portal-root.macos-ai-app.gitapp-update-dialog-portal[data-zeus-primitive='modal'] .gitapp-update-dialog-backdrop {
   place-items: end start;
-  padding: var(--zeus-space-4) var(--zeus-space-4) var(--gitapp-update-inset-bottom) calc(var(--ag-rail-width) + var(--zeus-space-2));
-  background: color-mix(in srgb, var(--ag-ink) 4%, transparent);
+  padding: var(--base-space-4) var(--base-space-4) var(--base-gitapp-update-inset-bottom) calc(var(--base-shell-rail-width) + var(--base-space-2));
+  background: color-mix(in srgb, var(--base-shell-ink) 4%, transparent);
 }
 
 .gitapp-update-dialog-portal .zeus-modal-backdrop > .gitapp-update-dialog {
@@ -13,18 +13,18 @@
   display: flex;
   flex-direction: column;
   inline-size: min(100%, 448px);
-  max-block-size: min(560px, calc(100dvh - var(--gitapp-update-inset-bottom) - var(--zeus-space-4)));
+  max-block-size: min(560px, calc(100dvh - var(--base-gitapp-update-inset-bottom) - var(--base-space-4)));
   overflow: hidden;
-  border: 1px solid var(--zeus-control-border);
-  border-radius: calc(var(--zeus-dialog-radius) + var(--zeus-space-1));
-  background: var(--zeus-product-panel);
-  box-shadow: var(--agentdesk-modal-shadow);
+  border: var(--base-border-none);
+  border-radius: var(--base-dialog-radius);
+  background: var(--base-product-panel);
+  box-shadow: var(--base-theme-modal-shadow);
 }
 
 .gitapp-update-dialog-heading {
   flex: none;
-  padding: var(--zeus-space-6) var(--zeus-space-6) var(--zeus-space-4);
-  background: radial-gradient(ellipse 165px 108px at 50% 28px, var(--zeus-product-selected), transparent);
+  padding: var(--base-space-6) var(--base-space-6) var(--base-space-4);
+  background: radial-gradient(ellipse 165px 108px at 50% 28px, var(--base-product-selected), transparent);
   text-align: center;
 }
 
@@ -33,10 +33,10 @@
   place-items: center;
   inline-size: 68px;
   block-size: 68px;
-  margin: 0 auto var(--zeus-space-3);
-  border: 1px solid var(--zeus-control-border);
-  border-radius: var(--zeus-dialog-radius);
-  background: var(--zeus-product-panel);
+  margin: 0 auto var(--base-space-3);
+  border: 1px solid var(--base-control-border);
+  border-radius: var(--base-dialog-radius);
+  background: var(--base-product-panel);
 }
 
 .gitapp-update-dialog-mark > img {
@@ -46,16 +46,16 @@
 
 .gitapp-update-dialog-heading > h2 {
   margin: 0;
-  font-size: var(--zeus-type-size-dialog-title);
-  font-weight: var(--zeus-type-weight-semibold);
-  line-height: var(--zeus-type-line-tight);
+  font-size: var(--base-type-size-dialog-title);
+  font-weight: var(--base-type-weight-semibold);
+  line-height: var(--base-type-line-dialog-title);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
 .gitapp-update-dialog-body {
   min-block-size: 0;
-  padding-inline: var(--zeus-space-6);
+  padding-inline: var(--base-space-6);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -65,43 +65,43 @@
   padding: 0;
   border: 0;
   background: transparent;
-  font-size: var(--zeus-type-size-body);
+  font-size: var(--base-type-size-body);
 }
 
 .gitapp-update-dialog-body .gitapp-release-notes :is(ul, ol) {
-  padding-inline-start: var(--zeus-space-4);
-  color: var(--zeus-product-text);
+  padding-inline-start: var(--base-space-4);
+  color: var(--base-product-text);
 }
 
 .gitapp-update-dialog-body .gitapp-release-notes li + li {
-  margin-block-start: var(--zeus-space-2);
+  margin-block-start: var(--base-space-2);
 }
 
 .gitapp-update-dialog-body .gitapp-release-notes li::marker {
-  color: var(--zeus-product-muted);
+  color: var(--base-product-muted);
 }
 
 .gitapp-update-dialog-footer {
   display: grid;
   flex: none;
-  gap: var(--zeus-space-3);
-  padding: var(--zeus-space-4) var(--zeus-space-6) var(--zeus-space-5);
+  gap: var(--base-space-3);
+  padding: var(--base-space-4) var(--base-space-6) var(--base-space-5);
 }
 
 .gitapp-update-dialog-footer > p {
   margin: 0;
-  color: var(--zeus-product-muted);
+  color: var(--base-product-muted);
   overflow-wrap: anywhere;
 }
 
 .gitapp-update-dialog-footer progress {
   inline-size: 100%;
-  accent-color: var(--zeus-control-accent);
+  accent-color: var(--base-control-accent);
 }
 
 .gitapp-update-dialog-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: var(--zeus-space-2);
+  gap: var(--base-space-2);
 }

@@ -13,7 +13,7 @@ function modelIcon(item: GitCommitModelOption) {
   const logo = item.sourceId === 'codex' ? codexLogo : /(?:^|%2f)mimo(?:[-_.]|$)/iu.test(modelId) ? mimoLogo : undefined;
   if (logo) return <img className="ai-model-select-logo" src={logo} alt="" />;
   const initial = Array.from(item.sourceName?.trim() ?? '')[0]?.toUpperCase();
-  return <span className="ai-model-select-symbol">{initial || <Sparkle size={14} />}</span>;
+  return <span className="ai-model-select-symbol">{initial || <Sparkle size={16} />}</span>;
 }
 
 /** 所有业务入口共用模型分组、搜索、选中反馈与管理操作。 */
@@ -58,8 +58,8 @@ export function ModelSelect({ items, value, onChange, zh, ariaLabel, disabled = 
     searchPlaceholder={zh ? '搜索模型或供应商…' : 'Search models or providers…'}
     emptyLabel={loading ? (zh ? '正在加载模型…' : 'Loading models…') : items.length ? (zh ? '没有匹配的模型' : 'No matching models') : (zh ? '暂无可用模型，请先配置。' : 'No models available. Configure a model first.')}
     footer={close => <span className="ai-model-select-actions">
-      <button type="button" disabled={loading} onClick={() => { close(); onRefresh(); }}><ArrowsClockwise size={14} aria-hidden="true" />{zh ? '刷新模型列表' : 'Refresh models'}</button>
-      <button type="button" onClick={() => { close(); onOpenSettings(); }}><GearSix size={14} aria-hidden="true" />{zh ? '模型设置' : 'Model settings'}</button>
+      <button type="button" disabled={loading} onClick={() => { close(); onRefresh(); }}><ArrowsClockwise size={16} aria-hidden="true" />{zh ? '刷新模型列表' : 'Refresh models'}</button>
+      <button type="button" onClick={() => { close(); onOpenSettings(); }}><GearSix size={16} aria-hidden="true" />{zh ? '模型设置' : 'Model settings'}</button>
     </span>}
   />;
 }

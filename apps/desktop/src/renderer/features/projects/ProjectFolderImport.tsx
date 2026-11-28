@@ -100,7 +100,7 @@ export function ProjectFolderImport({ client, zh, disabled, onImported }: {
       onSubmit={event => { event.preventDefault(); void addProjects(); }}
     >
       <div className="gitapp-folder-scan-location">
-        <FolderOpen size={18} aria-hidden="true" />
+        <FolderOpen size={20} aria-hidden="true" />
         <span title={scan.root}>{scan.root}</span>
         {scan.phase !== 'scanning' ? <Button size="compact" busy={picking} onClick={() => void pickFolder()}>{text('更换文件夹…', 'Choose another folder…')}</Button> : null}
       </div>

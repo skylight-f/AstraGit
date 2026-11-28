@@ -1,17 +1,17 @@
 .macos-ai-app .zeus-select.ai-model-select[data-control-size='compact'] > .zeus-select-trigger {
-  min-block-size: var(--ag-tool-size);
-  border-color: var(--ag-control-line);
-  border-radius: var(--ag-control-radius);
-  background: var(--ag-control);
-  color: var(--ag-ink);
+  min-block-size: var(--base-control-compact-height);
+  border-color: var(--base-shell-control-line);
+  border-radius: var(--base-control-radius);
+  background: var(--base-shell-control);
+  color: var(--base-shell-ink);
   font-size: 12px;
   font-weight: 400;
 }
 
 .macos-ai-app .zeus-select.ai-model-select > .zeus-select-trigger:is(:hover, [aria-expanded='true']):not(:disabled) {
-  background: var(--ag-brand-selected);
-  border-color: var(--ag-brand-edge);
-  color: var(--ag-brand-ink);
+  background: var(--base-shell-brand-selected);
+  border-color: var(--base-shell-brand-edge);
+  color: var(--base-shell-brand-ink);
 }
 
 .macos-ai-app .ai-model-select-popover .zeus-select-listbox {
@@ -26,34 +26,34 @@
 }
 
 .macos-ai-app .ai-model-select-popover .zeus-select-option[aria-selected='true'] {
-  background: var(--ag-brand-selected);
-  color: var(--ag-brand-ink);
+  background: var(--base-shell-brand-selected);
+  color: var(--base-shell-brand-ink);
   font-weight: 600;
 }
 
 .ai-model-select-logo, .ai-model-select-symbol {
   display: block;
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
   object-fit: contain;
 }
 
 .ai-model-select-symbol {
   display: grid;
   place-items: center;
-  background: var(--ag-control);
-  color: var(--ag-brand-ink);
-  font-size: 11px;
-  font-weight: 650;
+  background: var(--base-shell-control);
+  color: var(--base-shell-brand-ink);
+  font-size: 12px;
+  font-weight: var(--base-type-weight-semibold);
 }
 
 .ai-model-select-actions {
   display: grid;
-  gap: 2px;
-  margin-top: 3px;
-  padding-top: 3px;
-  border-top: 1px solid var(--ag-line);
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--base-shell-line);
 }
 
 .macos-ai-app .ai-model-select-actions > button {
@@ -64,14 +64,14 @@
   min-height: 32px;
   padding: 4px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
-  color: var(--ag-ink);
+  color: var(--base-shell-ink);
   font: 12px/1.35 system-ui;
   text-align: left;
   cursor: pointer;
 }
 
-.macos-ai-app .ai-model-select-actions > button:not(:disabled):is(:hover, :focus-visible) { background: var(--zeus-brand-hover); }
-.macos-ai-app .ai-model-select-actions > button:focus-visible { outline: 1px solid var(--ag-focus); outline-offset: -1px; }
-.macos-ai-app .ai-model-select-actions > button:disabled { color: var(--ag-muted); opacity: .55; cursor: default; }
+.macos-ai-app .ai-model-select-actions > button:not(:disabled):is(:hover, :focus-visible) { background: var(--base-brand-hover); }
+.macos-ai-app .ai-model-select-actions > button:focus-visible { outline: 1px solid var(--base-shell-focus); outline-offset: -1px; }
+.macos-ai-app .ai-model-select-actions > button:disabled { color: var(--base-shell-muted); opacity: .55; cursor: default; }

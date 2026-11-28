@@ -1,31 +1,26 @@
 .macos-ai-app.zeus-shell .project-git-commit-composer {
-  --git-commit-control-height: 28px;
-  --git-commit-input-min-height: 36px;
+  --base-git-commit-input-min-height: 36px;
   container: git-commit / inline-size;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(min-content, 1fr) auto;
   align-items: stretch;
-  gap: 6px;
+  gap: var(--base-space-1);
   min-height: 0;
   overflow: auto;
-  padding-block: 6px;
-  font-size: var(--zeus-type-size-label);
+  padding-block: var(--base-space-1) var(--base-space-2);
+  font-size: var(--base-type-size-label);
 }
 
 .project-git-commit-composer :is(.project-git-commit-header, .project-git-commit-summary, .project-git-commit-repository, .project-git-commit-status) {
   display: flex;
   align-items: center;
   min-inline-size: 0;
-  gap: 8px;
+  gap: var(--base-space-2);
 }
 
 .project-git-commit-composer :is(.project-git-commit-header, .project-git-commit-message-heading) {
   justify-content: space-between;
-}
-
-.project-git-commit-composer .project-git-commit-summary {
-  gap: 10px;
 }
 
 .project-git-commit-composer .project-git-commit-repository {
@@ -34,14 +29,14 @@
 
 .project-git-commit-composer .project-git-commit-repository svg {
   flex: none;
-  color: var(--zeus-product-muted);
+  color: var(--base-product-muted);
 }
 
 .project-git-commit-composer .project-git-commit-status {
   overflow: hidden;
-  color: var(--zeus-product-muted);
-  font-size: var(--zeus-type-size-caption);
-  line-height: 16px;
+  color: var(--base-product-muted);
+  font-size: var(--base-type-size-caption);
+  line-height: var(--base-type-line-caption);
   white-space: nowrap;
 }
 
@@ -50,72 +45,105 @@
 }
 
 .project-git-commit-composer .project-git-commit-status > span + span {
-  border-inline-start: 1px solid var(--zeus-workspace-divider);
-  padding-inline-start: 8px;
+  border-inline-start: var(--base-divider-width) solid var(--base-workspace-divider);
+  padding-inline-start: var(--base-space-2);
+}
+
+.project-git-commit-options {
+  --base-form-action-font-size: var(--base-type-size-caption);
+  --base-control-bg: transparent;
+  --base-control-border: transparent;
+  --base-control-border-hover: transparent;
+  --base-control-disabled-bg: transparent;
+  --base-control-disabled-line: transparent;
 }
 
 .project-git-commit-composer .project-git-commit-message {
   display: grid;
-  grid-template-rows: auto minmax(var(--git-commit-input-min-height), 1fr) auto;
+  grid-template-rows: auto minmax(var(--base-git-commit-input-min-height), 1fr) auto;
   align-self: stretch;
   min-inline-size: 0;
-  border: 1px solid var(--zeus-control-border);
-  border-radius: var(--zeus-control-radius);
-  background: var(--zeus-product-panel);
+  border: var(--base-border-width) solid var(--base-control-border);
+  border-radius: var(--base-control-radius);
+  background: var(--base-product-panel);
 }
 
 .project-git-commit-composer .project-git-commit-message-heading {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px 8px;
-  padding: 2px 6px 2px 10px;
-  border-block-end: 1px solid var(--zeus-workspace-divider);
+  gap: var(--base-space-1) var(--base-space-2);
+  padding: var(--base-space-1) var(--base-space-2) var(--base-space-1) var(--base-control-padding-inline);
+  border-block-end: var(--base-divider-width) solid var(--base-workspace-divider);
   border-start-start-radius: inherit;
   border-start-end-radius: inherit;
-  background: var(--zeus-product-panel-muted);
+  background: var(--base-product-panel-muted);
 }
 
 .project-git-commit-composer .project-git-commit-message-heading label {
-  font-weight: var(--zeus-type-weight-semibold);
+  font-weight: var(--base-type-weight-semibold);
   cursor: text;
 }
 
 .project-git-commit-composer .git-commit-ai-tools {
+  flex: 0 1 auto;
+  gap: var(--base-space-1);
   max-inline-size: 100%;
   margin-inline-start: auto;
 }
 
 .project-git-commit-composer .git-commit-ai-tools > .ai-model-select {
-  flex: 0 1 184px;
-  inline-size: 184px;
+  flex: 0 1 auto;
+  inline-size: max-content;
+  max-inline-size: 168px;
+}
+
+.macos-ai-app.zeus-shell .project-git-commit-composer .ai-model-select > .zeus-select-trigger {
+  grid-template-columns: minmax(0, 1fr) 12px;
+  gap: var(--base-space-1);
+  padding-inline: var(--base-space-2);
+  border-radius: var(--base-control-radius);
+  box-shadow: none;
+  font-size: var(--base-type-size-caption);
+  font-weight: var(--base-type-weight-regular);
+  line-height: var(--base-type-line-caption);
+}
+
+.macos-ai-app.zeus-shell .project-git-commit-composer .ai-model-select > .zeus-select-trigger:not(:hover, :disabled, [aria-expanded='true']) {
+  background: var(--base-product-panel);
+}
+
+.macos-ai-app.zeus-shell .project-git-commit-composer .ai-model-select > .zeus-select-trigger:focus-visible {
+  outline: 2px solid var(--base-shell-focus);
+  outline-offset: -2px;
 }
 
 .macos-ai-app.zeus-shell .project-git-commit-composer textarea {
   box-sizing: border-box;
   inline-size: 100%;
   block-size: 100%;
-  min-block-size: var(--git-commit-input-min-height);
-  padding: 7px 10px;
+  min-block-size: var(--base-git-commit-input-min-height);
+  padding: var(--base-space-2) var(--base-control-padding-inline);
   border: 0;
   border-end-start-radius: inherit;
   border-end-end-radius: inherit;
   background: transparent;
   color: inherit;
   font: inherit;
-  line-height: 1.5;
+  font-size: var(--base-type-size-body);
+  line-height: var(--base-type-line-body);
   resize: none;
 }
 
 .project-git-commit-composer textarea:focus-visible {
-  outline: 2px solid var(--ag-focus);
+  outline: 2px solid var(--base-shell-focus);
   outline-offset: -2px;
 }
 
 .project-git-commit-composer .project-git-commit-generation-feedback {
-  padding: 4px 10px;
-  border-block-start: 1px solid var(--zeus-workspace-divider);
-  font-size: var(--zeus-type-size-caption);
+  padding: 4px 12px;
+  border-block-start: var(--base-divider-width) solid var(--base-workspace-divider);
+  font-size: var(--base-type-size-caption);
   overflow-wrap: anywhere;
 }
 
@@ -126,28 +154,27 @@
 .project-git-commit-composer .project-git-commit-footer {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-areas: var(--git-commit-footer-areas, 'multi push confirm');
+  grid-template-areas: var(--base-git-commit-footer-areas, 'multi push confirm');
   align-items: center;
   min-inline-size: 0;
-  row-gap: 4px;
+  gap: var(--base-space-1) var(--base-space-2);
 }
 
 @container git-commit (inline-size < 440px) {
   .project-git-commit-footer {
-    --git-commit-footer-areas: 'push push push' 'multi . confirm';
+    --base-git-commit-footer-areas: 'push push push' 'multi . confirm';
   }
 }
 
 @container git-commit (inline-size < 620px) {
   .project-git-commit-footer:lang(en):has(> .project-git-commit-multi) {
-    --git-commit-footer-areas: 'push push push' 'multi . confirm';
+    --base-git-commit-footer-areas: 'push push push' 'multi . confirm';
   }
 }
 
 .project-git-commit-composer .project-git-commit-multi {
   grid-area: multi;
   justify-self: start;
-  margin-inline-end: 8px;
 }
 
 .project-git-commit-composer .project-git-commit-push-option {
@@ -155,14 +182,14 @@
   justify-self: start;
   max-inline-size: 100%;
   min-inline-size: 0;
-  margin-inline-end: 8px;
+  min-block-size: var(--base-control-small-height);
   cursor: pointer;
 }
 
 .project-git-commit-composer .project-git-commit-push-option > span {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--base-space-1);
   min-inline-size: 0;
 }
 
@@ -177,12 +204,12 @@
 }
 
 .project-git-commit-composer .project-git-commit-push-option code {
-  color: var(--zeus-product-muted);
-  font: var(--zeus-type-size-caption) var(--zeus-font-family-mono);
+  color: var(--base-product-muted);
+  font: var(--base-type-size-caption) var(--base-font-family-mono);
 }
 
 .project-git-commit-composer .project-git-commit-push-option:has(input:disabled) {
-  color: var(--zeus-product-muted);
+  color: var(--base-product-muted);
   cursor: default;
 }
 
@@ -192,15 +219,41 @@
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--base-space-2);
 }
 
 .macos-ai-app.zeus-shell .project-git-commit-composer :is(.zeus-button[data-zeus-primitive='button'], .git-commit-ai-button, .ai-model-select > .zeus-select-trigger) {
-  block-size: var(--git-commit-control-height);
-  min-block-size: var(--git-commit-control-height);
+  block-size: var(--base-control-small-height);
+  min-block-size: var(--base-control-small-height);
   padding-block: 0;
 }
 
 .macos-ai-app.zeus-shell .project-git-commit-composer :is(.zeus-button[data-zeus-primitive='button'], .git-commit-ai-button) {
-  padding-inline: 9px;
+  padding-inline: var(--base-space-2);
+  font-weight: var(--base-type-weight-regular);
+}
+
+.macos-ai-app.zeus-shell .project-git-commit-composer .project-git-commit-footer .zeus-button {
+  line-height: var(--base-type-line-body);
+}
+
+.macos-ai-app.zeus-shell .project-git-commit-composer .project-git-commit-options > .zeus-button {
+  padding-inline: var(--base-space-1);
+  gap: var(--base-space-1);
+  color: var(--base-product-muted);
+  line-height: var(--base-type-line-caption);
+}
+
+.macos-ai-app.zeus-shell .project-git-commit-composer .project-git-commit-options > .zeus-button[aria-expanded='true'] {
+  background: var(--base-interaction-hover);
+  color: var(--base-product-text);
+}
+
+.macos-ai-app.zeus-shell .project-git-commit-composer .project-git-commit-options > .zeus-button:disabled {
+  color: var(--base-control-disabled-text);
+}
+
+.macos-ai-app.zeus-shell .project-git-commit-composer .project-git-commit-options > .zeus-button > svg {
+  inline-size: 12px;
+  block-size: 12px;
 }

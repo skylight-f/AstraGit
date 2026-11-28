@@ -58,7 +58,7 @@ export function ApplicationUpdateDialog({ zh, update, disabled, onDismiss }: {
     <div className="gitapp-update-dialog" data-modal-surface="dialog">
       <header className="gitapp-update-dialog-heading">
         <div className="gitapp-update-dialog-mark" aria-hidden="true">
-          <img src={appIcon} alt="" width={58} height={58} />
+          <img src={appIcon} alt="" width={60} height={60} />
         </div>
         <h2 id={titleId}>{title}</h2>
       </header>
