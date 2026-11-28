@@ -362,9 +362,8 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
         <aside className="project-git-navigator" aria-label={zh ? 'Git 导航' : 'Git navigation'}>
           <section className="git-history-repositories" aria-label={zh ? '仓库导航' : 'Repository navigation'}>
             <header className="git-history-pane-heading">{zh ? '仓库' : 'Repositories'}</header>
-            <div className="git-history-navigation-scroll">
+            {selectedRepository ? (
               <div className="git-toolbar-identity">
-                {selectedRepository ? (
                   <BranchSwitcher
                     cascadeRepositories
                     zh={zh}
@@ -384,8 +383,9 @@ export function ProjectGitWorkbench(props: ProjectGitWorkbenchProps) {
                     }}
                     onOpenRevision={() => setRevisionOpen(true)}
                   />
-                ) : null}
               </div>
+            ) : null}
+            <div className="git-history-navigation-scroll">
               {selectedRepository?.snapshot.submodules?.length ? (
                 <details>
                   <summary className="project-git-reference-section-heading">

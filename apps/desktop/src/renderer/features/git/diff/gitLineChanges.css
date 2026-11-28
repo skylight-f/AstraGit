@@ -1,11 +1,15 @@
 .git-line-changes { display:flex; flex:1; position:relative; min-height:0; min-width:0; overflow:hidden; }
-.project-git-diff-preview>.git-lines-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:5px 8px; flex:none; min-height:35px; padding:6px 10px; border-bottom:1px solid var(--zeus-workspace-divider); background:var(--zeus-product-panel-muted); font:11px/1.5 var(--zeus-font-family-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif); overflow:visible; }
-.git-lines-status { flex:1 1 200px; min-width:0; margin:0; color:var(--zeus-product-muted); }
-.git-lines-actions { display:flex; align-items:center; flex-wrap:wrap; gap:5px 8px; }
-.git-lines-toolbar>small { flex-basis:100%; font-size:10px; color:var(--zeus-product-muted); }
-.git-lines-toolbar button,.git-lines-error button { font:inherit; color:var(--zeus-product-text); background:var(--zeus-control-bg); border:1px solid var(--zeus-control-border); border-radius:4px; padding:4px 7px; cursor:pointer; }
+.project-git-diff-preview>.git-lines-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; flex:none; min-height:38px; padding:6px 10px; border-bottom:1px solid var(--zeus-workspace-divider); background:var(--zeus-product-panel-muted); font:11px/1.45 var(--zeus-font-family-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif); }
+.git-lines-context { flex:1 1 154px; min-width:0; }
+.git-lines-status { margin:0; color:var(--zeus-product-text); font-weight:600; font-variant-numeric:tabular-nums; }
+.git-lines-context>small { display:block; color:var(--zeus-product-muted); font-size:10px; }
+.git-lines-actions { display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
+.git-lines-toolbar button,.git-lines-error button { min-height:24px; font:inherit; color:var(--zeus-product-text); background:var(--zeus-control-bg); border:1px solid var(--zeus-control-border); border-radius:var(--zeus-control-radius); padding:3px 6px; cursor:pointer; }
+.git-lines-toolbar button:not(:disabled):hover { border-color:var(--zeus-control-border-hover); background:var(--zeus-control-bg-hover); }
+.git-lines-toolbar button:focus-visible { outline:2px solid var(--zeus-control-accent); outline-offset:1px; }
 .git-lines-toolbar button:disabled { opacity:.45; cursor:default; }
-.git-lines-toolbar button[data-danger] { color:var(--zeus-danger-text,#a63f42); }
+.git-lines-toolbar button[data-primary]:not(:disabled) { background:var(--zeus-product-selected); color:var(--zeus-brand-text); border-color:color-mix(in srgb,var(--zeus-control-accent) 25%,var(--zeus-product-line)); font-weight:600; }
+.git-lines-toolbar button[data-danger]:not(:disabled) { color:var(--zeus-danger-text,#a63f42); }
 .git-lines-error { position:absolute; z-index:6; inset:auto 12px 12px; padding:12px; max-height:45%; overflow:auto; border:1px solid #e5b8b6; border-radius:7px; background:var(--zeus-control-bg,#fff); box-shadow:0 4px 20px #18203b26; color:var(--zeus-danger-text,#a63f42); font-size:12px; }
 .git-lines-error>button { display:block; margin-top:9px; }
 .astragit-diff-line>.git-line-select { border:0; border-radius:0; background:transparent; font:inherit; cursor:pointer; }

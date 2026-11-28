@@ -78,15 +78,17 @@ export function GitLineChanges(props: {
     metadata: text('只有文件模式或空文件元数据变化，请使用整文件操作。', 'Only file mode or empty-file metadata changed. Use whole-file actions.'),
   };
   const toolbar = <div className="git-lines-toolbar" aria-busy={state.loading || pending}>
-    <p className="git-lines-status" role="status">{preview?.readOnlyReason ? messages[preview.readOnlyReason] : !preview && state.loading ? text('正在读取当前文件差异…', 'Reading current file diff…') : text(`已选择 ${selected.length} 条增删行`, `${selected.length} changed lines selected`)}</p>
+    <div className="git-lines-context">
+      <p className="git-lines-status" role="status">{preview?.readOnlyReason ? messages[preview.readOnlyReason] : !preview && state.loading ? text('正在读取当前文件差异…', 'Reading current file diff…') : text(`已选择 ${selected.length} 条增删行`, `${selected.length} changed lines selected`)}</p>
+      {!preview?.readOnlyReason ? <small>{text('点击增删行；Shift 连选，Ctrl/⌘ 多选；右键操作。', 'Click changed lines; Shift for range, Ctrl/⌘ to toggle; right-click for actions.')}</small> : null}
+    </div>
     {!preview?.readOnlyReason ? <>
       <div className="git-lines-actions">
         <button type="button" disabled={disabled || !allKeys.length} onClick={controls.onSelectAll}>{text('全选更改行', 'Select changed lines')}</button>
         <button type="button" disabled={!selected.length || pending} onClick={controls.onClear}>{text('清除', 'Clear')}</button>
-        <button type="button" disabled={disabled || !selected.length} onClick={() => void execute(primary, selected)}>{props.stage === 'staged' ? text('取消暂存所选行', 'Unstage selected lines') : text('暂存所选行', 'Stage selected lines')}</button>
+        <button type="button" data-primary disabled={disabled || !selected.length} onClick={() => void execute(primary, selected)}>{props.stage === 'staged' ? text('取消暂存所选行', 'Unstage selected lines') : text('暂存所选行', 'Stage selected lines')}</button>
         {props.stage === 'unstaged' ? <button type="button" data-danger disabled={disabled || !selected.length} onClick={() => discard(selected)}>{text('放弃所选行…', 'Discard selected lines…')}</button> : null}
       </div>
-      <small>{text('点击增删行；Shift 连选，Ctrl/⌘ 多选；右键操作。', 'Click changed lines; Shift for range, Ctrl/⌘ to toggle; right-click for actions.')}</small>
     </> : null}
   </div>;
   const shown = preview ? preview.readOnlyReason && !file ? props.fallback : preview.diff : props.fallback;

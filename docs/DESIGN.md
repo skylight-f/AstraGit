@@ -4,8 +4,8 @@
 
 ## 视觉基线
 
-- 保持桌面 Git 工作台的紧凑布局。使用浅灰画布、近白工作面、深色正文和次级灰色辅助信息。工具栏、侧栏和内容区用对齐、留白及细分隔线建立层级。
-- 品牌蓝用于主要动作、当前选中项和需要突出显示的交互。列表选中时延续浅蓝底与强调色，普通悬停使用较弱的背景变化。焦点使用独立、清晰的轮廓，悬停、选中和焦点可以同时辨认。
+- 标题栏和活动栏使用浅灰背景和深灰文字。项目页签与 Git 操作共用一个工具栏卡片，仓库、分支与引用、文件状态各用独立的白色卡片。项目提交的仓库列表与详情也各用独立卡片。使用细边框、圆角和窄间距区分相邻卡片，提交区使用浅灰底。
+- 品牌蓝用于主要动作、当前选中项和需要突出显示的交互。列表选中时使用浅蓝底与强调色，普通悬停使用较弱的背景变化。活动栏选中项使用蓝底白色图标。焦点使用独立、清晰的轮廓。
 - 阴影集中用于菜单、下拉浮层和弹窗。工作台的相邻面板优先用细边框和窄间距分隔。保留传达目标、操作、状态和下一步所需的文案。
 - 主工作台与设置当前使用 `theme-light`。继承所在区域的外观。已有外观参数的组件按调用方传入的主题渲染，弹窗通过 `ModalPortal` 继承主题。涉及深色或跟随系统时，按该组件实际支持的入口验证。[应用外壳](../apps/desktop/src/renderer/app/App.tsx) · [主题映射](../apps/desktop/src/renderer/styles/agentdesk-theme.css)
 
@@ -35,22 +35,26 @@
 | --- | --- |
 | 按钮 | 常规操作使用 `Button`。确认区通常只强调一个主动作，提交或保存用 `primary`，取消或关闭用 `secondary`，丢弃、删除等危险动作用 `danger`。工具栏和分类导航等无边框按钮使用 `ghost`。异步提交通过 `busy` 防止重复触发，并显示当前操作状态。[Button](../apps/desktop/src/renderer/ui/Button.tsx) |
 | 表单与弹窗 | 标准表单复用 `FormDialog`，文本框和带标签的复选框使用 `TextInput` 与 `CheckboxField`。复杂 Git 操作使用基于 `ModalPortal` 的 `GitOperationDialog`。弹窗提供可访问名称，主体内容可滚动，底部操作保持可达。危险确认说明操作对象和后果，处理期间按业务语义锁定表单或提供明确的中止入口。[FormDialog](../apps/desktop/src/renderer/ui/FormDialog.tsx) · [FormControls](../apps/desktop/src/renderer/ui/FormControls.tsx) · [GitOperationDialog](../apps/desktop/src/renderer/features/git/components/GitOperationDialog.tsx) |
-| 选项与菜单 | 表单单选使用 `Select`，模型和图标类入口可直接使用 `ZeusSelect`。两者共用自绘圆角浮层、细边框和柔和阴影。普通悬停使用中性底色，选中使用整行浅蓝底及勾选，焦点使用独立轮廓。长列表在视口内滚动，可按名称搜索。动作菜单用 `MenuSurface`，Git 右键操作沿用 `GitContextMenu`。[ZeusSelect](../apps/desktop/src/renderer/ui/ZeusSelect.tsx) · [MenuSurface](../apps/desktop/src/renderer/ui/MenuSurface.tsx) · [GitContextMenu](../apps/desktop/src/renderer/features/git/components/GitContextMenu.tsx) |
+| 选项与菜单 | 表单单选使用 `Select`，模型和图标类入口可直接使用 `ZeusSelect`。两者共用自绘圆角浮层、细边框和柔和阴影。普通悬停使用中性底色，选中使用整行浅色强调面及勾选，焦点使用独立轮廓。长列表在视口内滚动，可按名称搜索。动作菜单用 `MenuSurface`，Git 右键操作沿用 `GitContextMenu`。[ZeusSelect](../apps/desktop/src/renderer/ui/ZeusSelect.tsx) · [MenuSurface](../apps/desktop/src/renderer/ui/MenuSurface.tsx) · [GitContextMenu](../apps/desktop/src/renderer/features/git/components/GitContextMenu.tsx) |
 | 工具栏筛选与搜索 | 同排的下拉 `Select` 和搜索框 `SearchInput` 使用 `density="compact"`，通过同一个 26px 尺寸变量对齐。工具栏负责分配宽度与换行。[FormControls](../apps/desktop/src/renderer/ui/FormControls.tsx) |
 | 文件、历史与差异 | Git 状态图标沿用 `GitFileStatusIcon`，提交历史沿用 `GitHistoryTable`，文件差异沿用 `SideBySideDiff`。保留现有选择、定位、复制和滚动方式，并在支持的场景提供左右两栏与统一视图。[文件状态图标](../apps/desktop/src/renderer/features/git/components/GitFileStatusIcon.tsx) · [历史表格](../apps/desktop/src/renderer/features/git/history/GitHistoryTable.tsx) · [差异查看器](../apps/desktop/src/renderer/features/git/diff/ProjectGitDiffViewer.tsx) |
 | 文件列表选中态 | 贮藏、提交历史和本地变更的文件行统一使用 `SelectableRow`。选中仅使用整行浅蓝色圆角底，禁止附加左侧竖线。键盘焦点保留独立轮廓，选中时悬停保持选中底色。[SelectableRow](../apps/desktop/src/renderer/ui/SelectableRow.tsx) |
-| 分栏与错误 | Git 工作区的可调面板使用 `GitPaneSeparator`，提供拖动、方向键和恢复默认入口。失败反馈沿用应用错误组件，提示失败的操作及适用的恢复入口。合理区分加载中、空结果、已完成和失败。[分栏控件](../apps/desktop/src/renderer/features/git/components/GitPaneSeparator.tsx) · [错误组件](../apps/desktop/src/renderer/ui/ApplicationErrorDialog.tsx) |
+| 分栏与错误 | 可调面板使用 `GitPaneSeparator`，分隔条中央的三点拖拽柄沿分隔条方向排列。提供拖动、方向键和恢复默认入口。失败反馈沿用应用错误组件，提示失败的操作及适用的恢复入口。合理区分加载中、空结果、已完成和失败。[分栏控件](../apps/desktop/src/renderer/features/git/components/GitPaneSeparator.tsx) · [错误组件](../apps/desktop/src/renderer/ui/ApplicationErrorDialog.tsx) |
 
 - 通用操作图标使用现有 Phosphor 图标。带文字按钮的装饰图标标为 `aria-hidden`，纯图标按钮提供本地化的可访问名称。文件状态、冲突和危险操作同时用文字、符号或带名称的图标表达。
 - 保留键盘焦点可见性。选择控件用与行为匹配的 ARIA 状态，菜单和弹窗检查 `Tab`、方向键及 `Esc` 的相应行为。关闭弹窗后将焦点归还给合适的触发位置。
 - 加载、刷新与提交使用就地状态，保留用户当前的工作上下文。浮层入场和退场复用 `MotionPresence`，动效时长沿用 `--zeus-motion-*`，遵循 `prefers-reduced-motion`。关闭中的界面立即停止接收交互。[MotionPresence](../apps/desktop/src/renderer/ui/MotionPresence.tsx) · [交互样式](../apps/desktop/src/renderer/ui/primitives.css)
 - 可终止的 Git 操作开始后，原执行按钮切换为「终止」，统一使用 `GitOperationStopButton`。发出请求后显示「正在终止…」并防止重复请求，任务结束后按结果恢复执行、重试或关闭入口。批次保留已执行结果和未执行项的状态。独立的进度提示显示当前仓库和操作。[操作进度与终止按钮](../apps/desktop/src/renderer/features/git/components/GitOperationProgress.tsx)
-- 检测到新版本时，左下角活动栏在设置按钮上方显示「应用更新」，更新就绪时以品牌蓝标示。手动检查和版本说明从设置进入。更新弹窗在活动栏右侧靠下打开，顶部居中显示应用图标和版本，长发布说明在正文内滚动，底部保留当前状态和操作。只有就绪状态提供重启确认。[应用更新弹窗](../apps/desktop/src/renderer/features/updates/ApplicationUpdateDialog.tsx)
+- 检测到新版本时，左下角活动栏在设置按钮上方显示「应用更新」，更新就绪时以品牌色标示。手动检查和版本说明从设置进入。更新弹窗在活动栏右侧靠下打开，顶部居中显示应用图标和版本，长发布说明在正文内滚动，底部保留当前状态和操作。只有就绪状态提供重启确认。[应用更新弹窗](../apps/desktop/src/renderer/features/updates/ApplicationUpdateDialog.tsx)
 - macOS 原生辅助窗口沿用系统控件、系统字体和语义色，状态文本和操作名称与主界面保持一致。[原生更新进度窗口](../apps/desktop/native/UpdateProgressPanel.swift)
 
 ## 布局与文案
 
-- 应用级入口放在现有外壳。仓库级操作归入工作台工具栏，文件或提交操作放在对应列表行、右键菜单或详情区。工具栏按动作分组，低频入口沿用「操作」菜单。
+- 应用级入口放在现有外壳。仓库级操作归入工作台工具栏，文件或提交操作放在对应列表行、右键菜单或详情区。工具栏按动作分组，低频入口沿用「操作」菜单。当前分支选择器固定在仓库列表上方，仓库树可以独立滚动。
+- 平铺文件列表和差异标题优先显示文件名，目录作为次级文字，悬停或使用无障碍接口可获得完整路径。并排差异标出变更前后，新增、删除或重命名时保留各侧路径信息。增删计数靠近视图切换。选行提示、计数与动作保持在同一操作区，在窄栏内按需要换行。暂存或取消暂存是该区域的主要动作，放弃继续使用确认流程。
+- 本地变更内容区宽度达到 860 px 时，文件列表占满左列，提交区停靠在右侧差异下方。较窄时提交区横跨两个面板，给表单和操作保留完整宽度。保留文件分栏、提交区高度调整和展开收起入口。
+- 暂存视图的提交区用一行显示当前仓库、暂存状态和提交选项。说明编辑框内的工具栏包含说明标签、模型选择与 AI 生成，生成反馈显示在编辑框底部。底部多仓库提交靠左，取消和主提交动作成组靠右，推送选项和远程分支在两组按钮之间，空间不足时移到按钮行上方。按钮和下拉控件使用统一高度。
+- 拉取和推送共用 840 px 宽度、带方向图标的标题区和固定底部按钮区。主体可独立滚动。推送分支表统一普通行底色，用选中底色表达勾选状态。当前仓库全选和跨仓库选中计数放在表格下方。
 - macOS 菜单随应用语言显示项目、视图、仓库、窗口和帮助入口。仓库菜单复用当前工作台工具栏的操作和可用状态。开发者工具与界面重载入口在开发版提供。
 - 保持仓库导航、记录列表和详情区的边界。网格与弹性布局允许子面板收缩，长路径和分支名按控件需要截断或换行，并保留查看完整值的方式。代码差异在内容区滚动，面板标题、主要操作和弹窗底部保持可达。
 - 自定义标题栏使用现有拖拽区域。加入搜索、按钮或菜单触发器时给可交互区域设置 `-webkit-app-region: no-drag`。[标题栏样式](../apps/desktop/src/renderer/app/app.css)

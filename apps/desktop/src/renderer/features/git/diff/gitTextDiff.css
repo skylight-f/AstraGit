@@ -1,4 +1,31 @@
-/* 与 Zeus 差异视图一致：整行红绿背景、替换片段加深、真实行号及等高补位。 */
+/* 差异文档标题、对照表头与区块使用各自的层级。 */
+.project-git-diff-preview > header:has(.project-git-diff-file-heading) {
+  flex: 0 0 auto;
+  min-block-size: 55px;
+  padding: 8px 14px;
+  box-sizing: border-box;
+}
+.project-git-diff-file-heading {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-inline-size: 0;
+}
+.project-git-diff-file-heading > :is(strong, span) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-git-diff-file-heading > strong {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.018em;
+  line-height: 1.2;
+}
+.project-git-diff-file-heading > span {
+  color: var(--zeus-product-muted);
+  font: 10px/1.35 var(--zeus-font-family-mono);
+}
 .project-git-diff-parent { flex-shrink:0; margin:0; padding:5px 12px; color:var(--zeus-product-muted); background:var(--zeus-product-panel-muted); font-size:11px; }
 .project-git-diff-window > .project-git-diff-preview.is-fill { height:auto; }
 .macos-ai-app .project-git-diff-preview > header > .project-git-diff-stage { flex:none; width:auto; max-width:120px; min-width:0; }
@@ -22,6 +49,34 @@
 .project-git-diff-side-by-side > .project-git-diff-side-head {
   grid-template-columns: minmax(0, var(--git-diff-columns, 50%)) 6px minmax(0, 1fr);
 }
+.project-git-diff-side-head > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 0;
+  padding-inline: 12px;
+  color: var(--zeus-product-muted);
+  font-size: 11px;
+}
+.project-git-diff-side-head > div + div { grid-column: 3; }
+.project-git-diff-side-head strong { flex: none; font-weight: 620; }
+.project-git-diff-side-head code {
+  min-inline-size: 0;
+  overflow: hidden;
+  background: transparent;
+  color: inherit;
+  font: 10.5px var(--zeus-font-family-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-git-diff-preview > header > .project-git-diff-stat {
+  flex: none;
+  padding: 2px 5px;
+  border-radius: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.project-git-diff-preview > header > span.project-git-diff-stat { background: color-mix(in srgb, var(--git-addition) 9%, transparent); }
+.project-git-diff-preview > header > em.project-git-diff-stat { background: color-mix(in srgb, var(--git-deletion) 9%, transparent); }
 .project-git-diff-hunks {
   margin-inline-end: calc(-1 * var(--git-diff-scrollbar, 0px));
 }
@@ -36,6 +91,21 @@
 .project-git-diff-hunk-header {
   position: relative;
   z-index: 3;
+}
+.gitapp-shell .project-git-diff-preview > header {
+  background: var(--ag-panel);
+  border-block-end: 1px solid var(--zeus-workspace-divider);
+}
+.gitapp-shell .project-git-diff-side-head {
+  border-block-end: 1px solid var(--zeus-workspace-divider);
+  background: var(--ag-control);
+}
+.gitapp-shell .project-git-diff-hunk-header {
+  background: var(--ag-chrome);
+  border-block-end: 1px solid var(--zeus-workspace-divider);
+}
+.gitapp-shell .project-git-diff-hunks > .project-git-diff-hunk {
+  border-block: 1px solid var(--zeus-workspace-divider);
 }
 .project-git-diff-window-layout.has-resizable-files,
 .gitapp-diff-dialog .project-git-diff-window-layout.has-resizable-files {
@@ -70,6 +140,10 @@
   color: var(--zeus-product-muted);
   text-align: end;
   user-select: none;
+}
+.astragit-diff-line.is-context > .astragit-diff-line-number,
+.astragit-diff-line.is-context > .git-line-select {
+  background: var(--zeus-product-panel-muted);
 }
 .astragit-diff-line-sign {
   padding-inline: 0;

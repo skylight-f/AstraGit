@@ -208,6 +208,17 @@ export function ProjectGitDiffWindow(props: {
   );
 }
 
+function DiffFileHeading({ title, path }: { title?: string; path?: string }) {
+  const label = title ?? path ?? '';
+  const separator = path && (label === path || label.endsWith(` / ${path}`)) ? label.lastIndexOf('/') : -1;
+  return (
+    <div className="project-git-diff-file-heading" title={label}>
+      {separator > 0 ? <span>{label.slice(0, separator).trimEnd()}</span> : null}
+      <strong>{label.slice(separator + 1)}</strong>
+    </div>
+  );
+}
+
 /** 工作台、项目提交及独立窗口共用结构化差异与区块操作。 */
 export function SideBySideDiff(props: SideBySideDiffProps) {
   const [mode, setMode] = useState<DiffViewMode>('side-by-side');
@@ -247,22 +258,25 @@ export function SideBySideDiff(props: SideBySideDiffProps) {
     measure();
     return () => observer.disconnect();
   }, [file, mode]);
-  if (props.diff?.unavailableReason) return <section className="project-git-diff-preview is-fill"><header><strong title={props.title}>{props.title ?? (props.zh ? '文件差异' : 'File diff')}</strong></header>{props.toolbar}<p className="project-git-empty-copy" role="status">{gitDiffUnavailableMessage(props.diff.unavailableReason, props.zh)}</p>{props.diff.readError ? <p className="project-git-empty-copy"><VisibleApplicationError error={props.diff.readError} language={props.zh ? 'zh-CN' : 'en'} /></p> : null}</section>;
+  const filePath = file?.newPath || file?.oldPath;
+  const heading = <DiffFileHeading title={props.title ?? (filePath ? undefined : props.zh ? '文件差异' : 'File diff')} path={filePath} />;
+  if (props.diff?.unavailableReason) return <section className="project-git-diff-preview is-fill"><header>{heading}</header>{props.toolbar}<p className="project-git-empty-copy" role="status">{gitDiffUnavailableMessage(props.diff.unavailableReason, props.zh)}</p>{props.diff.readError ? <p className="project-git-empty-copy"><VisibleApplicationError error={props.diff.readError} language={props.zh ? 'zh-CN' : 'en'} /></p> : null}</section>;
   if (!file) {
     const message = props.emptyMessage ?? (props.diff && !props.diff.files.length ? (props.zh ? '所选范围没有文件差异。' : 'The selected scope has no file differences.') : (props.zh ? '选择一个文件查看差异。' : 'Select a file to inspect its diff.'));
-    return props.toolbar ? <section className="project-git-diff-preview is-fill"><header><strong title={props.title}>{props.title}</strong></header>{props.toolbar}<p className="project-git-empty-copy">{message}</p></section> : <p className="project-git-empty-copy">{message}</p>;
+    return props.toolbar ? <section className="project-git-diff-preview is-fill"><header>{heading}</header>{props.toolbar}<p className="project-git-empty-copy">{message}</p></section> : <p className="project-git-empty-copy">{message}</p>;
   }
   if (file.hunks.length === 0) {
-    return <section className={`project-git-diff-preview${props.fill ? ' is-fill' : ''}`}><header><strong title={props.title ?? (file.newPath || file.oldPath)}>{props.title ?? (file.newPath || file.oldPath)}</strong>{versionControl}</header>{props.toolbar}<p className="project-git-empty-copy">{props.emptyMessage ?? fileDiffEmptyMessage(file, props.zh)}</p></section>;
+    return <section className={`project-git-diff-preview${props.fill ? ' is-fill' : ''}`}><header>{heading}{versionControl}</header>{props.toolbar}<p className="project-git-empty-copy">{props.emptyMessage ?? fileDiffEmptyMessage(file, props.zh)}</p></section>;
   }
-  const oldPath = file.changeType === 'added' ? (props.zh ? '变更前（空文件）' : 'Before (empty file)') : file.oldPath;
-  const newPath = file.changeType === 'deleted' ? (props.zh ? '变更后（空文件）' : 'After (empty file)') : file.newPath;
+  const emptyFileLabel = props.zh ? '空文件' : 'Empty file';
+  const oldPath = file.changeType === 'added' ? emptyFileLabel : file.oldPath;
+  const newPath = file.changeType === 'deleted' ? emptyFileLabel : file.newPath;
   return (
     <section className={`project-git-diff-preview${props.fill ? ' is-fill' : ''}`} aria-label={props.zh ? '文件差异' : 'File diff'}>
       <header>
-        <strong title={props.title ?? (file.newPath || file.oldPath)}>{props.title ?? (file.newPath || file.oldPath)}</strong>
-        <span>+{file.addedLines}</span>
-        <em>-{file.deletedLines}</em>
+        {heading}
+        <span className="project-git-diff-stat">+{file.addedLines}</span>
+        <em className="project-git-diff-stat">−{file.deletedLines}</em>
         {versionControl}
         <span className="project-git-diff-mode" aria-label={props.zh ? '差异布局' : 'Diff layout'}>
           <button type="button" className={mode === 'side-by-side' ? 'is-active' : ''} aria-pressed={mode === 'side-by-side'} onClick={() => setMode('side-by-side')} title={props.zh ? '左右两栏' : 'Side-by-side'}>
@@ -278,8 +292,8 @@ export function SideBySideDiff(props: SideBySideDiffProps) {
       <div ref={columns} className="project-git-diff-side-by-side">
         {mode === 'side-by-side' ? (
           <div className="project-git-diff-side-head">
-            <span title={oldPath}>{oldPath}</span>
-            <span title={newPath}>{newPath}</span>
+            <div><strong>{props.zh ? '变更前' : 'Before'}</strong>{oldPath !== newPath ? <code title={oldPath}>{oldPath}</code> : null}</div>
+            <div><strong>{props.zh ? '变更后' : 'After'}</strong>{oldPath !== newPath ? <code title={newPath}>{newPath}</code> : null}</div>
           </div>
         ) : null}
         <div ref={hunks} className="project-git-diff-hunks" aria-label={props.zh ? '差异区块' : 'Diff hunks'}>

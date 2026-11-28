@@ -32,7 +32,6 @@
   font-size: var(--zeus-type-size-caption);
   font-weight: inherit;
 }
-
 :is(.git-command-toolbar > button, .git-command-toolbar > .project-git-menu-anchor > button) > svg {
   inline-size: 15px;
   block-size: 15px;
@@ -50,6 +49,12 @@
   height: 15px;
   border-left: 1px solid var(--zeus-workspace-divider);
   margin-inline: 2px;
+}
+@media (max-width: 1080px) {
+  .macos-ai-app.zeus-shell .project-git-toolbar.git-command-toolbar { gap: 2px; }
+  .macos-ai-app.zeus-shell :is(.git-command-toolbar > button, .git-command-toolbar > .project-git-menu-anchor > button)[data-zeus-primitive='button'] {
+    padding-inline: 5px;
+  }
 }
 .git-toolbar-identity {
   display: flex;
@@ -102,13 +107,14 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 38px;
-  padding: 5px 12px;
+  min-height: 39px;
+  padding: 6px 12px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--zeus-workspace-divider);
 }
 .git-content-toolbar > strong {
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 650;
   white-space: nowrap;
 }
 .project-git-initial-layout .git-content-toolbar {
@@ -306,13 +312,16 @@
   box-shadow: inset 0 0 0 1px var(--zeus-control-focus);
 }
 
-/* Mac 客户端的紧凑导航与单行历史，颜色沿用上游主题。 */
+/* 仓库和引用使用独立卡片，当前分支固定在仓库列表上方。 */
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-navigator {
+  --zeus-interaction-hover: var(--ag-control);
+  --zeus-source-list-selected: var(--ag-brand-selected);
   display: grid;
   grid-template-rows: minmax(0, var(--git-navigation-repositories, 44%)) 6px minmax(0, 1fr);
   overflow: hidden;
   border: 0;
   padding: 0;
+  color: var(--zeus-product-text);
 }
 .macos-ai-app.zeus-shell .project-git-navigator > :is(.git-history-repositories, .git-history-branches) {
   display: grid;
@@ -322,23 +331,42 @@
   overflow: hidden;
   border: 1px solid var(--zeus-workspace-divider);
   border-radius: var(--ag-card-radius);
-  background: var(--zeus-card-background);
+  background: var(--ag-panel);
+}
+.macos-ai-app.zeus-shell .project-git-navigator > .git-history-repositories:has(> .git-toolbar-identity) {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.macos-ai-app.zeus-shell .project-git-navigator > .git-pane-separator {
+  background: var(--ag-bg);
 }
 .macos-ai-app.zeus-shell .project-git-navigator .git-history-navigation-scroll {
   overflow: auto;
   overscroll-behavior: contain;
-  padding: 4px 7px 6px;
+  padding: 6px 8px 8px;
+  scrollbar-color: var(--ag-control-line) transparent;
 }
 .macos-ai-app.zeus-shell .project-git-workbench .git-history-pane-heading {
-  padding: 6px 9px;
-  background: var(--zeus-page-background);
-  color: var(--zeus-product-text);
+  padding: 8px 10px;
+  border-block-end: 1px solid var(--zeus-workspace-divider);
+  background: var(--ag-navigation-surface);
+  color: var(--zeus-product-muted);
   font-size: 12px;
   font-weight: 650;
   line-height: 1.3;
   flex-shrink: 0;
 }
-.macos-ai-app.zeus-shell .project-git-navigator .git-toolbar-identity { min-height: 28px; margin-bottom: 3px; }
+.macos-ai-app.zeus-shell .project-git-workbench .project-git-navigator .git-history-pane-heading {
+  padding: 8px 12px;
+  color: var(--ag-ink);
+  font-size: 13px;
+}
+.macos-ai-app.zeus-shell .project-git-navigator .git-toolbar-identity {
+  min-height: 34px;
+  margin: 4px 8px 2px;
+  border: 1px solid var(--ag-control-line);
+  border-radius: var(--ag-control-radius);
+  background: var(--ag-chrome);
+}
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-browser-content {
   background: var(--zeus-product-panel);
   border: 1px solid var(--zeus-product-line);
@@ -347,6 +375,60 @@
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-browser-layout {
   grid-template-columns: minmax(140px, var(--git-navigation, 20%)) 8px minmax(0, 1fr);
 }
+.gitapp-shell.macos-ai-app.zeus-shell .project-git-browser-layout:is([data-view='changes'], [data-view='ignored']) {
+  & .project-git-change-tree {
+    background: var(--ag-reading-surface);
+    border-inline-end: 1px solid var(--zeus-workspace-divider);
+  }
+
+  & .project-git-stage-panel > header {
+    background: var(--ag-chrome);
+    border-block-end: 1px solid var(--zeus-workspace-divider);
+  }
+
+  & .project-git-change-diff {
+    background: var(--zeus-card-background);
+  }
+
+  & :is(.project-git-commit-composer, .project-git-commit-collapsed) {
+    border-block-start: 1px solid var(--zeus-workspace-divider);
+    background: var(--ag-chrome);
+  }
+}
+
+.macos-ai-app.zeus-shell .project-git-browser-layout[data-view='changes'] > .project-git-browser-content {
+  container: git-changes / inline-size;
+}
+@container git-changes (min-width: 860px) {
+  .macos-ai-app.zeus-shell .project-git-browser-layout[data-view='changes'] .project-git-changes-layout {
+    grid-template-areas:
+      'tree resize diff'
+      'tree resize commit-resize'
+      'tree resize commit';
+  }
+  .macos-ai-app.zeus-shell .project-git-browser-layout[data-view='changes'] .project-git-changes-layout[data-commit-active='false'] {
+    grid-template-areas:
+      'tree resize diff'
+      'tree resize commit';
+  }
+  .macos-ai-app.zeus-shell .project-git-browser-layout[data-view='changes'] .project-git-changes-layout > .project-git-commit-rail {
+    grid-area: commit;
+  }
+}
+.project-git-change-file-row .project-git-change-file-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-inline-size: 0;
+}
+.project-git-change-file-label > :is(strong, small) {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-git-change-file-label > strong { font-weight: 600; }
+.project-git-change-file-label > small { flex: 1 1 0; color: var(--zeus-product-muted); font-size: 10px; }
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-browser-layout[hidden],
 .project-git-source-view[hidden] {
   display: none;
@@ -489,7 +571,15 @@
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-navigator button {
   min-height: 24px;
   padding-block: 3px;
+  color: var(--zeus-product-text);
   border-radius: var(--ag-control-radius);
+}
+.macos-ai-app.zeus-shell .project-git-workbench .project-git-navigator button[aria-current='true'] {
+  color: var(--ag-brand-ink);
+}
+.macos-ai-app.zeus-shell .project-git-workbench .project-git-navigator :is(button, summary):focus-visible {
+  outline: 2px solid var(--ag-focus);
+  outline-offset: -2px;
 }
 .macos-ai-app.zeus-shell .project-git-workbench .project-git-navigator summary {
   box-sizing: border-box;

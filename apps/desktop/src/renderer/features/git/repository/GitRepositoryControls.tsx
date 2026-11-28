@@ -5,7 +5,7 @@ import '../workbench/gitWorkspace.css';
 import { gitBranchNameIssue, splitGitRemoteBranch } from '@astragit/shared';
 import type { GitBranchManagementRequest } from '../branches/GitBranchManagementDialog.js';
 import { RepositoryPushFields } from './RepositoryPushFields.js';
-import './repositoryPushDialog.css';
+import './repositorySyncDialog.css';
 import { branchPushTarget, createPushDraft, defaultRemote, type PushDestinationDraft } from './pushTarget.js';
 import { repositoryColor } from './repositoryColor.js';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
@@ -19,7 +19,9 @@ import { FormDialog } from '../../../ui/FormDialog.js';
 import type { ProjectGitAction, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import type { BusyState, OperationTone, BranchKind, ExecutionOutcome, ProjectGitUpdateStrategy, PushSelection } from '../workbench/gitWorkbenchTypes.js';
 import { GitOperationProgress, GitOperationStopButton, type CancelGitAction } from '../components/GitOperationProgress.js';
+import { ArrowDownIcon as ArrowDown } from '@phosphor-icons/react/dist/csr/ArrowDown';
 import { ArrowRightIcon as ArrowRight } from '@phosphor-icons/react/dist/csr/ArrowRight';
+import { ArrowUpIcon as ArrowUp } from '@phosphor-icons/react/dist/csr/ArrowUp';
 import { CaretDownIcon as CaretDown } from '@phosphor-icons/react/dist/csr/CaretDown';
 import { CaretRightIcon as CaretRight } from '@phosphor-icons/react/dist/csr/CaretRight';
 import { CheckIcon as Check } from '@phosphor-icons/react/dist/csr/Check';
@@ -1163,6 +1165,16 @@ export function BranchContextMenu(props: {
   );
 }
 
+function GitSyncDialogHeading({ icon: Icon, title, detail }: { icon: typeof ArrowDown; title: string; detail?: string }) {
+  return <header className="project-git-sync-heading">
+    <span className="project-git-sync-heading-icon"><Icon size={20} aria-hidden="true" /></span>
+    <div>
+      <h2>{title}</h2>
+      {detail ? <small>{detail}</small> : null}
+    </div>
+  </header>;
+}
+
 export function PullDialog(props: {
   repository: ProjectGitRepositoryWorkbenchItem;
   zh: boolean;
@@ -1186,11 +1198,7 @@ export function PullDialog(props: {
   const selectedBranch = branches.includes(branch) ? branch : '';
   return (
     <GitOperationDialog className="project-git-reference-dialog project-git-sync-dialog" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '拉取' : 'Pull'}>
-        <header>
-          <strong>
-            {props.zh ? '拉取' : 'Pull'} · {props.repository.name}
-          </strong>
-        </header>
+        <GitSyncDialogHeading icon={ArrowDown} title={props.zh ? '拉取' : 'Pull'} detail={props.repository.name} />
         <main>
           <fieldset className="project-git-sync-fields">
             <label>
@@ -1348,10 +1356,9 @@ export function PushDialog(props: {
     : `${selections.length} branches selected across ${selectedRepositoryCount} repositories`;
   return (
     <GitOperationDialog className="project-git-reference-dialog project-git-sync-dialog project-git-push-layout" onDismiss={props.onClose} dismissDisabled={locked} role="dialog" aria-label={props.zh ? '推送' : 'Push'}>
-        <header>
-          <strong>{resultMode ? (props.zh ? '推送结果' : 'Push results') : props.zh ? '推送' : 'Push'}</strong>
-          {!completed && props.repositories.length > 1 ? <small>{props.zh ? '切换本地仓库时会保留已勾选的分支。' : 'Branch selections are retained when switching local repositories.'}</small> : null}
-        </header>
+        <GitSyncDialogHeading icon={ArrowUp}
+          title={resultMode ? (props.zh ? '推送结果' : 'Push results') : props.zh ? '推送' : 'Push'}
+          detail={!completed && props.repositories.length > 1 ? (props.zh ? '切换本地仓库时会保留已勾选的分支。' : 'Branch selections are retained when switching local repositories.') : undefined} />
         <main>
           {resultMode ? (
             <div className="project-git-sync-results">

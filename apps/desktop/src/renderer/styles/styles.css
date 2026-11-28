@@ -3763,10 +3763,10 @@ a {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.project-git-diff-preview > header span {
+.project-git-diff-preview > header > span.project-git-diff-stat {
   color: var(--git-addition);
 }
-.project-git-diff-preview > header em {
+.project-git-diff-preview > header > em.project-git-diff-stat {
   color: var(--git-deletion);
   font-style: normal;
 }
@@ -4933,30 +4933,6 @@ a {
   overflow: hidden;
   padding: 8px 12px;
 }
-.project-git-commit-summary {
-  align-items: center;
-  display: flex;
-  gap: 18px;
-  min-width: 0;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  scrollbar-width: thin;
-}
-.project-git-commit-summary > span {
-  display: grid;
-  flex: 0 0 auto;
-  gap: 1px;
-  max-width: 220px;
-}
-.project-git-commit-summary b,
-.project-git-commit-summary small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-git-commit-summary small {
-  color: var(--zeus-product-muted);
-}
 .project-git-commit-rail .zeus-button {
   margin-top: 0;
 }
@@ -5042,21 +5018,28 @@ a {
 .git-pane-separator::after {
   content: '';
   position: absolute;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--zeus-product-muted, #7a8495) 35%, transparent);
-  transition: background 120ms;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 2px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: currentColor;
+  color: color-mix(in srgb, var(--zeus-product-muted, #7a8495) 65%, transparent);
+  pointer-events: none;
+  transition: color 120ms;
 }
 .git-pane-separator.is-x::after {
-  inset: calc(50% - 14px) 2px;
+  box-shadow: 0 -4px currentColor, 0 4px currentColor;
 }
 .git-pane-separator.is-y::after {
-  inset: 2px calc(50% - 14px);
+  box-shadow: -4px 0 currentColor, 4px 0 currentColor;
 }
 .git-pane-separator[aria-disabled='true'] { cursor: default; }
 .git-pane-separator:hover:not(:disabled):not([aria-disabled='true'])::after,
 .git-pane-separator:focus-visible::after,
 .git-pane-separator[data-dragging]::after {
-  background: var(--zeus-product-accent, var(--zeus-brand-primary));
+  color: var(--zeus-product-accent, var(--zeus-brand-primary));
 }
 .project-git-diff-side-head {
   background: var(--zeus-product-panel-muted);
@@ -5064,20 +5047,6 @@ a {
   display: grid;
   flex: 0 0 30px;
   grid-template-columns: minmax(0, var(--git-diff-columns, 50%)) 6px minmax(0, 1fr);
-}
-.project-git-diff-side-head span {
-  align-items: center;
-  display: flex;
-  font-size: 10.5px;
-  min-width: 0;
-  overflow: hidden;
-  padding: 0 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-git-diff-side-head span + span {
-  border-left: 0;
-  grid-column: 3;
 }
 .project-git-diff-hunks {
   background: var(--zeus-page-background, #f7f8fa);

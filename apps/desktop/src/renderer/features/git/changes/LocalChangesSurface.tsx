@@ -19,10 +19,12 @@ import { FolderIcon as Folder } from '@phosphor-icons/react/dist/csr/Folder';
 import { GitFileViewSelect } from './GitFileViewSelect.js';
 import type { DashboardClient, GitCommitOptions, ProjectGitAction, ProjectGitRepositorySnapshot, ProjectGitRepositoryWorkbenchItem } from '../../../api/apiClient.js';
 import { Button } from '../../../ui/Button.js';
+import { CheckboxField } from '../../../ui/FormControls.js';
 import { SelectableRow } from '../../../ui/SelectableRow.js';
 import { SideBySideDiff } from '../diff/ProjectGitDiffViewer.js';
 import { GitConflictEditor } from '../conflicts/GitConflictEditor.js';
 import type { ChangeStage, GitContextEvent, GitContextTarget, GitDiffOptions } from '../workbench/gitWorkbenchTypes.js';
+import './localChangesCommit.css';
 
 export function LocalChangesSurface(props: {
   client: Pick<DashboardClient, 'loadProjectGitLineDiff' | 'readProjectGitConflict' | 'saveProjectGitConflict'>;
@@ -85,6 +87,7 @@ export function LocalChangesSurface(props: {
   }, [commitActive]);
   const repository = props.selectedRepository;
   const pushTarget = repository ? commitPushTarget(repository.snapshot) : null;
+  const pushRef = pushTarget ? `${pushTarget.remote}/${pushTarget.targetBranch}` : null;
   const pushKey = repository && pushTarget ? JSON.stringify([repository.id, pushTarget]) : null;
   const pushAfterCommit = pushKey !== null && pushSelection === pushKey;
   useEffect(() => { setPushSelection(null); }, [repository?.id, repository?.snapshot.branch]);
@@ -96,6 +99,9 @@ export function LocalChangesSurface(props: {
   const scope = repository && repositoryDraftScope(repository.snapshot);
   const staleDraft = draft?.scope && scope !== draft.scope;
   const stagedCount = repository?.snapshot.fileStatuses.filter((file) => !conflicts.has(file.path) && file.indexStatus !== ' ' && file.indexStatus !== '?').length ?? 0;
+  const commitHint = conflicts.size > 0
+    ? (props.zh ? '请先解决冲突' : 'Resolve conflicts before committing')
+    : stagedCount === 0 ? (props.zh ? '请先暂存要提交的文件' : 'Stage files before committing') : null;
   const generating = props.generatingCommitFor === repository?.id;
   const canCommit = Boolean(repository && !conflicts.size && stagedCount > 0 && message.trim() && !props.busy && !generating);
   async function commitCurrentRepository(): Promise<void> {
@@ -290,40 +296,44 @@ export function LocalChangesSurface(props: {
         <>
           <GitPaneSeparator name="commit" label={props.zh ? '调整提交区域高度' : 'Resize commit panel'} axis="y" initial={65} min={25} max={85} />
           <aside className="project-git-commit-rail project-git-commit-composer">
-            <div className="project-git-commit-summary" role="status">
-              <strong>{repository?.name ?? (props.zh ? '请选择仓库' : 'Select a repository')}</strong>
-              <small>{props.zh ? `${stagedCount} 个已暂存文件 · 仅提交当前仓库` : `${stagedCount} staged files · Current repository only`}</small>
-              {stagedCount === 0 ? <small>{props.zh ? '勾选左侧文件进行暂存后即可提交。' : 'Select files on the left to stage them before committing.'}</small> : null}
-            </div>
+            <header className="project-git-commit-header">
+              <div className="project-git-commit-summary">
+                <div className="project-git-commit-repository">
+                  <Folder size={15} aria-hidden="true" />
+                  <strong title={repository?.name}>{repository?.name ?? (props.zh ? '请选择仓库' : 'Select a repository')}</strong>
+                </div>
+                <div className="project-git-commit-status" role="status">
+                  <span>{props.zh ? `已暂存 ${stagedCount} 个文件` : `${stagedCount} staged ${stagedCount === 1 ? 'file' : 'files'}`}</span>
+                  {commitHint ? <span title={commitHint}>{commitHint}</span> : null}
+                </div>
+              </div>
+              <GitCommitOptionsMenu zh={props.zh} repository={repository} disabled={!repository || props.busy !== null || generating}
+                options={commitOptions} onChange={setCommitOptions} onAmend={(target, options) => {
+                  setCommitOptions({});
+                  props.onAmend(target, options);
+                }} />
+            </header>
             <div className="project-git-commit-message">
               <div className="project-git-commit-message-heading">
                 <label htmlFor="project-git-commit-message">{props.zh ? '提交说明' : 'Commit message'}</label>
-                <div className="project-git-commit-generation-controls">
-                  <GitCommitOptionsMenu zh={props.zh} repository={repository} disabled={!repository || props.busy !== null || generating}
-                    options={commitOptions} onChange={setCommitOptions} onAmend={(target, options) => {
-                      setCommitOptions({});
-                      props.onAmend(target, options);
-                    }} />
-                  <small className="project-git-commit-generation-feedback" role="status">{staleDraft ? (props.zh ? '提交范围已变化，可重新生成。' : 'Staged content changed. You can regenerate the message.') : props.generationFeedback}</small>
-                  <GitCommitAiControls
-                    zh={props.zh}
-                    models={props.commitModels}
-                    modelDisabled={props.generatingCommitFor !== null}
-                    generating={generating}
-                    disabled={!generating && (!repository || stagedCount === 0 || props.busy !== null || props.generatingCommitFor !== null || commitModelsLoading || !commitModelRef)}
-                    onClick={() => {
-                      if (generating) props.onStopCommitGeneration();
-                      else if (repository) void props.onGenerateCommitMessage(repository);
-                    }}
-                    onOpenSettings={props.onOpenModelSettings}
-                  />
-                </div>
+                <GitCommitAiControls
+                  zh={props.zh}
+                  models={props.commitModels}
+                  modelDisabled={props.generatingCommitFor !== null}
+                  generating={generating}
+                  disabled={!generating && (!repository || stagedCount === 0 || props.busy !== null || props.generatingCommitFor !== null || commitModelsLoading || !commitModelRef)}
+                  onClick={() => {
+                    if (generating) props.onStopCommitGeneration();
+                    else if (repository) void props.onGenerateCommitMessage(repository);
+                  }}
+                  onOpenSettings={props.onOpenModelSettings}
+                />
               </div>
               <textarea
                 ref={commitInputRef}
                 id="project-git-commit-message"
                 value={message}
-                rows={3}
+                rows={1}
                 placeholder={props.zh ? '简要描述本次修改，可换行补充详情' : 'Describe this change; add details on subsequent lines'}
                 disabled={!repository || props.busy !== null || generating}
                 onChange={(event) => {
@@ -340,24 +350,33 @@ export function LocalChangesSurface(props: {
                   }
                 }}
               />
+              <small className="project-git-commit-generation-feedback" role="status">{staleDraft ? (props.zh ? '提交范围已变化，可重新生成。' : 'Staged content changed. You can regenerate the message.') : props.generationFeedback}</small>
             </div>
-            <div className="project-git-commit-actions">
-              <label className="project-git-commit-push-option" title={pushTarget ? `${pushTarget.remote}/${pushTarget.targetBranch}${pushTarget.setUpstream ? (props.zh ? '（跟踪此远程分支）' : ' (track this remote branch)') : ''}` : props.zh ? '请先配置远程与分支推送目标；游离 HEAD 无法自动推送。' : 'Configure a remote and branch target first; detached HEAD cannot be pushed automatically.'}>
-                <input type="checkbox" checked={pushAfterCommit} disabled={!pushTarget || props.busy !== null || generating} onChange={event => setPushSelection(event.target.checked ? pushKey : null)} />
-                <span>{pushTarget ? (props.zh ? `立即推送变更到 ${pushTarget.remote}/${pushTarget.targetBranch}` : `Push changes immediately to ${pushTarget.remote}/${pushTarget.targetBranch}`) : (props.zh ? '提交后立即推送（暂无可用目标）' : 'Push after commit (no target available)')}</span>
-              </label>
-              <Button variant="secondary" disabled={props.busy !== null || generating} onClick={() => setEditingRepository(null)}>
-                {props.zh ? '取消' : 'Cancel'}
-              </Button>
-              <Button variant="primary" onClick={() => void commitCurrentRepository()} disabled={!canCommit} busy={props.busy?.action === 'commit' || props.busy?.action === 'push'}>
-                {pushAfterCommit ? (props.zh ? '提交并推送' : 'Commit and push') : props.zh ? '提交已暂存变更' : 'Commit staged changes'}
-              </Button>
+            <footer className="project-git-commit-footer">
               {props.repositories.length > 1 ? (
-                <Button variant="secondary" onClick={() => props.onCommit(commitOptions)} disabled={props.busy !== null || props.generatingCommitFor !== null}>
+                <Button className="project-git-commit-multi" size="compact" variant="secondary" onClick={() => props.onCommit(commitOptions)} disabled={props.busy !== null || props.generatingCommitFor !== null}>
                   {props.zh ? '多仓库提交…' : 'Commit across repositories…'}
                 </Button>
               ) : null}
-            </div>
+              <CheckboxField
+                className="project-git-commit-push-option"
+                title={pushTarget ? `${pushRef}${pushTarget.setUpstream ? (props.zh ? '（跟踪此远程分支）' : ' (track this remote branch)') : ''}` : props.zh ? '请先配置远程与分支推送目标；游离 HEAD 无法自动推送。' : 'Configure a remote and branch target first; detached HEAD cannot be pushed automatically.'}
+                checked={pushAfterCommit}
+                disabled={!pushTarget || props.busy !== null || generating}
+                onChange={event => setPushSelection(event.target.checked ? pushKey : null)}
+              >
+                <span>{props.zh ? '提交后推送' : 'Push after commit'}</span>
+                {pushRef ? <code>{pushRef}</code> : <small>{props.zh ? '暂无可用目标' : 'No target available'}</small>}
+              </CheckboxField>
+              <div className="project-git-commit-confirmation">
+                <Button size="compact" variant="secondary" disabled={props.busy !== null || generating} onClick={() => setEditingRepository(null)}>
+                  {props.zh ? '取消' : 'Cancel'}
+                </Button>
+                <Button size="compact" variant="primary" onClick={() => void commitCurrentRepository()} disabled={!canCommit} busy={props.busy?.action === 'commit' || props.busy?.action === 'push'}>
+                  {pushAfterCommit ? (props.zh ? '提交并推送' : 'Commit and push') : props.zh ? '提交已暂存变更' : 'Commit staged changes'}
+                </Button>
+              </div>
+            </footer>
           </aside>
         </>
       ) : (
@@ -458,6 +477,9 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
   const submodule = props.repository.snapshot.submodules?.some((item) => item.path === props.node.path) ?? false;
   const menuOpen = Boolean(props.activeFileMenu?.kind === 'file' && props.activeFileMenu.repositoryId === props.repository.id && props.activeFileMenu.ref === props.node.path && props.activeFileMenu.stage === props.stage);
   const menuLabel = props.zh ? `${props.node.path} · ${checked ? '已暂存' : '未暂存'}文件操作` : `${props.node.path} · ${checked ? 'Staged' : 'Unstaged'} file actions`;
+  const statusLabel = gitFileStatusLabel(category, props.zh);
+  const directoryEnd = props.view === 'flat' ? props.node.name.lastIndexOf('/') : -1;
+  const fileName = props.node.name.slice(directoryEnd + 1);
   return (
     <SelectableRow
       className="project-git-change-file-row"
@@ -494,7 +516,8 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
         type="button"
         data-git-file-select
         style={{ marginLeft: `${props.depth * 13}px` }}
-        title={`${props.node.path} · ${gitFileStatusLabel(category, props.zh)}`}
+        title={`${props.node.path} · ${statusLabel}`}
+        aria-label={submodule ? props.node.path : `${statusLabel} ${props.node.path}`}
         aria-pressed={selected}
         onClick={(event) => props.onSelectRows(event, props.node.path, props.stage, props.visiblePaths())}
         onKeyDown={(event) => {
@@ -505,7 +528,10 @@ function ChangeTreeEntry(props: Parameters<typeof ChangeDirectoryTree>[0] & { no
         onDoubleClick={(event) => { if (!conflicted && !event.shiftKey && !event.ctrlKey && !event.metaKey) props.onOpenDiff(props.repository, props.node.path, { stage: props.stage }); }}
       >
         {submodule ? <Folder aria-hidden="true" /> : <GitFileStatusIcon category={category} zh={props.zh} />}
-        <span>{props.node.name}</span>
+        <span className="project-git-change-file-label">
+          <strong>{fileName}</strong>
+          {directoryEnd >= 0 ? <small>{props.node.name.slice(0, directoryEnd)}</small> : null}
+        </span>
       </button>
       <button
         type="button"
