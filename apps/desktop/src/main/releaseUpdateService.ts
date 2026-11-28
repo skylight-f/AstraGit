@@ -9,7 +9,7 @@ import { execFile, readSigningTeam, verifyReleaseApp } from './releaseVerificati
 import { downloadVerifiedArtifact, verifyDownloadedArtifact } from './releaseArtifact.js';
 import type { HomebrewUpdateProgress } from './homebrewUpdateService.js';
 import { createRelaunchEnvironment } from './systemProxyEnvironment.js';
-import { launchWindowsUpdate, readWindowsInstallScope, readWindowsRelease } from './windowsReleaseUpdate.js';
+import { launchWindowsUpdate, readLegacyWindowsRelease, readWindowsInstallScope } from './windowsReleaseUpdate.js';
 
 export interface ReleaseUpdateOptions {
   appPath: string; executablePath: string; dataDirectory: string; version: string; packaged: boolean;
@@ -47,23 +47,28 @@ export function createReleaseUpdateService(options: ReleaseUpdateOptions, depend
     if (pending) return pending;
     pending = (async () => {
       try {
+        const response = await fetchRelease(`${releasePageUrl}/latest/download/astragit-release-manifest.json`, { signal: AbortSignal.timeout(20_000), headers: { 'user-agent': `AstraGit/${options.version}`, 'cache-control': 'no-cache' } });
+        if (!response.ok) throw new Error(response.status === 404 ? '尚无公开发布的更新清单。' : `检查更新失败：HTTP ${response.status}`);
+        const raw = await response.text(); if (raw.length > 128_000) throw new Error('更新清单过大。');
+        const manifest = parseReleaseManifest(JSON.parse(raw));
         if (platform === 'win32') {
-          const { version, artifact, releaseNotes } = await readWindowsRelease(fetchRelease, arch);
+          const { version, windowsArtifact } = manifest;
           const newer = compareReleaseVersions(version, options.version) > 0;
+          const legacy = newer && arch === 'x64' && !windowsArtifact
+            ? await readLegacyWindowsRelease(fetchRelease, version)
+            : null;
+          const artifact = legacy?.artifact ?? (arch === 'x64' ? windowsArtifact ?? null : null);
+          const releaseNotes = legacy?.releaseNotes ?? boundedReleaseNotes(manifest.releaseNotes);
           const installable = newer && artifact && options.packaged && options.onWindowsInstallReady
             && await (dependencies.readWindowsInstallScope ?? readWindowsInstallScope)(options.executablePath);
           checked = {
             ...current, status: newer ? (artifact ? 'available' : 'unavailable') : 'up_to_date',
             latestVersion: version, artifact, releaseNotes, checkedAt: new Date().toISOString(),
             releasePageUrl: `${releasePageUrl}/tag/v${version}`, automaticInstallEnabled: Boolean(installable),
-            reason: !newer ? '已是最新版本。' : !artifact ? '本次发布没有适用且可校验的 Windows 安装包。' : installable ? '' : '请使用 AstraGit 的 Windows 安装包手动更新。',
+            reason: !newer ? '已是最新版本。' : !artifact ? '无法取得适用的 Windows 安装包校验信息，请从发布页手动更新。' : installable ? '' : '请使用 AstraGit 的 Windows 安装包手动更新。',
           };
           return checked;
         }
-        const response = await fetchRelease(`${releasePageUrl}/latest/download/astragit-release-manifest.json`, { signal: AbortSignal.timeout(20_000), headers: { 'user-agent': `AstraGit/${options.version}`, 'cache-control': 'no-cache' } });
-        if (!response.ok) throw new Error(response.status === 404 ? '尚无公开发布的更新清单。' : `检查更新失败：HTTP ${response.status}`);
-        const raw = await response.text(); if (raw.length > 128_000) throw new Error('更新清单过大。');
-        const manifest = parseReleaseManifest(JSON.parse(raw));
         const artifact = manifest.artifacts.find(artifact => artifact.arch === arch) ?? null;
         const newer = compareReleaseVersions(manifest.version, options.version) > 0;
         const system = (await systemVersion()).split('.').map(Number);

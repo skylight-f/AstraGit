@@ -10,6 +10,7 @@ export interface ReleaseManifest {
   schemaVersion: 1; appId: 'com.astragit.desktop'; repository: typeof releaseRepository;
   version: string; sourceCommit: string; signed: boolean; notarized: boolean; minimumSystemVersion: string;
   artifacts: ReleaseArtifact[];
+  windowsArtifact?: WindowsReleaseArtifact;
   releaseNotes?: string;
 }
 export interface ReleaseUpdateStatus {
@@ -41,13 +42,22 @@ export function compareReleaseVersions(left: string, right: string): number {
   for (let index = 0; index < 3; index++) if (a[index] !== b[index]) return a[index]! > b[index]! ? 1 : -1;
   return 0;
 }
+function hasValidArtifactMetadata(artifact: DesktopReleaseArtifact, version: string, fileName: string): boolean {
+  return artifact.fileName === fileName && typeof artifact.sha256 === 'string' && /^[a-f0-9]{64}$/u.test(artifact.sha256)
+    && Number.isSafeInteger(artifact.sizeBytes) && artifact.sizeBytes >= 100_000 && artifact.sizeBytes <= 2 * 1024 ** 3
+    && artifact.downloadUrl === `${releasePageUrl}/download/v${version}/${fileName}`;
+}
 export function parseReleaseManifest(value: unknown): ReleaseManifest {
   if (!value || typeof value !== 'object') throw new Error('更新清单无效。');
   const manifest = value as ReleaseManifest;
   if (manifest.schemaVersion !== 1 || manifest.appId !== 'com.astragit.desktop' || manifest.repository !== releaseRepository || !/^\d+\.\d+\.\d+$/u.test(manifest.version) || !/^[a-f0-9]{40}$/u.test(manifest.sourceCommit) || typeof manifest.signed !== 'boolean' || typeof manifest.notarized !== 'boolean' || !/^\d+\.\d+(?:\.\d+)?$/u.test(manifest.minimumSystemVersion) || !Array.isArray(manifest.artifacts) || !manifest.artifacts.length || manifest.artifacts.length > 2) throw new Error('更新清单的应用身份或版本无效。');
   for (const artifact of manifest.artifacts) {
-    if (!artifact || !['arm64', 'x64'].includes(artifact.arch) || artifact.kind !== 'dmg' || artifact.fileName !== `AstraGit-${manifest.version}-${artifact.arch}.dmg` || !/^[a-f0-9]{64}$/u.test(artifact.sha256) || !Number.isSafeInteger(artifact.sizeBytes) || artifact.sizeBytes < 100_000 || artifact.sizeBytes > 2 * 1024 ** 3 || artifact.downloadUrl !== `${releasePageUrl}/download/v${manifest.version}/${artifact.fileName}`) throw new Error('更新安装包的来源、大小或摘要无效。');
+    if (!artifact || !['arm64', 'x64'].includes(artifact.arch) || artifact.kind !== 'dmg' || !hasValidArtifactMetadata(artifact, manifest.version, `AstraGit-${manifest.version}-${artifact.arch}.dmg`)) throw new Error('更新安装包的来源、大小或摘要无效。');
   }
   if (new Set(manifest.artifacts.map(artifact => artifact.arch)).size !== manifest.artifacts.length) throw new Error('更新清单包含重复架构。');
+  const windows = manifest.windowsArtifact;
+  if (windows !== undefined && (!windows || windows.kind !== 'exe' || windows.arch !== 'x64' || !hasValidArtifactMetadata(windows, manifest.version, `AstraGit-${manifest.version}-win-x64-setup.exe`))) {
+    throw new Error('Windows 更新安装包的来源、大小或摘要无效。');
+  }
   return manifest;
 }

@@ -1,5 +1,5 @@
 import type { RendererBootstrap } from './app/bootstrapTypes.js';
-import type { DesktopMenuCommand, DesktopMenuState, HomebrewUpdateIndicatorState } from '@astragit/shared';
+import type { DesktopMenuCommand, DesktopMenuSection, DesktopMenuState, HomebrewUpdateIndicatorState } from '@astragit/shared';
 
 declare global {
   interface Window {
@@ -18,6 +18,7 @@ declare global {
       getUpdateIndicator?: () => Promise<HomebrewUpdateIndicatorState | null>;
       onUpdateIndicator?: (listener: (state: HomebrewUpdateIndicatorState) => void) => () => void;
       setDesktopMenuState?: (state: DesktopMenuState) => Promise<void>;
+      openDesktopMenu?: (section: DesktopMenuSection, x: number, y: number) => Promise<void>;
       onDesktopMenuCommand?: (listener: (command: DesktopMenuCommand) => void) => () => void;
     };
   }

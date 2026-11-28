@@ -12,7 +12,7 @@ import { GitCommit } from '@phosphor-icons/react/dist/csr/GitCommit';
 import { Plus } from '@phosphor-icons/react/dist/csr/Plus';
 import { X } from '@phosphor-icons/react/dist/csr/X';
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { desktopGitMenuCommands, type DesktopGitMenuCommand, type DesktopMenuCommand } from '@astragit/shared';
+import { desktopGitMenuCommands, desktopMenuSections, type DesktopGitMenuCommand, type DesktopMenuCommand, type DesktopMenuSection } from '@astragit/shared';
 import type { DashboardClient, GitAppProject, ProjectRecord } from '../api/apiClient.js';
 import { ProjectGitWorkbench } from '../features/git/workbench/ProjectGitWorkbench.js';
 import { useGitCommitModels } from '../features/models/useGitCommitModels.js';
@@ -103,6 +103,8 @@ export function App(props: AppProps) {
   const [error, setError] = useState<unknown>(null);
   const [openingLocalProject, setOpeningLocalProject] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const openDesktopMenu = window.astraGit?.openDesktopMenu;
+  const [openMenuSection, setOpenMenuSection] = useState<DesktopMenuSection | null>(null);
   const [searchNavigation, setSearchNavigation] = useState<GitSearchNavigation | null>(null);
   const searchRequestId = useRef(0);
   const finishSearchNavigation = useCallback((requestId: number) => setSearchNavigation(current => current?.requestId === requestId ? null : current), []);
@@ -439,6 +441,14 @@ export function App(props: AppProps) {
   const canCloseProject = canManageProjects && Boolean(activeSlotId) && slots.length > 1 && inWorkbench && !settingsOpen;
   const canRunGitMenu = inWorkbench && !settingsOpen && !viewSwitchDisabled;
   const canReview = Boolean(activeProject) && !settingsOpen;
+  const showDesktopMenu = (section: DesktopMenuSection, anchor: HTMLButtonElement) => {
+    if (!openDesktopMenu || openMenuSection) return;
+    const { left, bottom } = anchor.getBoundingClientRect();
+    setOpenMenuSection(section);
+    void openDesktopMenu(section, left, bottom)
+      .catch(reason => console.error('[AstraGit] could not open the desktop menu', reason))
+      .finally(() => setOpenMenuSection(null));
+  };
   const onDesktopMenuCommand = useEffectEvent((command: DesktopMenuCommand) => {
     if (document.querySelector('[aria-modal="true"], dialog[open]')) return;
     switch (command) {
@@ -488,13 +498,26 @@ export function App(props: AppProps) {
 
   return (
     <>
-      <div className={`gitapp-frame${props.customTitlebar ? ' has-native-traffic-lights' : ''}`} style={{ '--base-review-window-growth': `${reviewVisible ? reviewWindowGrowth : 0}px` } as CSSProperties}>
+      <div className={`gitapp-frame${props.customTitlebar ? ' has-native-traffic-lights' : ''}${openDesktopMenu ? ' has-windows-titlebar' : ''}`} style={{ '--base-review-window-growth': `${reviewVisible ? reviewWindowGrowth : 0}px` } as CSSProperties}>
         <header className="gitapp-titlebar" aria-label={zh ? '标题栏' : 'Title bar'}>
           <div className="gitapp-titlebar-leading">
             <strong className="gitapp-titlebar-brand">
               AstraGit
               {props.development ? <span className="gitapp-titlebar-development">Development</span> : null}
             </strong>
+            {openDesktopMenu && <nav className="gitapp-titlebar-menu" aria-label={zh ? '应用菜单' : 'Application menu'}>
+              {desktopMenuSections.map(section => <Button key={section.id} variant="ghost" size="compact"
+                aria-haspopup="menu" aria-expanded={openMenuSection === section.id}
+                onClick={event => showDesktopMenu(section.id, event.currentTarget)}
+                onKeyDown={event => {
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    showDesktopMenu(section.id, event.currentTarget);
+                  }
+                }}>
+                {zh ? section.zh : section.en}
+              </Button>)}
+            </nav>}
           </div>
           <WorkspaceSearch client={props.client} projects={sortedProjects} project={activeProject} zh={zh} mac={props.customTitlebar === true} disabled={sourceBatchBusy || repositorySetup.busy} onNavigate={navigateSearch} />
           <div className="gitapp-titlebar-actions"><button ref={reviewButton} type="button" disabled={!activeProject || settingsOpen} aria-label={zh ? '代码评审' : 'Code review'} title={zh ? '代码评审' : 'Code review'} aria-expanded={reviewVisible} aria-controls="gitapp-code-review" onClick={() => { setReviewVisited(true); setReviewOpen(value => !value); }}><ShieldCheck size={20} /><span>{zh ? '评审' : 'Review'}</span></button></div>

@@ -612,8 +612,8 @@ function manualCopy(language: 'zh-CN' | 'en-US', update: DesktopReleaseUpdateSta
         ? `AstraGit ${update.latestVersion} 可用。可在此下载并校验安装包，下载后需要手动替换应用。`
         : `AstraGit ${update.latestVersion} is available. Download and verify it here, then replace the app manually.`
       : zh
-        ? `AstraGit ${update.latestVersion} 可用，但暂无适用于此设备的安装包。请前往下载页面查看。`
-        : `AstraGit ${update.latestVersion} is available, but there is no suitable installer for this device. Visit the download page for details.`,
+        ? `AstraGit ${update.latestVersion} 可用。请前往发布页查看手动安装方式。`
+        : `AstraGit ${update.latestVersion} is available. Visit the release page for manual installation options.`,
   };
 }
 

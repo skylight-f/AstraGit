@@ -27,8 +27,13 @@ async function verifyArtifact(id, arch, kind, fileName) {
 const metadata = await Promise.all(['arm64', 'x64'].map(arch => verifyArtifact(arch, arch, 'dmg', `AstraGit-${version}-${arch}.dmg`)));
 const windows = await verifyArtifact('win-x64', 'x64', 'exe', `AstraGit-${version}-win-x64-setup.exe`);
 const notes = await readFile(join(root, 'releases', `${tag}.md`), 'utf8');
-// v1 更新清单已由 macOS 客户端和 Homebrew 使用，只接受 DMG。
-const manifest = { schemaVersion: 1, appId: 'com.astragit.desktop', repository, version, sourceCommit, signed: metadata.every(record => record.signed), notarized: metadata.every(record => record.notarized), minimumSystemVersion: '13.0', artifacts: metadata.map(record => ({ ...record.artifact, downloadUrl: `https://github.com/${repository}/releases/download/${tag}/${record.artifact.fileName}` })) };
+const withDownloadUrl = ({ artifact }) => ({ ...artifact, downloadUrl: `https://github.com/${repository}/releases/download/${tag}/${artifact.fileName}` });
+// 旧版 macOS 客户端的 v1 artifacts 只接受 DMG。
+const manifest = {
+  schemaVersion: 1, appId: 'com.astragit.desktop', repository, version, sourceCommit,
+  signed: metadata.every(record => record.signed), notarized: metadata.every(record => record.notarized), minimumSystemVersion: '13.0',
+  artifacts: metadata.map(withDownloadUrl), windowsArtifact: withDownloadUrl(windows),
+};
 const releaseNotes = boundedReleaseNotes(extractReleaseNotes(notes));
 if (process.env.REQUIRE_APPLE_DISTRIBUTION === 'true' && (!manifest.signed || !manifest.notarized)) throw new Error('发行产物未满足强制签名与公证要求。');
 const manifestPath = join(output, 'astragit-release-manifest.json');
@@ -48,7 +53,7 @@ if (!release) {
   }));
 }
 // 三个安装包和清单都上传并验证后才公开。
-const assets = [...manifest.artifacts, windows.artifact].map(artifact => join(output, artifact.fileName));
+const assets = [...manifest.artifacts, manifest.windowsArtifact].map(artifact => join(output, artifact.fileName));
 assets.push(manifestPath, caskPath);
 gh('release', 'upload', tag, '--repo', repository, '--clobber', ...assets);
 const publishedAssets = JSON.parse(gh('api', `repos/${repository}/releases/${release.id}/assets`));

@@ -6,32 +6,34 @@ import { boundedReleaseNotes, extractReleaseNotes, releasePageUrl, releaseReposi
 import { execFile } from './releaseVerification.js';
 import { createRelaunchEnvironment } from './systemProxyEnvironment.js';
 
-export async function readWindowsRelease(fetchRelease: typeof fetch, arch: string) {
-  const response = await fetchRelease('https://api.github.com/repos/' + releaseRepository + '/releases/latest', {
+export async function readLegacyWindowsRelease(fetchRelease: typeof fetch, version: string) {
+  const tag = `v${version}`;
+  const response = await fetchRelease(`https://api.github.com/repos/${releaseRepository}/releases/tags/${tag}`, {
     headers: { accept: 'application/vnd.github+json', 'cache-control': 'no-cache' },
     redirect: 'error',
     signal: AbortSignal.timeout(20_000),
   });
+  // The static manifest already identified the update. Let users open its release page if the API denies anonymous access.
+  if (response.status === 403 || response.status === 429) return null;
   if (!response.ok) throw new Error('检查 Windows 更新失败：HTTP ' + response.status);
   const source = await response.text();
   if (source.length > 512_000) throw new Error('Windows 发布信息过大。');
   const release = JSON.parse(source) as { tag_name?: unknown; draft?: unknown; prerelease?: unknown; assets?: unknown; body?: unknown } | null;
-  if (release?.draft !== false || release.prerelease !== false || typeof release.tag_name !== 'string' || !/^v\d+\.\d+\.\d+$/u.test(release.tag_name) || !Array.isArray(release.assets)) {
+  if (release?.draft !== false || release.prerelease !== false || release.tag_name !== tag || !Array.isArray(release.assets)) {
     throw new Error('Windows 正式发布信息无效。');
   }
-  const version = release.tag_name.slice(1);
   const fileName = 'AstraGit-' + version + '-win-x64-setup.exe';
-  const downloadUrl = releasePageUrl + '/download/' + release.tag_name + '/' + fileName;
+  const downloadUrl = releasePageUrl + '/download/' + tag + '/' + fileName;
   const matches = release.assets.filter(asset => asset?.name === fileName);
   let artifact: WindowsReleaseArtifact | null = null;
-  if (arch === 'x64' && matches.length === 1) {
+  if (matches.length === 1) {
     const asset = matches[0];
     if (asset.state === 'uploaded' && asset.browser_download_url === downloadUrl && typeof asset.digest === 'string' && /^sha256:[a-f0-9]{64}$/u.test(asset.digest) && Number.isSafeInteger(asset.size) && asset.size >= 100_000 && asset.size <= 2 * 1024 ** 3) {
       artifact = { arch: 'x64', kind: 'exe', fileName, downloadUrl, sha256: asset.digest.slice(7), sizeBytes: asset.size };
     }
   }
   const releaseNotes = typeof release.body === 'string' ? boundedReleaseNotes(extractReleaseNotes(release.body)) : undefined;
-  return { version, artifact, releaseNotes };
+  return { artifact, releaseNotes };
 }
 
 // electron-builder's NSIS UUIDv5 of com.astragit.desktop. Keep the identity of existing installers.

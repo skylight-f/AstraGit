@@ -96,7 +96,45 @@ test('release versions reserve existing tags and update manifests reject foreign
   assert.throws(() => parseReleaseManifest({ ...manifest, artifacts: [{ ...artifact, sha256: 'bad' }] }));
 });
 
-test('Windows updates select the exact stable x64 EXE with its published digest', async () => {
+test('Windows reads its installer from the static release manifest without calling the GitHub API', async () => {
+  const { manifest } = homebrewReleaseFixture();
+  const windowsArtifact = {
+    arch: 'x64', kind: 'exe', fileName: 'AstraGit-0.2.0-win-x64-setup.exe', sha256: 'c'.repeat(64), sizeBytes: 120_000,
+    downloadUrl: 'https://github.com/skylight-f/AstraGit/releases/download/v0.2.0/AstraGit-0.2.0-win-x64-setup.exe',
+  };
+  const releaseNotes = '- 优化提交历史';
+  const release = { ...manifest, windowsArtifact, releaseNotes };
+  const requests = [];
+  const options = {
+    appPath: '', executablePath: 'C:\\AstraGit\\AstraGit.exe', dataDirectory: '', version: '0.1.0', packaged: true,
+    onProgress: () => {}, confirmRestart: () => assert.fail('A check cannot request restart'), quit: () => assert.fail('A check cannot quit'),
+    onWindowsInstallReady: () => assert.fail('A check cannot run the installer'),
+    fetch: async (url) => {
+      requests.push(url);
+      return url.startsWith('https://api.github.com/') ? new Response(null, { status: 403 }) : Response.json(release);
+    },
+  };
+  const service = createReleaseUpdateService(options, { platform: 'win32', arch: 'x64', readWindowsInstallScope: async () => 'currentuser' });
+  const update = await service.check();
+  assert.equal(update.status, 'available');
+  assert.deepEqual(update.artifact, windowsArtifact);
+  assert.equal(update.releaseNotes, releaseNotes);
+  assert.equal(update.automaticInstallEnabled, true);
+
+  const arm = createReleaseUpdateService(options, { platform: 'win32', arch: 'arm64' });
+  assert.equal((await arm.check()).status, 'unavailable');
+
+  release.windowsArtifact = { ...windowsArtifact, downloadUrl: 'https://example.invalid/setup.exe' };
+  assert.match((await service.check()).reason, /Windows 更新安装包的来源、大小或摘要无效/u);
+
+  delete release.windowsArtifact;
+  const current = createReleaseUpdateService({ ...options, version: manifest.version }, { platform: 'win32', arch: 'x64' });
+  assert.equal((await current.check()).status, 'up_to_date');
+  assert.deepEqual(requests, Array(4).fill('https://github.com/skylight-f/AstraGit/releases/latest/download/astragit-release-manifest.json'));
+});
+
+test('Windows updates use the exact stable x64 EXE and digest for releases with legacy manifests', async () => {
+  const { manifest } = homebrewReleaseFixture();
   const sha256 = 'c'.repeat(64);
   const asset = {
     name: 'AstraGit-0.2.0-win-x64-setup.exe', state: 'uploaded', size: 120_000, digest: 'sha256:' + sha256,
@@ -104,14 +142,16 @@ test('Windows updates select the exact stable x64 EXE with its published digest'
   };
   const release = { tag_name: 'v0.2.0', draft: false, prerelease: false, body: '## 更新内容\n\n- 优化提交历史\n\n## 下载安装\n\n安装说明', assets: [{ ...asset, name: 'AstraGit-0.2.0-x64.dmg' }, asset] };
   let registered = true;
+  let responseStatus = 200;
   const service = createReleaseUpdateService({
     appPath: '', executablePath: 'C:\\AstraGit\\AstraGit.exe', dataDirectory: '', version: '0.1.0', packaged: true,
     onProgress: () => {}, confirmRestart: () => assert.fail('A check cannot request restart'), quit: () => assert.fail('A check cannot quit'),
     onWindowsInstallReady: () => assert.fail('A check cannot run the installer'),
     fetch: (url, options) => {
-      assert.equal(url, 'https://api.github.com/repos/skylight-f/AstraGit/releases/latest');
+      if (url === 'https://github.com/skylight-f/AstraGit/releases/latest/download/astragit-release-manifest.json') return Response.json({ ...manifest, releaseNotes: '- 发布说明' });
+      assert.equal(url, 'https://api.github.com/repos/skylight-f/AstraGit/releases/tags/v0.2.0');
       assert.equal(options.redirect, 'error');
-      return Response.json(release);
+      return Response.json(release, { status: responseStatus });
     },
   }, { platform: 'win32', arch: 'x64', readWindowsInstallScope: async () => registered ? 'currentuser' : null });
 
@@ -130,6 +170,17 @@ test('Windows updates select the exact stable x64 EXE with its published digest'
   }
   release.prerelease = true;
   assert.equal((await service.check()).status, 'unavailable');
+
+  for (const status of [403, 429]) {
+    responseStatus = status;
+    const manual = await service.check();
+    assert.equal(manual.status, 'unavailable');
+    assert.equal(manual.latestVersion, manifest.version);
+    assert.equal(manual.releasePageUrl, 'https://github.com/skylight-f/AstraGit/releases/tag/v0.2.0');
+    assert.equal(manual.releaseNotes, '- 发布说明');
+    assert.equal(manual.artifact, null);
+    assert.equal(manual.automaticInstallEnabled, false);
+  }
 });
 
 test('macOS update checks carry notes from the manifest and ignore unusable notes', async () => {

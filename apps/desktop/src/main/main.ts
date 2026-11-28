@@ -7,7 +7,7 @@ import { writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { startGitServer, type RunningGitServer } from '@astragit/git-server';
-import { describeUserFacingError, releasePageUrl, type DesktopMenuCommand, type DesktopMenuState } from '@astragit/shared';
+import { describeUserFacingError, desktopMenuSections, releasePageUrl, type DesktopMenuCommand, type DesktopMenuState } from '@astragit/shared';
 import { resolveCliSearchPath } from '@astragit/ai-runtime';
 import { createReleaseUpdateService } from './releaseUpdateService.js';
 import { applicationIdentity } from './applicationIdentity.js';
@@ -268,6 +268,7 @@ async function loadMainWindow(): Promise<void> {
     title: 'AstraGit',
     icon: applicationIconPath(),
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 14 } } : {}),
+    ...(isWindows ? { titleBarStyle: 'hidden' as const, titleBarOverlay: { color: '#00000000', symbolColor: '#252b37', height: 48 } } : {}),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -277,13 +278,17 @@ async function loadMainWindow(): Promise<void> {
   });
   const window = mainWindow;
   window.once('closed', () => { if (mainWindow === window) mainWindow = null; });
-  if (process.platform === 'darwin') {
+  const platform = process.platform;
+  if (platform === 'darwin' || platform === 'win32') {
     const contents = window.webContents;
     const invoke = (command: DesktopMenuCommand) => {
       if (!contents.isDestroyed()) contents.send('astragit:desktop-menu-command', command);
     };
     let language: DesktopMenuState['language'] = app.getLocale().startsWith('zh') ? 'zh-CN' : 'en-US';
-    const install = (enabled: DesktopMenuCommand[]) => Menu.setApplicationMenu(Menu.buildFromTemplate(desktopMenuTemplate({ language, enabled }, development, invoke)));
+    const install = (enabled: DesktopMenuCommand[]) => {
+      Menu.setApplicationMenu(Menu.buildFromTemplate(desktopMenuTemplate({ language, enabled }, { platform, development }, invoke)));
+      if (platform === 'win32') window.setMenuBarVisibility(false);
+    };
     install([]);
     ipcMain.removeHandler('astragit:desktop-menu-state');
     ipcMain.handle('astragit:desktop-menu-state', (event, state: DesktopMenuState) => {
@@ -302,8 +307,24 @@ async function loadMainWindow(): Promise<void> {
     });
     window.once('closed', () => {
       ipcMain.removeHandler('astragit:desktop-menu-state');
-      install([]);
+      if (platform === 'darwin') install([]);
     });
+    if (platform === 'win32') {
+      contents.ipc.handle('astragit:desktop-menu-popup', (event, section: unknown, x: unknown, y: unknown) => {
+        if (event.senderFrame !== contents.mainFrame || typeof section !== 'string' || !desktopMenuSections.some(item => item.id === section)
+          || typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y)) return;
+        const menu = Menu.getApplicationMenu()?.getMenuItemById(section)?.submenu;
+        if (!menu) return;
+        const bounds = window.getContentBounds();
+        const zoom = contents.getZoomFactor();
+        return new Promise<void>(resolvePopup => menu.popup({
+          window,
+          x: Math.round(Math.max(0, Math.min(x * zoom, bounds.width - 1))),
+          y: Math.round(Math.max(0, Math.min(y * zoom, bounds.height - 1))),
+          callback: resolvePopup,
+        }));
+      });
+    }
   }
 
   let expanded: { originalWidth: number; width: number } | null = null;
